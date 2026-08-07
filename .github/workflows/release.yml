@@ -1,0 +1,107 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  audio-helper:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux-x64
+            experimental: false
+          - os: ubuntu-24.04-arm
+            label: linux-arm64
+            experimental: true
+          - os: macos-15-intel
+            label: macos-x64
+            experimental: false
+          - os: macos-latest
+            label: macos-arm64
+            experimental: false
+          - os: windows-latest
+            label: windows-x64
+            experimental: false
+          - os: windows-11-arm
+            label: windows-arm64
+            experimental: true
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential libasound2-dev
+      - run: node scripts/build-audio-helper.mjs
+      - run: node scripts/stage-audio-release.mjs release-assets
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-${{ matrix.label }}-${{ runner.arch }}
+          path: |
+            bin/**
+            release-assets/**
+          if-no-files-found: error
+
+  package:
+    needs: audio-helper
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          registry-url: https://registry.npmjs.org
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - run: sudo apt-get update && sudo apt-get install -y build-essential libasound2-dev
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: audio-*
+          path: .
+          merge-multiple: true
+      - run: npm install --ignore-scripts
+      - run: npm run check
+      - run: node scripts/verify-release-binaries.mjs
+      - name: Verify tag matches package version
+        run: test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+      - run: npm pack --ignore-scripts
+      - name: Create checksums
+        run: |
+          sha256sum *.tgz release-assets/* > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish npm when NPM_TOKEN is configured
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NODE_AUTH_TOKEN" ]; then
+            npm publish ./*.tgz --access public
+          else
+            echo "NPM_TOKEN not configured; skipping npm publish."
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            *.tgz
+            release-assets/*
+            SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orb-${{ github.ref_name }}
+          path: |
+            *.tgz
+            release-assets/*
+            SHA256SUMS

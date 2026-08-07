@@ -1,0 +1,45 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@earendil-works/pi-coding-agent": [
+        "test-shims/pi-coding-agent.d.ts"
+      ],
+      "@earendil-works/pi-tui": [
+        "test-shims/pi-tui.d.ts"
+      ],
+      "@google/genai": [
+        "test-shims/google-genai.d.ts"
+      ],
+      "naudiodon2": [
+        "test-shims/naudiodon2.d.ts"
+      ],
+      "ws": [
+        "test-shims/ws.d.ts"
+      ]
+    },
+    "lib": [
+      "ES2022"
+    ]
+  },
+  "include": [
+    "extensions/**/*.ts",
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "test-shims/**/*.d.ts"
+  ],
+  "exclude": [
+    ".test-dist",
+    "node_modules"
+  ]
+}

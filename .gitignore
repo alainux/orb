@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.test-dist/
+*.tgz
+.env
+.env.*
+!.env.example
+bin/*/orb-audio
+bin/*/orb-audio.exe
+bin/*/pi-voice-audio
+bin/*/pi-voice-audio.exe
+release-assets/
+SHA256SUMS
+.DS_Store
+*.log

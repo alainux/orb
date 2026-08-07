@@ -1,0 +1,86 @@
+{
+  "name": "@alainux/orb",
+  "version": "0.5.3",
+  "description": "Conversational realtime voice control for the Pi coding harness, with hardware-timed Go audio and autonomous Pi task orchestration.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alainux/orb.git"
+  },
+  "homepage": "https://alainux.github.io/orb/",
+  "bugs": {
+    "url": "https://github.com/alainux/orb/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "coding-agent",
+    "voice",
+    "realtime",
+    "gemini-live",
+    "openai-realtime"
+  ],
+  "bin": {
+    "orb": "./bin/orb.mjs"
+  },
+  "files": [
+    "dist",
+    "extensions",
+    "src",
+    "site",
+    "docs",
+    "scripts",
+    "config",
+    "prompts",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    ".env.example",
+    "audio-helper",
+    "bin"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/voice.ts"
+    ]
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@google/genai": "^2.13.0",
+    "ws": "^8.18.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.8.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build:test": "node scripts/clean.mjs .test-dist && tsc -p tsconfig.test.json",
+    "test": "npm run build:test && node --test .test-dist/tests/*.test.js",
+    "check": "npm run typecheck && npm test && npm run test:audio-helper && npm run build && npm run smoke && node scripts/verify-package.mjs",
+    "pack:check": "npm pack --dry-run --ignore-scripts",
+    "prepack": "npm run check",
+    "build": "npm run build:ts",
+    "smoke": "node scripts/smoke-load.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "build:audio": "node scripts/build-audio-helper.mjs",
+    "test:audio-helper": "cd audio-helper && go test ./internal/...",
+    "postinstall": "node scripts/build-audio-helper.mjs --if-needed --soft",
+    "build:ts": "node scripts/clean.mjs dist && tsc -p tsconfig.build.json",
+    "build:all": "npm run build:ts && npm run build:audio"
+  }
+}

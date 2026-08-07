@@ -1,0 +1,28 @@
+{
+  "provider": "gemini",
+  "gemini": {
+    "model": "gemini-3.1-flash-live-preview",
+    "voice": "Aoede"
+  },
+  "openai": {
+    "model": "gpt-realtime-2.1",
+    "voice": "marin"
+  },
+  "voice": {
+    "temperature": 0.72,
+    "greeting": true,
+    "promptFile": ".orb/voice-prompt.md"
+  },
+  "ui": {
+    "panelHeight": 14,
+    "activityLines": 10,
+    "orbAspect": 2.0,
+    "orbDensity": 1.10
+  },
+  "session": {
+    "geminiSessionResumption": true,
+    "geminiContextCompression": true,
+    "geminiCompressionTriggerTokens": 18000,
+    "geminiCompressionTargetTokens": 9000
+  }
+}

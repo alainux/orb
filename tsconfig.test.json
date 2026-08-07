@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": ".test-dist",
+    "rootDir": ".",
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false,
+    "paths": {
+      "@earendil-works/pi-coding-agent": ["test-shims/pi-coding-agent.d.ts"],
+      "@earendil-works/pi-tui": ["test-shims/pi-tui.d.ts"],
+      "@google/genai": ["test-shims/google-genai.d.ts"],
+      "naudiodon2": ["test-shims/naudiodon2.d.ts"],
+      "ws": ["test-shims/ws.d.ts"]
+    }
+  }
+}
