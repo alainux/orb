@@ -33,7 +33,7 @@ export interface OrbFrame {
   phaseA: number;
   phaseB: number;
   source: VoiceSource;
-  /** Continuous animation clock in seconds (advances only while not muted). */
+  /** Continuous animation clock in seconds — always advances (the base wave keeps traveling even while muted). */
   t?: number;
   /** Sharp attack transient: spikes when audio jumps, decays at ~8/s. */
   transient?: number;
@@ -287,24 +287,37 @@ export class OrbRenderer {
 
   /** Reused subpixel field buffer — avoids a multi-KB allocation per frame. */
   private brailleField: Float32Array | undefined;
+  /** Reused per-braille-cell material texture (object-space grain). */
+  private materialCache: Float32Array | undefined;
 
   /**
    * Surface renderer — the orb's one visual language. Every mode draws the
    * same full sphere of dots (the lab's negative-space technique from
    * site/orb-braille-source-math-variations.html) and carves listening's
-   * traveling wave grooves out of it. Microphone/voice energy widens the
-   * grooves and adds disturbance; muted or silent frames keep the same base
-   * wave traveling at its minimum disturbance.
+   * traveling wave grooves out of it. The sphere is shaded by a real
+   * two-light model (a slowly drifting key light with a fixed fill): diffuse
+   * terminators put a dark side on the ball, a Phong highlight travels with
+   * the light, a fresnel rim lights the silhouette, and a coarse object-space
+   * material texture gives the surface a variegated sheen — the orb reads as
+   * a lit solid, not a flat circle. Microphone/voice energy widens the carved
+   * grooves and, once loud enough, physically pushes the surface: edge points
+   * explode outward along their normal and scatter tangentially, and the
+   * silhouette breaks apart into bright fringe particles beyond the circle.
+   * Muted and silent frames get none of that disturbance — the base wave
+   * keeps traveling at its minimum under the same light.
    *
    * The sphere is deliberately NOT rotated as a rigid body: at terminal
    * resolution, rotating point clouds alias into incoherent shimmer. Here the
-   * sphere stays fixed and the wave travels over its surface by phase — a
-   * motion that reads cleanly even in a 2×4 subpixel grid.
+   * sphere stays fixed and the wave travels over its surface by phase, while
+   * only the LIGHT direction drifts — shadows and highlights move without
+   * rotating the point cloud, a motion that reads cleanly even in a 2×4
+   * subpixel grid.
    *
    * In `sub` mode every terminal cell is split into 2×4 subpixels (Braille);
    * otherwise each cell center is sampled directly (glyph mode). The surface
    * is smooth below the subpixel grid, so per-subpixel shading keeps the look
-   * while per-row latitude work keeps the loop fast.
+   * while per-row latitude work keeps the loop fast. The object-space material
+   * texture is coarse enough to be evaluated once per braille cell.
    */
   private renderSurface(raster: OrbRaster, frame: OrbFrame, sub: boolean): OrbRaster {
     const fw = raster.width * (sub ? 2 : 1);
@@ -315,41 +328,130 @@ export class OrbRenderer {
     const radiusX = raster.radiusX * (sub ? 2 : 1);
     const radiusY = raster.radiusY * (sub ? 4 : 1);
     const energy = clamp(frame.energy, 0, 1);
-    // Audio widens the carved grooves and adds disturbance; muted frames get
-    // none of it, so the base wave keeps traveling at its minimum.
+    // Audio widens the carved grooves and drives the disturbance; muted
+    // frames get none of it, so the base wave keeps traveling at its minimum.
     const audio = frame.muted ? 0 : clamp(energy * (0.4 + 0.6 * this.reactivity), 0, 1);
     const transient = frame.muted ? 0 : clamp(frame.transient ?? 0, 0, 1);
     const t = frame.t ?? 0;
+    // Disturbance: sustained loudness keeps the surface pushed apart, and
+    // attack transients snap it outward on audio peaks.
+    const disturb = clamp(Math.max(0, audio - 0.1) * 0.5 + transient * 0.9, 0, 1);
+    const lights = orbLights(t);
+    const widthScale = sub ? 1 : 4;
     const edge = Math.min(0.18, 0.56 / radiusY);
     const edgeMin = 1 - edge;
     const edgeMax = 1 + edge;
     const edgeMin2 = edgeMin * edgeMin;
     const edgeMax2 = edgeMax * edgeMax;
+    const outer = 1 + disturb * 0.55;
+    const outer2 = outer * outer;
+    // Material texture for braille: coarse object-space grain evaluated once
+    // per terminal cell (the 2×4 subpixels of one cell sit too close together
+    // to matter for a texture this large), so braille keeps ~all its speed.
+    const material = sub ? this.cellMaterial(raster, cx, cy, radiusX, radiusY, edgeMax2) : undefined;
     for (let fy = 0; fy < fh; fy++) {
       const ny = (fy - cy) / radiusY;
-      const lat = Math.asin(clamp(ny, -1, 1));
+      const lat0 = Math.asin(clamp(ny, -1, 1));
       const row = fy * fw;
       for (let fx = 0; fx < fw; fx++) {
         const nx = (fx - cx) / radiusX;
         const r2 = nx * nx + ny * ny;
-        if (r2 >= edgeMax2) continue;
-        let coverage = 1;
-        if (r2 > edgeMin2) {
-          coverage = 1 - smoothstep(edgeMin, edgeMax, Math.sqrt(r2));
-          if (coverage <= 0.02) continue;
+        if (disturb <= 0.001) {
+          // Quiet path: no displacement, keep the loop as cheap as possible.
+          if (r2 >= edgeMax2) continue;
+          let coverage = 1;
+          if (r2 > edgeMin2) {
+            coverage = 1 - smoothstep(edgeMin, edgeMax, Math.sqrt(r2));
+            if (coverage <= 0.02) continue;
+          }
+          const z = Math.sqrt(Math.max(0, 1 - r2));
+          const lon = Math.atan2(nx, z);
+          if (isCarved(lat0, lon, audio, transient, t, widthScale)) continue;
+          const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat0, lon);
+          field[row + fx] = clamp(coverage * orbLighting(nx, ny, z, lights, mat, audio, transient, t), 0.08, 1);
+          continue;
         }
-        const z = Math.sqrt(Math.max(0, 1 - r2));
-        if (isCarved(nx, z, lat, audio, transient, t, sub ? 1 : 4)) continue;
-        // Depth shading: front dots bright, limb dots dim — the sphere reads
-        // as a solid ball with a front-to-back gradient. Audio and transients
-        // add a shimmering brightening.
-        const depth = 0.15 + 0.85 * z;
-        const shimmer = 0.08 * Math.sin(nx * 11 + ny * 7 + t * 2.6) + 0.22 * transient * Math.sin(nx * 17 - t * 29);
-        field[row + fx] = clamp(coverage * (depth + 0.16 * audio + shimmer), 0.08, 1);
+        // Disturbance: loud audio physically breaks the surface apart. Edge
+        // points explode outward along their normal and scatter tangentially
+        // (noise-shaped, so the breakup is irregular, not a ring), and points
+        // that blow past the silhouette survive as fringe particles beyond
+        // the circle — the orb's rim visually fragments on audio peaks.
+        if (r2 >= outer2) continue;
+        const r = Math.sqrt(r2);
+        const edgeF = smoothstep(0.12, 1, r);
+        const noise =
+          0.58 * (0.5 + 0.5 * Math.sin(nx * 10.5 - ny * 7.4 + t * 10.8)) +
+          0.42 * (0.5 + 0.5 * Math.sin(nx * 17 + ny * 9 - t * 13.2));
+        const radial = disturb * (0.02 + 0.22 * edgeF) * (0.45 + 0.55 * noise);
+        const tangent = disturb * 0.1 * (0.25 + 0.75 * edgeF) * Math.sin(nx * 9 + ny * 6.5 + t * 15);
+        const wobble = disturb * 0.035 * Math.sin((nx - ny) * 11 - t * 9);
+        const inv = r > 1e-5 ? 1 / r : 1;
+        const ux = nx * inv;
+        const uy = ny * inv;
+        const tx = -uy;
+        const ty = ux;
+        const xs = nx + ux * radial + tx * tangent;
+        const ys = ny + uy * (radial * 0.95 + wobble) + ty * (tangent * 0.35);
+        const rs2 = xs * xs + ys * ys;
+        if (rs2 <= 1) {
+          let coverage = 1;
+          if (rs2 > edgeMin2) {
+            coverage = 1 - smoothstep(edgeMin, edgeMax, Math.sqrt(rs2));
+            if (coverage <= 0.02) continue;
+          }
+          const z = Math.sqrt(Math.max(0, 1 - rs2));
+          const lat = Math.asin(clamp(ys, -1, 1));
+          const lon = Math.atan2(xs, z);
+          if (isCarved(lat, lon, audio, transient, t, widthScale)) continue;
+          const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat, lon);
+          field[row + fx] = clamp(coverage * orbLighting(xs, ys, z, lights, mat, audio, transient, t), 0.08, 1);
+        } else if (rs2 <= outer2) {
+          // Fringe particle: this point blew past the silhouette. Clamp it
+          // back onto the sphere and keep it as a bright rim fragment whose
+          // strength fades with how far it escaped.
+          const rs = Math.sqrt(rs2);
+          const band = 1 - (rs - 1) / (outer - 1);
+          const chance = band * (0.52 + 0.48 * noise) + disturb * 0.22;
+          if (chance > 0.46) {
+            const c = 0.985 / Math.max(1e-5, rs);
+            const px = xs * c;
+            const py = ys * c;
+            const pz = Math.sqrt(Math.max(0, 1 - px * px - py * py));
+            const lat = Math.asin(clamp(py, -1, 1));
+            const lon = Math.atan2(px, pz);
+            const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat, lon);
+            const lit = orbLighting(px, py, pz, lights, mat, audio, transient, t);
+            field[row + fx] = clamp(band * (0.55 + 0.45 * band) * lit + 0.04, 0.08, 1);
+          }
+        }
       }
     }
     if (sub) return packBraille(raster, field, fw, fh);
     return fieldToRaster(raster, field);
+  }
+
+  /**
+   * Coarse object-space material texture per braille cell, computed at each
+   * cell's center subpixel. The texture is a couple of low-frequency sines in
+   * the sphere's own coordinates, so it reads as static surface grain (never
+   * rotating with the light) and gives the otherwise-smooth shading a touch
+   * of personality.
+   */
+  private cellMaterial(raster: OrbRaster, cx: number, cy: number, radiusX: number, radiusY: number, edgeMax2: number): Float32Array {
+    if (!this.materialCache || this.materialCache.length < raster.width * raster.height) {
+      this.materialCache = new Float32Array(raster.width * raster.height);
+    }
+    const m = this.materialCache;
+    for (let y = 0; y < raster.height; y++) {
+      const ny = (y * 4 + 2 - cy) / radiusY;
+      const lat = ny < -1 || ny > 1 ? 0 : Math.asin(ny);
+      for (let x = 0; x < raster.width; x++) {
+        const nx = (x * 2 + 1 - cx) / radiusX;
+        const r2 = nx * nx + ny * ny;
+        m[y * raster.width + x] = r2 >= edgeMax2 ? 0.5 : materialOf(lat, Math.atan2(nx, Math.sqrt(Math.max(0, 1 - r2))));
+      }
+    }
+    return m;
   }
 
   /** Reused field buffer — grow-or-fill, no per-frame allocation. */
@@ -390,8 +492,7 @@ export function normalizedRadius(raster: OrbRaster, x: number, y: number): numbe
  * 4× closer than terminal cells, so cell-space (glyph) rendering needs wider
  * carve bands to read at all.
  */
-function isCarved(nx: number, z: number, lat: number, audio: number, transient: number, t: number, widthScale: number): boolean {
-  const lon = Math.atan2(nx, z);
+function isCarved(lat: number, lon: number, audio: number, transient: number, t: number, widthScale: number): boolean {
   return carveWave(lat, lon, audio, transient, t, widthScale);
 }
 
@@ -417,6 +518,54 @@ function carveWave(lat: number, lon: number, audio: number, transient: number, t
   const d = Math.abs(Math.sin(displaced * 8.1 + lon * 0.5));
   const width = (0.11 + 0.13 * audio + 0.035 * Math.max(0, w) + 0.03 * transient) * widthScale;
   return d < width;
+}
+
+/**
+ * Per-frame light rig. The key light drifts slowly (a sway in azimuth and
+ * elevation) so the sphere's shadows and Phong highlight travel with it —
+ * the orb feels lit by a live source, not a static icon — while the fixed
+ * fill light from the front-low opposite side keeps the dark side readable.
+ * Only the light moves; the sphere itself never rotates.
+ */
+function orbLights(t: number): { kx: number; ky: number; kz: number; fx: number; fy: number; fz: number } {
+  const lx = -0.55 + 0.16 * Math.cos(t * 0.31);
+  const ly = -0.34 + 0.12 * Math.sin(t * 0.23);
+  const lz = 0.82;
+  const lk = Math.hypot(lx, ly, lz);
+  const fl = Math.hypot(0.32, 0.12, 0.94);
+  return { kx: lx / lk, ky: ly / lk, kz: lz / lk, fx: 0.32 / fl, fy: 0.12 / fl, fz: 0.94 / fl };
+}
+
+/**
+ * Two-light shading of a unit surface point: key diffuse + terminator
+ * darkening (the shadow side), fill diffuse, a tight Phong highlight from
+ * the reflected key ray, fresnel rim light along the silhouette, and the
+ * object-space material grain. Audio brightens the whole surface and
+ * transients add a sharp shimmer.
+ */
+function orbLighting(nx: number, ny: number, z: number, l: { kx: number; ky: number; kz: number; fx: number; fy: number; fz: number }, material: number, audio: number, transient: number, t: number): number {
+  const kd = nx * l.kx + ny * l.ky + z * l.kz;
+  const keyDiff = Math.max(0, kd);
+  const fillDiff = Math.max(0, nx * l.fx + ny * l.fy + z * l.fz);
+  const terminator = Math.max(0, -kd);
+  // Phong highlight: the reflected key ray dotted with the view (0,0,1), i.e.
+  // the z component of reflect(-key, n). Power 22 = x^16·x^4·x^2, kept as
+  // multiplies so the hot spot costs less than a Math.pow call.
+  const d = -l.kx * nx - l.ky * ny - l.kz * z;
+  const rz = -l.kz - 2 * d * z;
+  const s = Math.max(0, rz);
+  const s2 = s * s;
+  const s4 = s2 * s2;
+  const specular = s4 * s4 * s4 * s4 * s4 * s2;
+  const rim = Math.pow(1 - Math.max(0, z), 1.6);
+  const shimmer = 0.05 * Math.sin(nx * 11 + ny * 7 + t * 2.6);
+  const flare = 0.09 * transient * Math.sin(nx * 17 - t * 29);
+  return 0.1 + 0.55 * keyDiff + 0.13 * fillDiff - 0.1 * terminator + 0.18 * specular + 0.1 * rim + 0.15 * material + 0.14 * audio + shimmer + flare;
+}
+
+/** Coarse object-space surface grain (the demo's material field, trimmed). */
+function materialOf(lat: number, lon: number): number {
+  return clamp(0.5 + 0.16 * Math.sin(lon * 2 + lat * 0.76) + 0.08 * Math.cos(lon * 3 - lat * 1.42 + 1.1), 0, 1);
 }
 
 /**
