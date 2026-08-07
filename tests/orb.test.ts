@@ -86,7 +86,7 @@ test("motion attacks and releases smoothly", () => {
   assert.ok(prior > 0 && prior < peak);
 });
 
-test("muted motion freezes the orb: user energy decays to zero and ambient drift stops", () => {
+test("muted motion kills the mic drive and freezes phase drift", () => {
   const motion = new OrbMotion();
   let now = 1_000;
   // Live input builds user energy and advances the drift.
@@ -115,28 +115,36 @@ function frameAt(t: number, userEnergy = 0, agentEnergy = 0): OrbFrame {
   return { userEnergy, agentEnergy, energy: Math.max(userEnergy, agentEnergy), peak: 0.5, phaseA: 1.1, phaseB: 2.3, source: userEnergy > 0 ? "user" : "idle", t };
 }
 
-test("composing mode carves the voice ribbon out of the solid sphere", () => {
+test("every mode renders the same traveling wave base", () => {
   const renderer = new OrbRenderer();
   // Snapshot cells before the next render: the renderer reuses its cell buffer.
-  const cells = renderer.render(56, 26, 2, frameAt(5, 0.4), "composing").cells.map((c) => ({ ...c }));
-  const again = renderer.render(56, 26, 2, frameAt(5, 0.4), "composing");
+  const frames = new Map<OrbMode, { glyph: string; layer: string; shade: number }[]>();
+  for (const mode of ["smoke", "composing", "searching"] as OrbMode[]) {
+    frames.set(mode, snapshotCells(renderer.render(56, 26, 2, frameAt(5, 0.4), mode)));
+  }
+  // Listening's wavy pattern is the base carve for every mode; the modes only
+  // differ in color identity (applied in widget.ts), so the geometry matches.
+  const smoke = frames.get("smoke")!;
+  for (const mode of ["composing", "searching"] as OrbMode[]) {
+    assert.deepEqual(frames.get(mode), smoke, `${mode} must share the listening wave geometry`);
+  }
   // Deterministic: the same frame always produces the same cells.
-  assert.deepEqual(cells, again.cells.map((c) => ({ ...c })));
-  // Negative space: the sphere stays mostly solid (the ribbon is carved OUT of
-  // it), with bright filament bands where the depth shading is strongest and
-  // the cooler mist bands around the limb.
-  const populated = cells.filter((c) => c.glyph).length;
-  assert.ok(populated > 300, `ribbon sphere populated ${populated}`);
-  assert.ok(cells.some((c) => c.layer === "filament"), "the sphere has bright filament bands");
-  assert.ok(cells.some((c) => c.layer === "mistC" || c.layer === "mistB"), "limb cells keep the cooler mist bands");
+  assert.deepEqual(smoke, snapshotCells(renderer.render(56, 26, 2, frameAt(5, 0.4), "smoke")));
+  // Negative space: the sphere stays mostly solid (the wave grooves are carved
+  // OUT of it), with bright filament bands where the depth shading is strongest
+  // and the cooler mist bands around the limb.
+  const populated = smoke.filter((c) => c.glyph).length;
+  assert.ok(populated > 300, `wave sphere populated ${populated}`);
+  assert.ok(smoke.some((c) => c.layer === "filament"), "the sphere has bright filament bands");
+  assert.ok(smoke.some((c) => c.layer === "mistC" || c.layer === "mistB"), "limb cells keep the cooler mist bands");
 });
 
-test("composing opens the voice ribbon wider as the mic gets louder", () => {
+test("mic input widens the wave grooves and adds disturbance", () => {
   const renderer = new OrbRenderer();
   const calmCells = renderer.render(56, 26, 2, frameAt(6, 0.02), "composing").cells.map((c) => ({ ...c }));
   const loud = renderer.render(56, 26, 2, frameAt(6, 0.85), "composing");
   // Same t, same geometry — only the mic energy differs, so the carve must
-  // visibly change (not just brightness): a louder voice carves a wider sash
+  // visibly change (not just brightness): louder input carves wider grooves
   // out of the solid sphere, so fewer cells stay populated.
   let changed = 0;
   for (let index = 0; index < calmCells.length; index++) {
@@ -144,17 +152,16 @@ test("composing opens the voice ribbon wider as the mic gets louder", () => {
     const l = loud.cells[index]!;
     if (c.glyph !== l.glyph || c.layer !== l.layer || Math.abs(c.shade - l.shade) > 0.05) changed++;
   }
-  assert.ok(changed > 30, `loud voice changed ${changed} cells`);
+  assert.ok(changed > 30, `loud mic changed ${changed} cells`);
   assert.ok(
     loud.cells.filter((c) => c.glyph).length < calmCells.filter((c) => c.glyph).length,
-    "a louder mic carves a wider sash, so fewer cells stay populated",
+    "a louder mic carves wider grooves, so fewer cells stay populated",
   );
 });
 
-test("searching mode renders ring waves that travel through the sphere", () => {
+test("searching keeps the base wave traveling over time", () => {
   const renderer = new OrbRenderer();
-  // Three ring fronts slide pole to pole; t = 1.96 and t = 2.2 put them in
-  // different places, so the carved bands visibly travel.
+  // The shared wave pattern: the carved grooves travel by clock phase.
   const t0Cells = renderer.render(56, 26, 2, frameAt(1.96), "searching").cells.map((c) => ({ ...c }));
   const t1 = renderer.render(56, 26, 2, frameAt(2.2), "searching");
   assert.ok(t0Cells.filter((c) => c.glyph).length > 150, `wave sphere populated ${t0Cells.filter((c) => c.glyph).length}`);
@@ -162,7 +169,7 @@ test("searching mode renders ring waves that travel through the sphere", () => {
   for (let index = 0; index < t0Cells.length; index++) {
     if (t0Cells[index]?.glyph !== t1.cells[index]?.glyph) changed++;
   }
-  assert.ok(changed > 10, `ring fronts moved ${changed} cells`);
+  assert.ok(changed > 10, `wave moved ${changed} cells`);
   assert.ok(t0Cells.some((c) => c.shade > 0.8), "wave fronts contain bright cells");
 });
 
@@ -176,7 +183,7 @@ test("size variants adapt the surface density", () => {
   assert.ok(populatedCells(smallScan) < populatedCells(bigScan), "ring-wave sphere density follows size");
 });
 
-test("the animation clock advances while live and freezes while muted", () => {
+test("the base wave clock keeps traveling even while muted", () => {
   const motion = new OrbMotion();
   let now = 1_000;
   const a = motion.step(now, 0.1, 0, false);
@@ -184,10 +191,10 @@ test("the animation clock advances while live and freezes while muted", () => {
   assert.ok((b.t ?? 0) > (a.t ?? 0), "clock advances while live");
   const muted = motion.step(now + 32, 0.1, 0, false, true);
   const stillMuted = motion.step(now + 48, 0.1, 0, false, true);
-  assert.equal(muted.t, b.t, "clock freezes on mute");
-  assert.equal(stillMuted.t, muted.t, "clock stays frozen while muted");
+  assert.ok((muted.t ?? 0) > (b.t ?? 0), "clock keeps advancing on mute");
+  assert.ok((stillMuted.t ?? 0) > (muted.t ?? 0), "the base wave must keep traveling while muted");
   const resumed = motion.step(now + 64, 0.1, 0, false);
-  assert.ok((resumed.t ?? 0) > (stillMuted.t ?? 0), "clock resumes after unmute");
+  assert.ok((resumed.t ?? 0) > (stillMuted.t ?? 0), "clock keeps advancing after unmute");
 });
 
 function snapshotCells(raster: { cells: { glyph: string; layer: string; shade: number }[] }): { glyph: string; layer: string; shade: number }[] {
@@ -202,11 +209,11 @@ function diffCount(a: { glyph: string }[], b: { glyph: string }[]): number {
   return changed;
 }
 
-test("attack transients sharpen the composing warp", () => {
+test("attack transients sharpen the composing disturbance", () => {
   const renderer = new OrbRenderer();
   const calm = snapshotCells(renderer.render(56, 26, 2, audioFrame(5, 0.5, 0, 0), "composing"));
   const sharp = renderer.render(56, 26, 2, audioFrame(5, 0.5, 0, 1), "composing");
-  assert.ok(diffCount(calm, snapshotCells(sharp)) > 0, "a transient must visibly displace the sash points");
+  assert.ok(diffCount(calm, snapshotCells(sharp)) > 0, "a transient must visibly disturb the wave grooves");
   // Deterministic: the same transient and frame always produce the same cells.
   const again = renderer.render(56, 26, 2, audioFrame(5, 0.5, 0, 1), "composing");
   assert.deepEqual(snapshotCells(sharp), snapshotCells(again));
@@ -217,28 +224,31 @@ test("the reactivity knob scales the audio response", () => {
   const hot = new OrbRenderer(1.08, 1);
   const frame = audioFrame(5, 0.9);
   // Composing at high energy: reactivity scales the audio term that widens the
-  // carved ribbon, so 0 vs 1 must carve visibly different sashes.
+  // carved grooves, so 0 vs 1 must carve visibly different wave patterns.
   const dormant = snapshotCells(flat.render(56, 26, 2, frame, "composing"));
   const reactive = hot.render(56, 26, 2, frame, "composing");
-  assert.ok(diffCount(dormant, snapshotCells(reactive)) > 60, "full reactivity must widen the carved ribbon far beyond zero reactivity");
+  assert.ok(diffCount(dormant, snapshotCells(reactive)) > 60, "full reactivity must widen the carved grooves far beyond zero reactivity");
   const dormantBraille = snapshotCells(new OrbRenderer(1.08, 0, true).render(56, 26, 2, frame, "composing"));
   const reactiveBraille = new OrbRenderer(1.08, 1, true).render(56, 26, 2, frame, "composing");
   assert.ok(diffCount(dormantBraille, snapshotCells(reactiveBraille)) > 60, "braille reactivity must scale too");
 });
 
-test("muted frames render the orb dormant regardless of audio", () => {
+test("muted frames drop audio disturbance but keep the base wave", () => {
   const renderer = new OrbRenderer();
   for (const mode of ["smoke", "composing", "searching"] as OrbMode[]) {
-    // Muting kills audio activity even with huge energy + transient: muted
-    // frames with loud audio render identically to muted frames in silence —
-    // the plain un-carved sphere, the one deliberate dormant state.
+    // Muting kills the audio-driven disturbance even with huge energy +
+    // transient: muted frames with loud audio render identically to muted
+    // frames in silence.
     const mutedLoud = snapshotCells(renderer.render(56, 26, 2, audioFrame(4, 0.9, 0.9, 1, true), mode));
     const mutedQuiet = renderer.render(56, 26, 2, audioFrame(4, 0, 0, 0, true), mode);
     assert.deepEqual(snapshotCells(mutedQuiet), mutedLoud, `${mode} must not react to audio while muted`);
-    // Every mode stays alive when not muted: a silent room still renders a
-    // living sphere with its traveling features, never the dormant field.
+    // The base wave still travels while muted (the clock keeps advancing).
+    const mutedLater = renderer.render(56, 26, 2, audioFrame(5, 0, 0, 0, true), mode);
+    assert.notDeepEqual(snapshotCells(mutedLater), mutedLoud, `${mode} base wave must keep traveling while muted`);
+    // A silent non-muted room breathes slightly larger (ambient radius), so it
+    // differs from the compact muted wave — and it stays alive without audio.
     const silent = snapshotCells(renderer.render(56, 26, 2, audioFrame(4, 0, 0, 0, false), mode));
-    assert.notDeepEqual(silent, mutedLoud, `${mode} must stay alive without audio`);
+    assert.notDeepEqual(silent, mutedLoud, `${mode} silent room stays ambient`);
   }
 });
 
@@ -316,9 +326,9 @@ test("braille mode is denser than the glyph mode for the same frame", () => {
   }
 });
 
-test("braille mode keeps audio reactivity and the dormant muted sphere", () => {
+test("braille mode keeps audio reactivity and the always-traveling base wave", () => {
   const renderer = new OrbRenderer(1.08, 0.7, true);
-  // Same t, louder mic → the carved ribbon must move (wider negative space).
+  // Same t, louder mic → the carved grooves widen (negative space) and shade.
   const quietCells = renderer.render(56, 26, 2, audioFrame(4, 0.05), "composing").cells.map((c) => ({ ...c }));
   const loud = renderer.render(56, 26, 2, audioFrame(4, 0.85), "composing");
   let changed = 0;
@@ -326,12 +336,12 @@ test("braille mode keeps audio reactivity and the dormant muted sphere", () => {
     if (quietCells[i]?.glyph !== loud.cells[i]?.glyph || quietCells[i]?.shade !== loud.cells[i]?.shade) changed++;
   }
   assert.ok(changed > 20, `braille composing reacts to the mic (${changed} cells)`);
-  // Muting is the only dormant state: every mode stays alive in silence, and
-  // muted renders the same plain sphere regardless of how loud the mic is.
+  // Muting drops the audio disturbance but keeps the wave; muted matches
+  // across any audio input, and every mode stays alive in silence.
   for (const mode of ["smoke", "composing", "searching"] as OrbMode[]) {
     const silent = snapshotCells(renderer.render(56, 26, 2, audioFrame(4, 0, 0, 0, false), mode));
     const muted = snapshotCells(renderer.render(56, 26, 2, audioFrame(4, 0.9, 0.9, 1, true), mode));
-    assert.notDeepEqual(silent, muted, `braille ${mode} must stay alive without audio`);
+    assert.notDeepEqual(silent, muted, `braille ${mode} stays ambient in silence`);
   }
   const mutedLoud = snapshotCells(renderer.render(56, 26, 2, audioFrame(4, 0.9, 0.9, 1, true), "composing"));
   const mutedQuiet = snapshotCells(renderer.render(56, 26, 2, audioFrame(4, 0, 0, 0, true), "composing"));
@@ -369,21 +379,25 @@ test("braille smoke renders within a small constant of the glyph smoke", () => {
 // Unified listening state + smooth mode transitions
 // ---------------------------------------------------------------------------
 
-test("silent listening stays alive; muting is the only dormant state", () => {
+test("the base wave stays alive and traveling whether muted or silent", () => {
   const renderer = new OrbRenderer(1.3, 0.7, false);
   const silent: OrbFrame = { userEnergy: 0, agentEnergy: 0, energy: 0, peak: 0, phaseA: 1.1, phaseB: 2.3, source: "idle", t: 5, muted: false };
   const quiet = snapshotCells(renderer.render(56, 26, 2, silent, "smoke"));
-  const muted = snapshotCells(renderer.render(56, 26, 2, { ...silent, muted: true }, "smoke"));
-  assert.notDeepEqual(quiet, muted, "silent listening must not collapse into the muted dormant field");
-  // The ambient floor keeps the listening sphere alive: its grooves keep
-  // traveling even in a silent room (muted is the only frozen state).
+  // Silent: the wave keeps traveling even with no sound at all.
   const later = snapshotCells(renderer.render(56, 26, 2, { ...silent, t: 6 }, "smoke"));
   assert.notDeepEqual(later, quiet, "silent listening must keep animating (waves travel)");
-  // Braille smoke gets the same floor.
+  // Muted: the same minimal base wave, and it keeps traveling too. Muted
+  // renders a slightly smaller sphere (no ambient radius) and gray color in
+  // the widget, so it still differs from the silent room.
+  const muted = snapshotCells(renderer.render(56, 26, 2, { ...silent, muted: true }, "smoke"));
+  assert.notDeepEqual(muted, quiet, "muted keeps the compact minimal sphere");
+  const mutedLater = snapshotCells(renderer.render(56, 26, 2, { ...silent, muted: true, t: 6 }, "smoke"));
+  assert.notDeepEqual(mutedLater, muted, "the muted base wave must keep traveling");
+  // Braille gets the same treatment.
   const braille = new OrbRenderer(1.3, 0.7, true);
   const bQuiet = snapshotCells(braille.render(56, 26, 2, silent, "smoke"));
   const bMuted = snapshotCells(braille.render(56, 26, 2, { ...silent, muted: true }, "smoke"));
-  assert.notDeepEqual(bQuiet, bMuted, "braille listening must stay alive without audio");
+  assert.notDeepEqual(bQuiet, bMuted, "braille listening stays alive without audio");
 });
 
 test("mode switches dissolve smoothly and deterministically", () => {

@@ -44,7 +44,7 @@ No narrated `ls`. No routine “shall I continue?” prompts.
 
 Orb inherits Pi's active theme and renders a compact panel above Pi:
 
-- **Left:** a dense solid sphere of dots — listening grooves, a talking ribbon, or thinking wave-fronts travel over its surface as it reacts to you and Orb.
+- **Left:** a dense solid sphere of dots whose traveling wave pattern reacts to you and Orb — mic input widens the carved grooves and intensifies the color, while a silent or muted sphere keeps the same gentle wave flowing at minimum disturbance.
 - **Right:** a chronological script of `YOU`, `ORB`, and Orb's own tool/control actions.
 - **Below:** the normal Pi screen and prompt editor remain untouched.
 

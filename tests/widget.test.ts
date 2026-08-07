@@ -295,21 +295,31 @@ test("working orb reads calmer than the talking orb", () => {
   assert.ok(brightness(working) < brightness(talking) * 0.9, `working ${brightness(working).toFixed(1)} vs talking ${brightness(talking).toFixed(1)}`);
 });
 
-test("listening orb stays alive and colorful without any audio", () => {
+test("listening color intensifies with mic input and stays alive in silence", () => {
   const tui = { requestRender: () => {} } as unknown as TUI;
   const theme = fakeTheme({ ...DARK_THEME });
-  const state = viewState(); // idle, no mic, no voice, no Pi work
-  const widget = new VoiceWidget(tui, theme, () => state, {
-    orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 10, activityLines: 6, scratchpadPanelHeight: 8,
-  });
-  let now = 1_000;
-  for (let i = 0; i < 40; i++) { now += 16; widget.tickAnimation(now); }
-  const glyphs = orbGlyphs(widget.render(80), 80);
-  assert.ok(glyphs.length > 15, `silent listening orb rendered ${glyphs.length} glyphs`);
-  // The gradient renders rich theme colors (saturated, not gray): a quiet
-  // room must never collapse the listening orb into a bland monochrome field.
-  const saturated = glyphs.filter((g) => Math.max(g.c.r, g.c.g, g.c.b) - Math.min(g.c.r, g.c.g, g.c.b) > 20).length;
-  assert.ok(saturated > glyphs.length * 0.25, `only ${saturated}/${glyphs.length} cells carry theme color`);
+  const run = (mic: boolean): ColoredGlyph[] => {
+    const state = viewState();
+    if (mic) { state.source = "user"; state.inputRms = 0.6; }
+    const widget = new VoiceWidget(tui, theme, () => state, {
+      orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 16, activityLines: 6, scratchpadPanelHeight: 8,
+    });
+    let now = 1_000;
+    for (let i = 0; i < 40; i++) { now += 16; widget.tickAnimation(now); }
+    const glyphs = orbGlyphs(widget.render(80), 80);
+    assert.ok(glyphs.length > 15, `listening orb rendered ${glyphs.length} glyphs`);
+    return glyphs;
+  };
+  const saturation = (gs: ColoredGlyph[]) => gs.reduce((s, g) => s + Math.max(g.c.r, g.c.g, g.c.b) - Math.min(g.c.r, g.c.g, g.c.b), 0) / Math.max(1, gs.length);
+  const brightness = (gs: ColoredGlyph[]) => gs.reduce((s, g) => s + (g.c.r + g.c.g + g.c.b) / 3, 0) / Math.max(1, gs.length);
+  // Without audio the wave stays alive but minimal: dim, yet still themed
+  // (colored — never black or gray).
+  const silent = run(false);
+  assert.ok(silent.every((g) => g.c.r + g.c.g + g.c.b > 0), "silent listening must not render black cells");
+  // Mic input intensifies both color saturation and brightness.
+  const loud = run(true);
+  assert.ok(saturation(loud) > saturation(silent), `mic must raise saturation (${saturation(loud).toFixed(1)} vs ${saturation(silent).toFixed(1)})`);
+  assert.ok(brightness(loud) > brightness(silent) * 1.15, `mic must brighten the sphere (${brightness(loud).toFixed(1)} vs ${brightness(silent).toFixed(1)})`);
 });
 
 test("mode switch dissolves keep repainting until the crossfade ends", () => {

@@ -43,11 +43,11 @@ export class VoiceWidget implements Component {
     this.stepFrame(nowMs);
     const f=this.frame;
     const p=this.lastPainted;
-    // The sash/scan animations are driven by the continuous clock, so while
-    // one of them is active the frame must be repainted as t advances; the
-    // smoke field only repaints when energy/phase actually moved. A mode
-    // switch itself always repaints immediately, and a crossfade between two
-    // modes needs frames for its whole duration, not just the first one.
+    // The wave animation is driven by the continuous clock, so the frame must
+    // be repainted as t advances; the smoke field only repaints when
+    // energy/phase actually moved. A mode switch itself always repaints
+    // immediately, and a crossfade between two modes needs frames for its
+    // whole duration, not just the first one.
     const animated=this.mode!=="smoke";
     if (!this.renderer.fading && this.mode===p.mode && Math.abs(f.userEnergy-p.userEnergy)<0.01 && Math.abs(f.agentEnergy-p.agentEnergy)<0.01
         && Math.abs(f.phaseA-p.phaseA)<0.035 && Math.abs(f.phaseB-p.phaseB)<0.035
@@ -61,9 +61,9 @@ export class VoiceWidget implements Component {
     this.mode=this.resolveMode(state);
   }
   /**
-   * Animation state: talking → the voice ribbon (carved sash, reacts to the
-   * mic), Pi working → ring waves traveling through the sphere, otherwise the
-   * listening wave-grooves.
+   * Animation state: all modes share the same carved wave pattern — talking
+   * colors it with the bright audio envelope, Pi working with the calmer cool
+   * identity, otherwise the calm listening gradient.
    */
   private resolveMode(state:VoiceViewState):OrbMode {
     if (state.source==="user" || this.frame.userEnergy>0.02) return "composing";
@@ -208,10 +208,19 @@ export class VoiceWidget implements Component {
     // palette derives from the active theme; anything outside the smoke uses
     // the theme's neutral tokens.
     if(layer==="none")return this.theme.fg(shade>0.5?"muted":"dim",glyph);
-    // Listening: the calm themed gradient, always visibly alive thanks to the
-    // renderer's ambient presence floor — a quiet room still reads as a
-    // living sphere, distinct from the bright talking envelope below.
-    if(this.mode==="smoke")return this.palette.orbGlyph(orbLayerHeat(layer,shade),glyph);
+    // Listening: the same themed wave as the other modes. Mic input intensifies
+    // the color — silence (or muting) keeps the calm gradient dim but alive,
+    // distinct from the bright talking envelope below.
+    if(this.mode==="smoke"){
+      const f=this.frame;
+      const base=this.palette.rampAt(orbLayerHeat(layer,shade));
+      if(f.muted)return this.palette.color(desaturate(base),glyph);
+      const activity=clamp01(f.energy*this.options.orbReactivity);
+      // Disturbance-free frames stay dim and calm; mic energy saturates toward
+      // the mid-ramp and brightens the whole sphere.
+      const c=mix(base,mix(this.palette.primary,this.palette.secondary,0.5),0.45*activity);
+      return this.palette.color(scale(c,0.6+0.4*activity),glyph);
+    }
     // Audio-reactive modes color each cell from the live audio envelope:
     // mic energy biases toward the theme's primary accent, voice output toward
     // the secondary violet, saturation grows with activity, and bright cells
