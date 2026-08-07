@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizedRadius, OrbMotion, OrbRenderer, rasterAt, type OrbFrame, type OrbMode } from "../src/orb.js";
 
-const frame: OrbFrame = { userEnergy: 0.3, agentEnergy: 0.1, energy: 0.3, peak: 0.5, phaseA: 1.1, phaseB: 2.3, source: "user" };
+const frame: OrbFrame = { userEnergy: 0.3, agentEnergy: 0.1, energy: 0.3, source: "user" };
 
 test("smoke orb is full but granular and never uses oversized filled-circle glyphs", () => {
   const raster = new OrbRenderer().render(56, 26, 2, frame);
@@ -45,17 +45,9 @@ test("orb is deterministic and physically circular", () => {
 test("the surface field travels with the clock, not rigid-body rotation", () => {
   // The negative-space renderer never rotates the sphere as a rigid body: at
   // terminal resolution, rotating point clouds alias into incoherent shimmer.
-  // The sphere stays fixed and its carved features travel by phase (the
-  // animation clock), so phaseA/phaseB must not move anything.
-  const a = new OrbRenderer().render(52, 24, 2, frame);
-  const b = new OrbRenderer().render(52, 24, 2, { ...frame, phaseA: 4.8, phaseB: 5.9 });
-  assert.deepEqual(
-    a.cells.map((c) => ({ ...c })),
-    b.cells.map((c) => ({ ...c })),
-    "phase rotation must not move the fixed sphere",
-  );
-  // The features do travel with the animation clock: half a second later the
-  // listening grooves have moved across the surface.
+  // The sphere stays fixed and its carved features travel with the animation
+  // clock: half a second later the listening grooves have moved across the
+  // surface.
   const t1 = new OrbRenderer().render(52, 24, 2, frameAt(5));
   const t2 = new OrbRenderer().render(52, 24, 2, frameAt(5.5));
   let changed = 0;
@@ -86,25 +78,24 @@ test("motion attacks and releases smoothly", () => {
   assert.ok(prior > 0 && prior < peak);
 });
 
-test("muted motion kills the mic drive and freezes phase drift", () => {
+test("muted motion kills the mic drive but the clock keeps traveling", () => {
   const motion = new OrbMotion();
   let now = 1_000;
-  // Live input builds user energy and advances the drift.
+  // Live input builds user energy.
   for (let index = 0; index < 12; index++) { now += 16; motion.step(now, 0.13, 0, false); }
   const live = motion.step(now, 0.13, 0, false);
   assert.ok(live.userEnergy > 0.9, `user energy before mute ${live.userEnergy}`);
   const mutedA = motion.step(now + 16, 0.13, 0, false, true);
   assert.ok(mutedA.userEnergy < live.userEnergy, "user energy starts decaying on mute");
+  const mutedAT = mutedA.t ?? 0;
   // Even with loud input, while muted the field must come to rest.
   for (let index = 0; index < 200; index++) { now += 16; motion.step(now, 0.13, 0, false, true); }
   const mutedB = motion.step(now, 0.13, 0, false, true);
   assert.ok(mutedB.userEnergy < 0.001, `user energy after decay ${mutedB.userEnergy}`);
-  assert.equal(mutedB.phaseA, mutedA.phaseA, "phaseA must not drift while muted");
-  assert.equal(mutedB.phaseB, mutedA.phaseB, "phaseB must not drift while muted");
   assert.equal(mutedB.source, "idle", "muted source must not read as user");
-  // Unmuting resumes both the drift and the user response.
+  assert.ok((mutedB.t ?? 0) > mutedAT, "the animation clock keeps advancing while muted");
+  // Unmuting rebuilds the user response.
   const resumed = motion.step(now + 16, 0.13, 0, false);
-  assert.notEqual(resumed.phaseA, mutedB.phaseA, "drift resumes after unmute");
   assert.ok(resumed.userEnergy > mutedB.userEnergy, "user energy rebuilds after unmute");
 });
 
@@ -112,7 +103,7 @@ function populatedCells(raster: { cells: { glyph: string }[] }): number {
   return raster.cells.reduce((count, cell) => count + (cell.glyph ? 1 : 0), 0);
 }
 function frameAt(t: number, userEnergy = 0, agentEnergy = 0): OrbFrame {
-  return { userEnergy, agentEnergy, energy: Math.max(userEnergy, agentEnergy), peak: 0.5, phaseA: 1.1, phaseB: 2.3, source: userEnergy > 0 ? "user" : "idle", t };
+  return { userEnergy, agentEnergy, energy: Math.max(userEnergy, agentEnergy), source: userEnergy > 0 ? "user" : "idle", t };
 }
 
 test("every mode renders the same traveling wave base", () => {
@@ -201,7 +192,7 @@ function snapshotCells(raster: { cells: { glyph: string; layer: string; shade: n
   return raster.cells.map((c) => ({ glyph: c.glyph, layer: c.layer, shade: c.shade }));
 }
 function audioFrame(t: number, userEnergy: number, agentEnergy = 0, transient = 0, muted = false): OrbFrame {
-  return { userEnergy, agentEnergy, energy: Math.max(userEnergy, agentEnergy), peak: 0.5, phaseA: 1.1, phaseB: 2.3, source: userEnergy > 0 ? "user" : "idle", t, transient, muted };
+  return { userEnergy, agentEnergy, energy: Math.max(userEnergy, agentEnergy), source: userEnergy > 0 ? "user" : "idle", t, transient, muted };
 }
 function diffCount(a: { glyph: string }[], b: { glyph: string }[]): number {
   let changed = 0;
@@ -381,7 +372,7 @@ test("braille smoke renders within a small constant of the glyph smoke", () => {
 
 test("the base wave stays alive and traveling whether muted or silent", () => {
   const renderer = new OrbRenderer(1.3, 0.7, false);
-  const silent: OrbFrame = { userEnergy: 0, agentEnergy: 0, energy: 0, peak: 0, phaseA: 1.1, phaseB: 2.3, source: "idle", t: 5, muted: false };
+  const silent: OrbFrame = { userEnergy: 0, agentEnergy: 0, energy: 0, source: "idle", t: 5, muted: false };
   const quiet = snapshotCells(renderer.render(56, 26, 2, silent, "smoke"));
   // Silent: the wave keeps traveling even with no sound at all.
   const later = snapshotCells(renderer.render(56, 26, 2, { ...silent, t: 6 }, "smoke"));

@@ -117,9 +117,11 @@ export class VoiceController {
 
   /**
    * Mute or unmute the microphone at the Go audio sidecar. The sidecar stops
-   * forwarding capture frames while muted but keeps measuring input RMS, so
-   * the orb keeps breathing with the user's voice even when it cannot hear
-   * them. With no explicit target, the current state toggles.
+   * forwarding capture frames while muted, and the viewer treats the mic as
+   * dead: input RMS is clamped to zero and the orb becomes audio-invariant —
+   * identical rendering regardless of input level — with the base wave still
+   * traveling at its minimum and a gray, compact sphere so muted reads as
+   * off. With no explicit target, the current state toggles.
    */
   setMuted(ctx: ExtensionContext, muted?: boolean): void {
     if (!this.state.active || !this.audio) {

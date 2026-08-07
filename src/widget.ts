@@ -11,11 +11,11 @@ export class VoiceWidget implements Component {
   private readonly renderer: OrbRenderer;
   private palette: OrbPalette;
   private mode: OrbMode = "smoke";
-  private frame: OrbFrame = { userEnergy:0, agentEnergy:0, energy:0, peak:0, phaseA:0, phaseB:0, source:"idle" };
+  private frame: OrbFrame = { userEnergy:0, agentEnergy:0, energy:0, source:"idle" };
   /** Latest animation clock (ms) so the renderer can drive mode crossfades. */
   private nowMs = 0;
   /** Last frame that was actually sent to the TUI, used to skip imperceptible animation frames. */
-  private lastPainted = { userEnergy:-1, agentEnergy:-1, phaseA:-1, phaseB:-1, t:-1, mode:"smoke" as OrbMode };
+  private lastPainted = { userEnergy:-1, agentEnergy:-1, t:-1, mode:"smoke" as OrbMode };
   /** Scratchpad wrap cache: content is immutable, so reference+width equality is a safe key. */
   private wrapKey: string | undefined;
   private wrapWidth = 0;
@@ -29,33 +29,37 @@ export class VoiceWidget implements Component {
     // resort when a theme token cannot be resolved.
     this.palette = createOrbPalette(theme);
   }
-  tick(nowMs=Date.now()):void { this.nowMs = nowMs; this.stepFrame(nowMs); this.tui.requestRender(); }
+  tick(nowMs=Date.now()):void {
+    this.nowMs = nowMs;
+    this.stepFrame(nowMs);
+    // Discrete events (transcript, tool call, mute…) repaint immediately; sync
+    // the animation gate's snapshot so the next tickAnimation doesn't paint
+    // the same frame a second time.
+    const f=this.frame; const p=this.lastPainted;
+    p.userEnergy=f.userEnergy; p.agentEnergy=f.agentEnergy; p.t=f.t??0; p.mode=this.mode;
+    this.tui.requestRender();
+  }
 
   /**
    * Animation loop entry point. Steps the motion clock on every timer tick but
-   * only paints when the rendered frame actually changed perceptibly. The orb
-   * drifts at ~0.2-0.4 rad/s, so a 20Hz unconditional repaint is wasted work on
-   * the same thread that must deliver provider audio to the Go sidecar; any
-   * stall it causes drains the hardware jitter buffer into audible gaps.
+   * only paints when the rendered frame actually changed perceptibly — the
+   * wave animation and the drifting light both run on the continuous clock, so
+   * the frame is repainted as t advances in every mode. The old smoke-only
+   * throttle existed for the pre-lighting renderer, where a 20Hz unconditional
+   * repaint cost ~15ms of event-loop stall (audible audio drops); the surface
+   * renderer is ~1ms at panel sizes now, so the clock gate is cheap and the
+   * living sphere actually stays alive on screen in silence. A mode switch
+   * repaints immediately, and a crossfade between two modes needs frames for
+   * its whole duration, not just the first one.
    */
   tickAnimation(nowMs=Date.now()):void {
     this.nowMs = nowMs;
     this.stepFrame(nowMs);
     const f=this.frame;
     const p=this.lastPainted;
-    // The wave animation and the drifting light both run on the continuous
-    // clock, so the frame must be repainted as t advances in every mode. The
-    // old smoke-only throttle existed for the pre-lighting renderer, where a
-    // 20Hz unconditional repaint cost ~15ms of event-loop stall (audible
-    // audio drops); the surface renderer is ~1ms at panel sizes now, so the
-    // clock gate is cheap and the living sphere actually stays alive on
-    // screen in silence. A mode switch repaints immediately, and a crossfade
-    // between two modes needs frames for its whole duration, not just the
-    // first one.
     if (!this.renderer.fading && this.mode===p.mode && Math.abs(f.userEnergy-p.userEnergy)<0.01 && Math.abs(f.agentEnergy-p.agentEnergy)<0.01
-        && Math.abs(f.phaseA-p.phaseA)<0.035 && Math.abs(f.phaseB-p.phaseB)<0.035
         && Math.abs((f.t??0)-p.t)<0.04) return;
-    p.userEnergy=f.userEnergy; p.agentEnergy=f.agentEnergy; p.phaseA=f.phaseA; p.phaseB=f.phaseB; p.t=f.t??0; p.mode=this.mode;
+    p.userEnergy=f.userEnergy; p.agentEnergy=f.agentEnergy; p.t=f.t??0; p.mode=this.mode;
     this.tui.requestRender();
   }
   private stepFrame(nowMs:number):void {
@@ -183,8 +187,16 @@ export class VoiceWidget implements Component {
 
   private renderCompact(width:number,state:VoiceViewState):string[] {
     if(state.scratchpad.open){
+      // Reuse the same content+width wrap cache as the wide layout: re-wrapping
+      // the full document on every paint would stall the audio delivery thread.
+      const content=state.scratchpad.content;
+      if (this.wrapKey!==content || this.wrapWidth!==width) {
+        this.wrapLines=wrapPreservingLines(content,width);
+        this.wrapKey=content;
+        this.wrapWidth=width;
+      }
       const lines=[this.theme.fg("accent",truncatePlain(`ORB · SCRATCHPAD · ${state.scratchpad.title}`,width))];
-      for(const line of wrapPreservingLines(state.scratchpad.content,width).slice(-Math.max(3,this.options.panelHeight-2))) lines.push(this.palette.secondaryText(line));
+      for(const line of this.wrapLines.slice(-Math.max(3,this.options.panelHeight-2))) lines.push(this.palette.secondaryText(line));
       return lines;
     }
     const h=Math.max(4,Math.min(6,this.options.panelHeight-3));

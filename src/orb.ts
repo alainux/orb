@@ -29,9 +29,6 @@ export interface OrbFrame {
   userEnergy: number;
   agentEnergy: number;
   energy: number;
-  peak: number;
-  phaseA: number;
-  phaseB: number;
   source: VoiceSource;
   /** Continuous animation clock in seconds — always advances (the base wave keeps traveling even while muted). */
   t?: number;
@@ -83,9 +80,6 @@ export class OrbMotion {
   private lastMs = 0;
   private userEnergy = 0;
   private agentEnergy = 0;
-  private peak = 0;
-  private phaseA = 0;
-  private phaseB = 0;
   private elapsed = 0;
   private transient = 0;
   private prevTarget = 0;
@@ -95,9 +89,9 @@ export class OrbMotion {
     const dt = clamp((nowMs - this.lastMs) / 1000, 1 / 240, 0.075);
     this.lastMs = nowMs;
 
-    // While muted the mic is dead: the user cannot drive the field, and the
-    // phase drift freezes too — the base wave keeps traveling, but nothing
-    // reacts to input. Agent playback keeps animating.
+    // While muted the mic is dead: the user cannot drive the field, so the
+    // base wave keeps traveling but nothing reacts to input. Agent playback
+    // keeps animating.
     const userTarget = muted ? 0 : clamp((inputRms - 0.006) / 0.12, 0, 1);
     let agentTarget = clamp((outputRms - 0.0035) / 0.17, 0, 1);
     if (agentSpeaking && agentTarget < 0.1) agentTarget = 0.1;
@@ -114,26 +108,16 @@ export class OrbMotion {
     this.transient = Math.max(rawDelta * 2.7, this.transient * Math.exp(-dt * 8));
     this.prevTarget = rawTarget;
 
-    if (energy > this.peak) this.peak = envelope(this.peak, energy, dt, 0.022, 0.72);
-    else this.peak *= Math.exp(-dt / 0.78);
-
     // The base wave animation runs on a continuous clock that never stops:
     // even muted, the carved grooves keep traveling over the sphere (only the
-    // audio-driven disturbance and color go dormant). The phase drift still
-    // freezes while muted — the mic is dead — though phaseA/B no longer drive
-    // the surface rendering.
+    // audio-driven disturbance and color go dormant).
     this.elapsed += dt;
-    if (!muted) {
-      const voiceDrive = 0.55 * this.userEnergy + 0.45 * this.agentEnergy;
-      this.phaseA = mod(this.phaseA + dt * (0.23 + 0.18 * voiceDrive), Math.PI * 2);
-      this.phaseB = mod(this.phaseB + dt * (0.11 + 0.11 * voiceDrive), Math.PI * 2);
-    }
 
     let source: VoiceSource = "idle";
     if (this.agentEnergy > 0.035 && this.agentEnergy >= this.userEnergy * 0.9) source = "agent";
     else if (this.userEnergy > 0.025) source = "user";
 
-    return { userEnergy: this.userEnergy, agentEnergy: this.agentEnergy, energy, peak: this.peak, phaseA: this.phaseA, phaseB: this.phaseB, source, t: this.elapsed, transient: this.transient, muted };
+    return { userEnergy: this.userEnergy, agentEnergy: this.agentEnergy, energy, source, t: this.elapsed, transient: this.transient, muted };
   }
 }
 
@@ -160,7 +144,7 @@ export class OrbRenderer {
   }
 
   render(width: number, height: number, cellAspect: number, frame: OrbFrame, mode: OrbMode = "smoke", nowMs?: number): OrbRaster {
-    const raster = this.prepareRaster(width, height, cellAspect, frame, mode);
+    const raster = this.prepareRaster(width, height, cellAspect, frame);
     if (!raster.radiusY) return raster;
 
     // Crossfade bookkeeping: on a mode change, dissolve from the previous
@@ -181,7 +165,7 @@ export class OrbRenderer {
     if (nowMs === undefined) {
       this.fadeFrom = null;
       this.fadeT = 1;
-      return this.renderMode(raster, frame, mode);
+      return this.renderMode(raster, frame);
     }
     if (this.fadeFrom !== null) {
       const dt = this.clockMs ? clamp((clock - this.clockMs) / 1000, 0, 1) : 0.016;
@@ -191,22 +175,21 @@ export class OrbRenderer {
         this.fadeFrom = null;
       } else {
         const w = smoothstep(0, 1, this.fadeT);
-        const from = this.fadeFrom;
         const fromRaster = this.scratchRaster(raster, this.scratchA);
         const toRaster = this.scratchRaster(raster, this.scratchB);
-        this.renderMode(fromRaster, frame, from);
-        this.renderMode(toRaster, frame, mode);
+        this.renderMode(fromRaster, frame);
+        this.renderMode(toRaster, frame);
         this.dissolve(fromRaster, toRaster, w);
         return raster;
       }
     } else {
       this.clockMs = clock;
     }
-    return this.renderMode(raster, frame, mode);
+    return this.renderMode(raster, frame);
   }
 
   /** Set up the raster geometry and reset the shared cell buffer. */
-  private prepareRaster(width: number, height: number, cellAspect: number, frame: OrbFrame, mode: OrbMode): OrbRaster {
+  private prepareRaster(width: number, height: number, cellAspect: number, frame: OrbFrame): OrbRaster {
     const raster: OrbRaster = { width, height, centerX: 0, centerY: 0, radiusX: 0, radiusY: 0, cellAspect, cells: [] };
     if (width < 8 || height < 6) return raster;
 
@@ -219,8 +202,7 @@ export class OrbRenderer {
     // presence floor so the orb never collapses into a bland static field.
     // Muted is exempt — the wave keeps traveling at its minimum, but the
     // sphere stays compact rather than breathing with the room.
-    const ambient = !frame.muted ? clamp(0.34 + 0.66 * energy, 0, 1) : energy;
-    const radiusEnergy = frame.muted ? 0 : ambient;
+    const radiusEnergy = frame.muted ? 0 : clamp(0.34 + 0.66 * energy, 0, 1);
     const baseRadiusY = maxRadiusY * 0.79;
     const radiusY = Math.min(maxRadiusY * 0.97, baseRadiusY * (1 + 0.105 * radiusEnergy));
     const radiusX = radiusY * cellAspect;
@@ -307,7 +289,7 @@ export class OrbRenderer {
   }
 
   /** Render the given mode's geometry into the raster's cell buffer. */
-  private renderMode(raster: OrbRaster, frame: OrbFrame, mode: OrbMode): OrbRaster {
+  private renderMode(raster: OrbRaster, frame: OrbFrame): OrbRaster {
     // Every mode renders the same living sphere with the same carved wave
     // pattern (negative space — see the source-math Braille lab); the mode
     // only selects the color identity (see widget.ts). Braille re-rasterizes
@@ -428,7 +410,7 @@ export class OrbRenderer {
             const z = Math.sqrt(Math.max(0, 1 - rs2));
             const lat = Math.asin(clamp(ys, -1, 1));
             const lon = Math.atan2(xs, z);
-            if (isCarved(lat, lon, audio, transient, t, widthScale)) continue;
+            if (carveWave(lat, lon, audio, transient, t, widthScale)) continue;
             const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat, lon);
             field[row + fx] = clamp(coverage * orbLighting(xs, ys, z, lights, mat, audio, transient, t), 0.05, 1);
           } else if (rs2 <= outer2) {
@@ -462,7 +444,7 @@ export class OrbRenderer {
         }
         const z = Math.sqrt(Math.max(0, 1 - r2));
         const lon = Math.atan2(nx, z);
-        if (isCarved(lat0, lon, audio, transient, t, widthScale)) continue;
+        if (carveWave(lat0, lon, audio, transient, t, widthScale)) continue;
         const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat0, lon);
         field[row + fx] = clamp(coverage * orbLighting(nx, ny, z, lights, mat, audio, transient, t), 0.05, 1);
       }
@@ -523,21 +505,6 @@ export function normalizedRadius(raster: OrbRaster, x: number, y: number): numbe
 // ---------------------------------------------------------------------------
 
 /**
- * Is this surface point carved out (missing)? Every mode shares the same base
- * wave pattern (listening's traveling grooves) — the mode only selects the
- * color identity downstream. Microphone/voice energy widens the grooves and
- * adds disturbance; muted and silent frames keep the same base wave at its
- * minimum disturbance.
- *
- * `widthScale` maps feature widths to the sample grid: braille subpixels sit
- * 4× closer than terminal cells, so cell-space (glyph) rendering needs wider
- * carve bands to read at all.
- */
-function isCarved(lat: number, lon: number, audio: number, transient: number, t: number, widthScale: number): boolean {
-  return carveWave(lat, lon, audio, transient, t, widthScale);
-}
-
-/**
  * THE BASE WAVE — traveling latitude grooves (the lab's missingWave/resonance
  * bands), used by every mode. Two tempo waves ripple the ring coordinate while
  * a longitude phase makes the grooves spiral around the sphere, so they read
@@ -545,6 +512,10 @@ function isCarved(lat: number, lon: number, audio: number, transient: number, t:
  * carving — the visual "disturbance" that ramps with the microphone — while
  * transients add a sharper high-frequency ripple. With audio at zero (silence
  * or muted) the wave keeps traveling at its minimum width.
+ *
+ * `widthScale` maps feature widths to the sample grid: braille subpixels sit
+ * 4× closer than terminal cells, so cell-space (glyph) rendering needs wider
+ * carve bands to read at all.
  */
 function carveWave(lat: number, lon: number, audio: number, transient: number, t: number, widthScale: number): boolean {
   const ring = ((lat + Math.PI / 2) / Math.PI) * 14;
@@ -744,4 +715,3 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
   return t * t * (3 - 2 * t);
 }
 function clamp(value: number, low: number, high: number): number { return Math.max(low, Math.min(high, value)); }
-function mod(value: number, divisor: number): number { return ((value % divisor) + divisor) % divisor; }
