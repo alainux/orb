@@ -412,7 +412,7 @@ export class OrbRenderer {
             const lon = Math.atan2(xs, z);
             if (carveWave(lat, lon, audio, transient, t, widthScale)) continue;
             const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat, lon);
-            field[row + fx] = clamp(coverage * orbLighting(xs, ys, z, lights, mat, audio, transient, t), 0.05, 1);
+            field[row + fx] = clamp(coverage * orbLighting(xs, ys, z, lights, mat, audio, transient, t), FIELD_FLOOR, 1);
           } else if (rs2 <= outer2) {
             // Fringe particle: this point blew past the silhouette. Clamp it
             // back onto the sphere and keep it as a bright rim fragment whose
@@ -429,7 +429,7 @@ export class OrbRenderer {
               const lon = Math.atan2(px, pz);
               const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat, lon);
               const lit = orbLighting(px, py, pz, lights, mat, audio, transient, t);
-              field[row + fx] = clamp(band * (0.55 + 0.45 * band) * lit + 0.04, 0.05, 1);
+              field[row + fx] = clamp(band * (0.55 + 0.45 * band) * lit + 0.04, FIELD_FLOOR, 1);
             }
           }
           continue;
@@ -446,7 +446,7 @@ export class OrbRenderer {
         const lon = Math.atan2(nx, z);
         if (carveWave(lat0, lon, audio, transient, t, widthScale)) continue;
         const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat0, lon);
-        field[row + fx] = clamp(coverage * orbLighting(nx, ny, z, lights, mat, audio, transient, t), 0.05, 1);
+        field[row + fx] = clamp(coverage * orbLighting(nx, ny, z, lights, mat, audio, transient, t), FIELD_FLOOR, 1);
       }
     }
     if (sub) return packBraille(raster, field, fw, fh);
@@ -516,7 +516,16 @@ export function normalizedRadius(raster: OrbRaster, x: number, y: number): numbe
  * `widthScale` maps feature widths to the sample grid: braille subpixels sit
  * 4× closer than terminal cells, so cell-space (glyph) rendering needs wider
  * carve bands to read at all.
+ *
+ * The floor sits just above the braille dot threshold (0.24) so the deepest
+ * terminator still lights its dots: the raw field on the shadow side lands at
+ * ~0.05-0.4, below the threshold, so without this lift the dark hemisphere
+ * renders almost empty and the carved wave dies out before crossing the
+ * sphere. Raising the floor turns the whole sphere into a dense particle
+ * field (the wave reads as gaps everywhere), while shade contrast still
+ * keeps the lit side clearly brighter.
  */
+const FIELD_FLOOR = 0.26;
 function carveWave(lat: number, lon: number, audio: number, transient: number, t: number, widthScale: number): boolean {
   const ring = ((lat + Math.PI / 2) / Math.PI) * 14;
   // The time-phase coefficients on `t` set how fast the grooves travel over
@@ -524,9 +533,17 @@ function carveWave(lat: number, lon: number, audio: number, transient: number, t
   // move their carved bands along the ring coordinate, and the longitude sway
   // spins the spiral — together they read as waves flowing across the surface.
   const w = 0.62 * Math.sin(t * 3.4 - ring * 0.52) + 0.38 * Math.sin(t * 2.0 + ring * 0.83);
+  // Diagonal travel: a phase that decreases with both ring and longitude rides
+  // the whole groove field from the lower right toward the upper left — the
+  // wave's reach spans the full sphere instead of sloshing in place on the
+  // lit side. Combined with the steep spiral slant below, the grooves read as
+  // ridges sweeping bottom-right → upper-left as they travel.
+  const drift = 0.1 * Math.sin(-t * 2.6 - ring * 0.7 - lon * 1.8);
   // Disturbance: audio widens the sway; transients add a sharp ripple.
-  const sway = w * (0.045 + 0.13 * audio) + transient * 0.05 * Math.sin(lon * 8 - t * 9);
-  const displaced = lat + lon * 0.5 * Math.sin(t * 3.1 + ring * 0.7) + sway;
+  const sway = w * (0.045 + 0.13 * audio) + drift + transient * 0.05 * Math.sin(lon * 8 - t * 9);
+  // Steep spiral slant so the grooves sweep the full bottom-right ↔ upper-left
+  // diagonal of the sphere instead of hugging the equator band.
+  const displaced = lat + lon * 0.8 * Math.sin(t * 3.1 + ring * 0.7) + sway;
   const d = Math.abs(Math.sin(displaced * 8.1 + lon * 0.5));
   const width = (0.11 + 0.13 * audio + 0.035 * Math.max(0, w) + 0.03 * transient) * widthScale;
   return d < width;
