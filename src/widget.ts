@@ -301,7 +301,15 @@ function styleFor(kind:ActivityEntry["kind"]):{label:string;color:OrbThemeColor}
 }
 function wrap(text:string,width:number):string[]{const words=text.replace(/\s+/g," ").trim().split(" ").filter(Boolean);if(!words.length)return[""];const lines:string[]=[];let cur="";for(const word of words){const next=cur?`${cur} ${word}`:word;if(next.length<=width)cur=next;else{if(cur)lines.push(cur);cur=word.length>width?word.slice(0,width):word;}}if(cur)lines.push(cur);return lines;}
 function wrapPreservingLines(text:string,width:number):string[]{const out:string[]=[];for(const raw of text.split(/\r?\n/)){if(!raw){out.push("");continue;}const indent=raw.match(/^\s*/)?.[0]??"";const body=raw.slice(indent.length);const wrapped=wrap(body,Math.max(8,width-Math.min(indent.length,8)));for(const [index,line] of wrapped.entries())out.push(`${index===0?indent.slice(0,8):"  "}${line}`.slice(0,width));}return out;}
-function bar(value:number,count:number):string{const filled=Math.round(Math.max(0,Math.min(1,value))*count);return"•".repeat(filled)+"·".repeat(count-filled);}
+function bar(value:number,count:number):string{
+  // Perceptual (sqrt) scale for the audio meters: loudness is roughly
+  // logarithmic, so a linear bar would barely light up during quiet speech.
+  // The sqrt curve boosts low levels — the mic dot starts moving from the
+  // first syllable instead of sitting empty until the input gets loud.
+  const boosted=Math.sqrt(Math.max(0,Math.min(1,value)));
+  const filled=Math.round(boosted*count);
+  return"•".repeat(filled)+"·".repeat(count-filled);
+}
 function padVisible(value:string,width:number):string{const length=stripAnsi(value).length;return length>=width?value:value+" ".repeat(width-length);}
 function truncatePlain(value:string,width:number):string{return value.length<=width?value:`${value.slice(0,Math.max(0,width-1))}…`;}
 function stripAnsi(value:string):string{return value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,"").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g,"");}
