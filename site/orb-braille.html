@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Orb — Braille Listening + Thinking Lab (fixed)</title>
+<style>
+:root{
+  --bg:#1a1b26;--bg2:#16161e;--panel:#1f2335;--line:#292e42;
+  --fg:#c0caf5;--muted:#565f89;--blue:#7aa2f7;--cyan:#7dcfff;
+  --purple:#bb9af7;--green:#9ece6a;--yellow:#e0af68;--red:#f7768e
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:#0f1017;color:var(--fg);
+  font-family:"CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono","SFMono-Regular",Consolas,monospace
+}
+.app{max-width:1080px;margin:24px auto;padding:0 16px}
+.shell{background:var(--bg);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--line);font-size:13px}
+.controls{display:grid;grid-template-columns:1.1fr 1fr 1fr auto auto;gap:12px;align-items:end;padding:12px 14px;background:#171821;border-bottom:1px solid var(--line)}
+.control label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px}
+input[type=range]{width:100%;accent-color:var(--blue)}
+button{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:7px 10px}
+button:hover{border-color:var(--blue);color:var(--cyan)}
+button.active{border-color:var(--purple);color:var(--purple)}
+button.muted-active{border-color:#9b9ba2;color:#eee}
+.meters{display:grid;grid-template-columns:28px 1fr 34px;gap:7px;align-items:center;font-size:10px;margin-top:5px}
+.track{height:6px;border:1px solid var(--line);background:#232637;border-radius:999px;overflow:hidden}
+.fill{height:100%;width:0;background:var(--cyan)}
+#outFill{background:var(--purple)}
+.section{padding:16px 14px 4px}
+.section-title{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:10px}
+.section-title h2{font-size:13px;font-weight:500;margin:0}
+.section-title span{font-size:10px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.orb-card{border:1px solid var(--line);border-radius:9px;background:#171821;min-width:0;overflow:hidden}
+.orb-stage{display:flex;justify-content:center;align-items:center;min-height:124px;padding:12px 6px 7px}
+.orb{
+  margin:0;white-space:pre;
+  font:15px/1.02 "CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono",monospace;
+  letter-spacing:0;user-select:none
+}
+.meta{border-top:1px solid var(--line);padding:8px 9px;min-height:58px}
+.name{font-size:11px;color:var(--fg)}
+.desc{font-size:9px;line-height:1.4;color:var(--muted);margin-top:3px}
+.badge{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:1px 5px;margin-left:5px;font-size:8px;color:var(--green)}
+.note{padding:10px 14px 14px;color:var(--muted);font-size:10px;line-height:1.55}
+.c{color:var(--cyan)}.p{color:var(--purple)}.g{color:var(--green)}.m{color:var(--muted)}
+#probe{position:absolute;visibility:hidden;pointer-events:none;white-space:pre;font:15px/1.02 "CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono",monospace}
+@media(max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.controls{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.grid{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.orb-stage{min-height:110px}}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="shell">
+  <span id="probe">0000000000</span>
+
+  <div class="bar">
+    <span>orb — 11×5 Braille motion study</span>
+    <span class="m">55 glyphs · 22×20 logical dots</span>
+  </div>
+
+  <div class="controls">
+    <div class="control">
+      <label for="inputLevel">MIC / INPUT <span id="inputV" class="c">55%</span></label>
+      <input id="inputLevel" type="range" min="0" max="100" value="55">
+      <div class="meters"><span class="c">IN</span><div class="track"><div id="inFill" class="fill"></div></div><span id="inRead">0%</span></div>
+    </div>
+
+    <div class="control">
+      <label for="outputLevel">ORB / OUTPUT <span id="outputV" class="p">0%</span></label>
+      <input id="outputLevel" type="range" min="0" max="100" value="0">
+      <div class="meters"><span class="p">OUT</span><div class="track"><div id="outFill" class="fill"></div></div><span id="outRead">0%</span></div>
+    </div>
+
+    <div class="control">
+      <label for="reactivity">REACTIVITY <span id="reactV" class="g">82%</span></label>
+      <input id="reactivity" type="range" min="0" max="100" value="82">
+      <div style="font-size:9px;color:var(--muted);margin-top:7px">surface displacement + velocity + color</div>
+    </div>
+
+    <button id="demo" class="active">speech demo</button>
+    <button id="mute">mute</button>
+  </div>
+
+  <section class="section">
+    <div class="section-title">
+      <h2><span class="c">LISTENING</span> — receptive / sound-in motion</h2>
+      <span>negative space intentionally used for ripples</span>
+    </div>
+    <div class="grid" id="listenGrid"></div>
+  </section>
+
+  <section class="section">
+    <div class="section-title">
+      <h2><span class="p">THINKING</span> — internal / processing motion</h2>
+      <span>all remain audio-reactive</span>
+    </div>
+    <div class="grid" id="thinkGrid"></div>
+  </section>
+
+  <div class="note">
+    <span class="g">What changed:</span> fixed the <code>ReferenceError: echo is not defined</code> bug, and pushed the listening family harder toward your idea:
+    use the empty holes left by Braille packing as part of the design language. That means the renderer now deliberately preserves gaps in the wave crests
+    so the sphere can read as a rippling shell rather than a uniformly filled blob. Muted still overrides every design with the same calm grayscale rotating sphere.
+  </div>
+</div>
+</div>
+
+<script>
+(()=>{
+const COLS=11,ROWS=5,W=COLS*2,H=ROWS*4;
+const bits=[[1,8],[2,16],[4,32],[64,128]];
+const probe=document.querySelector('#probe');
+const inEl=document.querySelector('#inputLevel'),outEl=document.querySelector('#outputLevel'),reactEl=document.querySelector('#reactivity');
+const inputV=document.querySelector('#inputV'),outputV=document.querySelector('#outputV'),reactV=document.querySelector('#reactV');
+const inFill=document.querySelector('#inFill'),outFill=document.querySelector('#outFill'),inRead=document.querySelector('#inRead'),outRead=document.querySelector('#outRead');
+const muteBtn=document.querySelector('#mute'),demoBtn=document.querySelector('#demo');
+
+const listenModes=[
+  ['resonance','Resonance','My pick','traveling latitude ripples with deliberate gaps; very readable at 11×5'],
+  ['membrane','Membrane','','whole sphere behaves like a vibrating acoustic skin'],
+  ['echo','Echo bands','','great-circle bands flex and leave pockets of empty space'],
+  ['petals','Petals','','lobed standing-wave shell with breathing cutouts']
+];
+const thinkModes=[
+  ['ribbon','Ribbon','My pick','broad undulating sash; best balance of structure + motion'],
+  ['weave','Weave','','three strands braid around the sphere'],
+  ['orbits','Orbits','','tilted orbital loops accelerate with energy'],
+  ['solve','Solve','','segmented shell drifts, then repeatedly re-aligns']
+];
+
+function cards(list,root){
+  const el=document.querySelector(root);
+  list.forEach(([id,name,badge,desc])=>{
+    const card=document.createElement('div');
+    card.className='orb-card';
+    card.innerHTML=
+      '<div class="orb-stage"><pre class="orb" id="orb-'+id+'"></pre></div>'+
+      '<div class="meta"><div class="name">'+name+(badge?'<span class="badge">'+badge+'</span>':'')+'</div>'+
+      '<div class="desc">'+desc+'</div></div>';
+    el.appendChild(card);
+  });
+}
+cards(listenModes,'#listenGrid');
+cards(thinkModes,'#thinkGrid');
+
+let cellW=9,lineH=15,t=0,last=0,demo=true,muted=false;
+let manualIn=.55,manualOut=0,reactivity=.82,input=0,output=0,env=0,prev=0,transient=0;
+
+const C={
+  dark:[45,47,57],g0:[66,68,78],g1:[112,114,124],g2:[188,190,198],white:[255,255,255],
+  blue:[122,162,247],cyan:[125,207,255],purple:[187,154,247]
+};
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+const mix=(a,b,u)=>a.map((v,i)=>Math.round(v+(b[i]-v)*u));
+const css=c=>'rgb('+c.join(',')+')';
+
+function measure(){
+  const r=probe.getBoundingClientRect();
+  cellW=r.width/10||9;
+  lineH=parseFloat(getComputedStyle(document.querySelector('.orb')).lineHeight)||15;
+}
+function rotate(p,ax,ay,az){
+  let[x,y,z]=p,c=Math.cos(ax),s=Math.sin(ax);
+  [y,z]=[y*c-z*s,y*s+z*c];
+  c=Math.cos(ay);s=Math.sin(ay);[x,z]=[x*c+z*s,-x*s+z*c];
+  c=Math.cos(az);s=Math.sin(az);return[x*c-y*s,x*s+y*c,z];
+}
+function fib(i,n){
+  const u=(i+.5)/n,ph=Math.acos(1-2*u),a=i*Math.PI*(3-Math.sqrt(5));
+  return [Math.sin(ph)*Math.cos(a),Math.cos(ph),Math.sin(ph)*Math.sin(a)];
+}
+function speech(x,seed){
+  return clamp(.09+.78*Math.pow(Math.max(0,Math.sin(x*(7.5+seed*.4)+seed)),1.7)*(.60+.40*Math.sin(x*1.55+seed)));
+}
+function updateAudio(dt){
+  if(muted){input=0;output=0}
+  else if(demo){
+    const p=t%7.4;
+    if(p<2.55){input=speech(p,.15)*.96;output=.015}
+    else if(p<2.95){input=.01;output=.01}
+    else if(p<5.7){input=.015;output=speech(p-2.95,1.2)*.96}
+    else if(p<6.45){input=speech(p-5.7,.7)*.55;output=speech(p-5.7,1.7)*.58}
+    else{input=.01;output=.01}
+  }else{
+    input=manualIn;output=manualOut;
+  }
+
+  const target=Math.max(input,output,Math.sqrt((input*input+output*output)*.58));
+  const attack=1-Math.exp(-dt*15),release=1-Math.exp(-dt*3.8);
+  env+=(target-env)*(target>env?attack:release);
+  transient=Math.max(Math.max(0,target-prev)*3.0,transient*Math.exp(-dt*8.5));
+  prev=target;
+
+  inFill.style.width=Math.round(input*100)+'%';
+  outFill.style.width=Math.round(output*100)+'%';
+  inRead.textContent=Math.round(input*100)+'%';
+  outRead.textContent=Math.round(output*100)+'%';
+}
+function colorFor(bucket,max,x){
+  const mono=[C.g0,C.g1,C.g2,C.white];
+  if(muted)return css(mono[bucket]);
+
+  const a=clamp(env*reactivity);
+  const iw=input*(1.10-.32*x),ow=output*(.72+.36*x);
+  let hue=mix(C.cyan,C.purple,ow/(iw+ow+.001));
+  let base=[C.dark,C.g0,C.g1,C.g2][bucket];
+  let col=mix(base,hue,clamp(.16+a*.96));
+
+  if(input>.07&&output>.07)col=mix(col,C.white,Math.min(input,output)*.34);
+  const hot=clamp((max-.65)*3.2)*a;
+  col=mix(col,C.white,hot*(.30+.55*transient));
+  return css(col);
+}
+function newGrid(){return new Float32Array(W*H)}
+function put(grid,x,y,v){
+  const ix=Math.round(x),iy=Math.round(y);
+  if(ix<0||ix>=W||iy<0||iy>=H)return;
+  const k=iy*W+ix;
+  if(v>grid[k])grid[k]=Math.min(1,v);
+}
+function line(grid,a,b,v){
+  const n=Math.max(2,Math.ceil(Math.max(Math.abs(b[0]-a[0]),Math.abs(b[1]-a[1]))*1.5));
+  for(let i=0;i<=n;i++){
+    const u=i/n;
+    put(grid,a[0]+(b[0]-a[0])*u,a[1]+(b[1]-a[1])*u,v);
+  }
+}
+function geometryHelpers(){
+  const dotW=cellW/2,dotH=lineH/4,cx=W/2,cy=H/2;
+  const activity=muted?0:clamp(env*reactivity);
+  const radius=Math.min(W*dotW,H*dotH)*.445*(1+activity*.025+transient*.032);
+
+  function warp(p,seed=0,amount=1){
+    if(muted)return p;
+    const vib=(.008*activity+.026*transient)*amount;
+    const swell=.012*activity*Math.sin(t*6.7+seed*.37+p[0]*4.5+p[1]*3);
+    const buzz=vib*Math.sin(t*22.5+seed*.91+p[2]*8);
+    const r=1+swell+buzz;
+    return[p[0]*r,p[1]*r,p[2]*r];
+  }
+  function proj(p,scale=1,seed=0,warpAmount=1){
+    p=warp(p,seed,warpAmount);
+    const z=p[2],persp=1+z*.085;
+    return[
+      cx+p[0]*radius*scale*persp/dotW,
+      cy+p[1]*radius*scale*persp/dotH,
+      .31+(z+1)*.34
+    ];
+  }
+  return{dotW,dotH,cx,cy,radius,activity,proj};
+}
+function mutedSphere(grid,h){
+  const n=430;
+  for(let i=0;i<n;i++){
+    let p=rotate(fib(i,n),.42,t*.105,.18+.06*Math.sin(t*.08));
+    const q=h.proj(p,.95,i,0);
+    put(grid,q[0],q[1],q[2]*.86);
+  }
+}
+
+/* LISTENING: deliberately use gaps/holes as part of wave readability */
+function resonance(grid,h){
+  const bands=8,samples=72;
+  for(let b=0;b<bands;b++){
+    const base=-0.95+b*(1.9/(bands-1));
+    for(let i=0;i<samples;i++){
+      const a=i/samples*Math.PI*2;
+      const phase=a*2.25-t*(2.5+h.activity*2.6)+b*.66;
+      const lat=base+
+        (.028+.092*h.activity)*Math.sin(phase)+
+        transient*.052*Math.sin(a*6-t*11);
+
+      const crest=Math.sin(phase);
+      if(crest < -0.22 && i%2===0) continue; // preserve negative space for troughs
+
+      const rr=Math.cos(lat);
+      let p=[Math.cos(a)*rr,Math.sin(lat),Math.sin(a)*rr];
+      p=rotate(p,.35,t*.075,.08);
+      const q=h.proj(p,.95,b*100+i,.7);
+      const v=q[2]*(.48+.40*Math.max(0,crest)+.14*h.activity);
+      put(grid,q[0],q[1],v);
+    }
+  }
+}
+function membrane(grid,h){
+  const n=520;
+  for(let i=0;i<n;i++){
+    let p=fib(i,n);
+    const lon=Math.atan2(p[2],p[0]),lat=Math.asin(p[1]);
+    const wave=Math.sin(lon*4-t*(3.0+h.activity*3.5)+lat*3)+.45*Math.sin(lat*7+t*2.1);
+    const trough=wave < -0.25;
+    if(trough && (i%3===0)) continue; // tiny holes create visible rippled shell
+    const r=1+(.015+.055*h.activity)*wave+transient*.035*Math.sin(lon*9-t*13);
+    p=[p[0]*r,p[1]*r,p[2]*r];
+    p=rotate(p,.39,t*.08,.13);
+    const q=h.proj(p,.94,i,.25);
+    const v=q[2]*(.45+.25*h.activity+.22*Math.max(0,wave));
+    put(grid,q[0],q[1],v);
+  }
+}
+function echoBands(grid,h){
+  const rings=5,samples=74;
+  for(let r=0;r<rings;r++){
+    for(let i=0;i<samples;i++){
+      const a=i/samples*Math.PI*2;
+      const phase=t*(1.9+h.activity*2.1)-r*.75;
+      const oscillation=Math.sin(a*3-phase);
+      if(oscillation < -0.30 && i%2===1) continue; // band breaks form ripple pockets
+      const bulge=(.035+.075*h.activity)*oscillation+transient*.045*Math.sin(a*7-t*10);
+      let p=[Math.cos(a)*(1+bulge),Math.sin(a)*(1+bulge),0];
+      p=rotate(p,.28+r*.31,t*.055,-.62+r*.33);
+      const q=h.proj(p,.80+r*.035,r*100+i,.5);
+      put(grid,q[0],q[1],q[2]*(.58+.16*Math.max(0,oscillation)+r*.03));
+    }
+  }
+}
+function petals(grid,h){
+  const n=520;
+  for(let i=0;i<n;i++){
+    let p=fib(i,n);
+    const lon=Math.atan2(p[2],p[0]),lat=Math.asin(p[1]);
+    const harmonic=Math.sin(lon*3-t*(1.7+h.activity*2))*Math.cos(lat*2.2);
+    if(harmonic < -0.20 && i%3===0) continue; // cutouts in petal valleys
+    const r=1+(.025+.10*h.activity)*harmonic+transient*.035*Math.sin(lon*8+t*9);
+    p=[p[0]*r,p[1]*r,p[2]*r];
+    p=rotate(p,.40,t*.065,.19);
+    const q=h.proj(p,.91,i,.35);
+    put(grid,q[0],q[1],q[2]*(.45+.20*h.activity+.24*Math.max(0,harmonic)));
+  }
+}
+
+/* THINKING */
+function ribbon(grid,h){
+  const lanes=11,segs=76;
+  const yaw=.11*Math.sin(t*.07),tilt=.57+.08*Math.sin(t*.055),roll=.08*Math.sin(t*.05);
+  const ux=Math.cos(yaw),uy=0,uz=Math.sin(yaw);
+  const vx=-uz*Math.sin(tilt),vy=Math.cos(tilt),vz=ux*Math.sin(tilt);
+  const nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+
+  for(let w=0;w<lanes;w++){
+    const spread=(w-(lanes-1)/2)/((lanes-1)/2);
+    const laneOff=spread*.69;
+    for(let k=0;k<=segs;k++){
+      const a=k/segs*Math.PI*2;
+      const wob=
+        (.13+.055*h.activity)*Math.sin(a*3-t*(1.45+h.activity*.9)+w*.27)+
+        .055*Math.sin(a*5+t*.95)+
+        transient*.035*Math.sin(a*8-t*9);
+      const off=laneOff+wob;
+      let x=ux*Math.cos(a)+vx*Math.sin(a)+nx*off;
+      let y=uy*Math.cos(a)+vy*Math.sin(a)+ny*off;
+      let z=uz*Math.cos(a)+vz*Math.sin(a)+nz*off;
+      const len=Math.hypot(x,y,z);x/=len;y/=len;z/=len;
+      const q=h.proj(rotate([x,y,z],.30,0,roll),.96,w*100+k,.55);
+      put(grid,q[0],q[1],q[2]*(1-.17*Math.abs(spread)));
+    }
+  }
+}
+function weave(grid,h){
+  const strands=3,steps=120;
+  for(let s=0;s<strands;s++){
+    let prev=null;
+    for(let i=0;i<steps;i++){
+      const u=i/(steps-1)*Math.PI*2-Math.PI;
+      const y=.80*Math.sin(u*.5);
+      const rr=Math.sqrt(Math.max(.02,1-y*y));
+      const a=u*(2.05+h.activity*.30)+s*Math.PI*2/3+t*(.25+h.activity*.18);
+      let p=[Math.cos(a)*rr,y,Math.sin(a)*rr];
+      p=rotate(p,.34,.08*Math.sin(t*.06),.12);
+      const q=h.proj(p,.93,s*1000+i,.45);
+      put(grid,q[0],q[1],q[2]*(.70+s*.06));
+      if(prev && i%2===0) line(grid,prev,q,.31+.18*h.activity);
+      prev=q;
+    }
+  }
+}
+function orbits(grid,h){
+  const rings=5,samples=78;
+  for(let r=0;r<rings;r++){
+    for(let i=0;i<samples;i++){
+      const a=i/samples*Math.PI*2+t*(.20+h.activity*.22+r*.025);
+      const rr=.76+r*.035;
+      const p=rotate(
+        [Math.cos(a)*rr,Math.sin(a)*rr,0],
+        .34+r*.31,
+        t*(.08+h.activity*.06),
+        -.58+r*.31
+      );
+      const q=h.proj(p,1,r*100+i,.65);
+      put(grid,q[0],q[1],q[2]*(.72+r*.045));
+    }
+  }
+}
+function solve(grid,h){
+  const n=520,cycle=(t*.38)%1;
+  let dis;
+  if(cycle<.55) dis=1;
+  else if(cycle<.82) dis=1-(cycle-.55)/.27;
+  else dis=0;
+  dis*=.50+.50*h.activity;
+
+  for(let i=0;i<n;i++){
+    const u=(i+.5)/n,phi=Math.acos(1-2*u);
+    let a=i*Math.PI*(3-Math.sqrt(5));
+    const band=Math.min(5,Math.floor(phi/Math.PI*6));
+    const offsets=[.82,-.62,.46,-.88,.65,-.42];
+    a+=offsets[band]*dis;
+    let p=[Math.sin(phi)*Math.cos(a),Math.cos(phi),Math.sin(phi)*Math.sin(a)];
+    p=rotate(p,.40,t*.06,.12);
+    const q=h.proj(p,.93,i,.45);
+    const seam=Math.abs((phi/Math.PI*6)%1-.5);
+    put(grid,q[0],q[1],q[2]*(seam>.43?.50:.83));
+  }
+}
+
+/* BUG FIX: map echo to echoBands explicitly */
+const modeFns={resonance,membrane,echo:echoBands,petals,ribbon,weave,orbits,solve};
+
+function raster(mode){
+  const grid=newGrid(),h=geometryHelpers();
+  if(muted) mutedSphere(grid,h);
+  else modeFns[mode](grid,h);
+
+  let html='';
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      let mask=0,max=0;
+      for(let dy=0;dy<4;dy++) for(let dx=0;dx<2;dx++){
+        const v=grid[(y*4+dy)*W+(x*2+dx)];
+        if(v>.225){mask+=bits[dy][dx];max=Math.max(max,v)}
+      }
+      if(!mask){html+=' ';continue}
+      const bucket=max>.84?3:max>.63?2:max>.41?1:0;
+      html+='<span style="color:'+colorFor(bucket,max,x/(COLS-1))+'">&#'+(0x2800+mask)+';</span>';
+    }
+    if(y<ROWS-1) html+='\n';
+  }
+  return html;
+}
+
+function renderAll(){
+  [...listenModes,...thinkModes].forEach(([id])=>{
+    document.querySelector('#orb-'+id).innerHTML=raster(id);
+  });
+}
+
+[inEl,outEl,reactEl].forEach(el=>el.addEventListener('input',()=>{
+  manualIn=+inEl.value/100;
+  manualOut=+outEl.value/100;
+  reactivity=+reactEl.value/100;
+  inputV.textContent=Math.round(manualIn*100)+'%';
+  outputV.textContent=Math.round(manualOut*100)+'%';
+  reactV.textContent=Math.round(reactivity*100)+'%';
+  if(!demo) renderAll();
+}));
+
+demoBtn.addEventListener('click',()=>{
+  demo=!demo;
+  demoBtn.classList.toggle('active',demo);
+  demoBtn.textContent=demo?'speech demo':'manual levels';
+});
+muteBtn.addEventListener('click',()=>{
+  muted=!muted;
+  muteBtn.classList.toggle('muted-active',muted);
+  muteBtn.textContent=muted?'unmute':'mute';
+});
+
+function loop(ts){
+  requestAnimationFrame(loop);
+  if(ts-last<66) return;
+  const dt=Math.min((ts-last)/1000,.09)||1/15;
+  last=ts;
+  updateAudio(dt);
+  t+=dt*(muted?1:1+env*.24);
+  renderAll();
+}
+
+measure();
+manualIn=+inEl.value/100;manualOut=+outEl.value/100;reactivity=+reactEl.value/100;
+inputV.textContent=Math.round(manualIn*100)+'%';
+outputV.textContent=Math.round(manualOut*100)+'%';
+reactV.textContent=Math.round(reactivity*100)+'%';
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

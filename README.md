@@ -44,7 +44,7 @@ No narrated `ls`. No routine “shall I continue?” prompts.
 
 Orb inherits Pi's active theme and renders a compact panel above Pi:
 
-- **Left:** a dense rotating particle-wave orb reacting to you and Orb.
+- **Left:** a dense solid sphere of dots — listening grooves, a talking ribbon, or thinking wave-fronts travel over its surface as it reacts to you and Orb.
 - **Right:** a chronological script of `YOU`, `ORB`, and Orb's own tool/control actions.
 - **Below:** the normal Pi screen and prompt editor remain untouched.
 
@@ -241,7 +241,9 @@ Example:
   "ui": {
     "panelHeight": 12,
     "activityLines": 8,
-    "orbDensity": 1.30
+    "orbDensity": 1.30,
+    "orbReactivity": 0.7,
+    "orbBraille": true
   },
   "scratchpad": {
     "panelHeight": 18,
@@ -293,7 +295,7 @@ src/controller.ts  voice/Pi orchestration
 src/pi-control.ts  permission-gated Pi cancellation/model/thinking/tools/shell
 src/pi-log.ts      visible Pi observation used internally
 src/scratchpad.ts  ephemeral collaborative document
-src/orb.ts         particle-wave visualizer
+src/orb.ts         negative-space surface orb (listening/speaking/thinking)
 src/widget.ts      Pi-themed UI
 prompts/           configurable voice-agent prompt
 config/            example configuration

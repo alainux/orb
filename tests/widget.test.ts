@@ -81,7 +81,7 @@ test("widget palette adopts a runtime theme change via invalidate()", () => {
   const themeColors: Record<string, string> = { ...DARK_THEME };
   const theme = fakeTheme(themeColors);
   const widget = new VoiceWidget(tui, theme, viewState, {
-    orbAspect: 2, orbDensity: 1.3, panelHeight: 10, activityLines: 6, scratchpadPanelHeight: 8,
+    orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 10, activityLines: 6, scratchpadPanelHeight: 8,
   });
 
   const before = widget.render(80);
@@ -109,6 +109,39 @@ test("widget palette adopts a runtime theme change via invalidate()", () => {
   assert.ok(after.join("\n").split("\n").some((line) => newGradientCodes.has(line.match(/\x1b\[38;2;[^m]*m/)?.[0] ?? "")), "orb glyphs use the new theme's gradient codes");
 });
 
+test("orb animation mode follows voice state: composing while talking, searching while working", () => {
+  const requests: number[] = [];
+  const tui = { requestRender: () => requests.push(1) } as unknown as TUI;
+  const state = viewState();
+  const widget = new VoiceWidget(tui, fakeTheme({ ...DARK_THEME }), () => state, {
+    orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 10, activityLines: 6, scratchpadPanelHeight: 8,
+  });
+  // Converge the motion envelope so static states stop repainting.
+  let now = 1_000;
+  for (let i = 0; i < 80; i++) { now += 16; widget.tickAnimation(now); }
+  requests.length = 0;
+
+  // Pi working → searching mode animates on the continuous clock.
+  state.piAgentStatus = "working";
+  now += 16; widget.tickAnimation(now);
+  assert.ok(requests.length > 0, "working state must animate the searching orb");
+
+  // Back to idle: the smoke orb stays still while nothing moves.
+  state.piAgentStatus = "idle";
+  widget.tickAnimation(now += 16); // mode switch repaints once
+  requests.length = 0;
+  for (let i = 0; i < 5; i++) { now += 16; widget.tickAnimation(now); }
+  assert.equal(requests.length, 0, "idle smoke orb must not repaint while static");
+
+  // Talking → composing mode keeps animating even with a steady mic level.
+  state.source = "user";
+  state.inputRms = 0.5;
+  widget.tickAnimation(now += 16); // mode switch repaints once
+  requests.length = 0;
+  for (let i = 0; i < 5; i++) { now += 16; widget.tickAnimation(now); }
+  assert.ok(requests.length > 0, "talking state must keep the composing sash animating");
+});
+
 test("secondary accent nudge keeps a fixed identity regardless of render timing", () => {
   // Regression guard: the nudge is a pure function of the theme token, so a
   // rebuilt palette never depends on when it was created.
@@ -116,4 +149,189 @@ test("secondary accent nudge keeps a fixed identity regardless of render timing"
   const b = createOrbPalette(fakeTheme(DARK_THEME));
   assert.deepEqual(a.secondary, b.secondary);
   assert.deepEqual(a.secondary, mix(hex("#9575cd"), { r: 0xbb, g: 0x9a, b: 0xf7 }, 0.55));
+});
+
+// ---------------------------------------------------------------------------
+// Audio-reactive coloring: the composing/searching modes color each orb cell
+// from the live audio envelope — mic energy biases the theme's primary accent
+// (left), voice output the secondary violet (right), and muted renders gray.
+// ---------------------------------------------------------------------------
+
+interface ColoredGlyph { x: number; c: Rgb }
+/** Walk an ANSI-rendered line, recording each glyph's position and resolved RGB. */
+function scanColors(line: string): ColoredGlyph[] {
+  const out: ColoredGlyph[] = [];
+  let x = 0;
+  let current: Rgb | undefined;
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] === "\x1b") {
+      const rgb = line.slice(i).match(/^\x1b\[38;2;(\d+);(\d+);(\d+)m/);
+      if (rgb) { current = { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]) }; i += rgb[0].length; continue; }
+      const reset = line.slice(i).match(/^\x1b\[\d+m/);
+      if (reset) { current = undefined; i += reset[0].length; continue; }
+      i++;
+      continue;
+    }
+    if (line[i] !== " ") out.push({ x, c: current ?? { r: 0, g: 0, b: 0 } });
+    x++;
+    i++;
+  }
+  return out;
+}
+function orbGlyphs(lines: string[], width: number): ColoredGlyph[] {
+  // Full view: line 0 is the title, the trailing lines are the meters bar and
+  // rule — everything between is the body, where the orb occupies only the
+  // left `leftWidth` columns (the right panel is the activity feed).
+  const leftWidth = Math.min(39, Math.max(25, Math.floor(width * 0.31)));
+  return lines.slice(1, Math.max(1, lines.length - 2)).flatMap((line) => scanColors(line).filter((g) => g.x < leftWidth));
+}
+function averageViolet(glyphs: ColoredGlyph[], predicate: (g: ColoredGlyph) => boolean): number {
+  const picked = glyphs.filter(predicate);
+  if (picked.length === 0) return 0;
+  const avg = picked.reduce((acc, g) => ({ r: acc.r + g.c.r, g: acc.g + g.c.g, b: acc.b + g.c.b }), { r: 0, g: 0, b: 0 });
+  const n = picked.length;
+  return (avg.b / n) - (avg.r / n); // violet reads as b > r
+}
+
+test("audio-reactive modes bias color: mic → primary, voice → secondary violet", () => {
+  const tui = { requestRender: () => {} } as unknown as TUI;
+  const theme = fakeTheme({ ...DARK_THEME });
+  const options = { orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 16, activityLines: 6, scratchpadPanelHeight: 8 };
+  const run = (source: "mic" | "voice"): ColoredGlyph[] => {
+    const state = viewState();
+    state.source = "user"; // force composing mode
+    if (source === "mic") state.inputRms = 0.5;
+    else state.outputRms = 0.5;
+    const widget = new VoiceWidget(tui, theme, () => state, options);
+    let now = 1_000;
+    for (let i = 0; i < 40; i++) { now += 16; widget.tickAnimation(now); }
+    const glyphs = orbGlyphs(widget.render(80), 80);
+    assert.ok(glyphs.length > 40, `orb rendered ${glyphs.length} glyphs`);
+    return glyphs;
+  };
+
+  // Mic energy biases the theme's primary (teal) accent; voice output biases
+  // the secondary violet — so the voice-driven orb must read more violet.
+  const micGlyphs = run("mic");
+  const voiceGlyphs = run("voice");
+  const micViolet = averageViolet(micGlyphs, () => true);
+  const voiceViolet = averageViolet(voiceGlyphs, () => true);
+  assert.ok(voiceViolet > micViolet + 2, `voice ${voiceViolet.toFixed(1)} vs mic ${micViolet.toFixed(1)} (b-r)`);
+
+  // The two palettes must differ beyond the shared gradient ramp.
+  const micColors = new Set(micGlyphs.map((g) => `${g.c.r},${g.c.g},${g.c.b}`));
+  const voiceColors = new Set(voiceGlyphs.map((g) => `${g.c.r},${g.c.g},${g.c.b}`));
+  let shared = 0;
+  for (const c of micColors) if (voiceColors.has(c)) shared++;
+  assert.ok(shared / Math.max(1, micColors.size) < 0.85, `mic vs voice palettes overlap too much (${shared}/${micColors.size})`);
+});
+
+test("muted orb renders a gray sphere while Pi works", () => {
+  const tui = { requestRender: () => {} } as unknown as TUI;
+  const state = viewState();
+  state.piAgentStatus = "working";
+  state.muted = true;
+  const widget = new VoiceWidget(tui, fakeTheme({ ...DARK_THEME }), () => state, {
+    orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 16, activityLines: 6, scratchpadPanelHeight: 8,
+  });
+  widget.tickAnimation(1_000);
+  const glyphs = orbGlyphs(widget.render(80), 80);
+  assert.ok(glyphs.length > 40, `muted orb rendered ${glyphs.length} glyphs`);
+  for (const g of glyphs) {
+    assert.equal(g.c.r, g.c.g, `gray requires r===g at x=${g.x} (${g.c.r},${g.c.g},${g.c.b})`);
+    assert.equal(g.c.g, g.c.b, `gray requires g===b at x=${g.x} (${g.c.r},${g.c.g},${g.c.b})`);
+  }
+});
+
+test("braille mode renders 8-dot glyphs through the theme pipeline", () => {
+  const tui = { requestRender: () => {} } as unknown as TUI;
+  const theme = fakeTheme({ ...DARK_THEME });
+  const state = viewState();
+  state.source = "user";
+  state.inputRms = 0.5;
+  const widget = new VoiceWidget(tui, theme, () => state, {
+    orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: true, panelHeight: 16, activityLines: 6, scratchpadPanelHeight: 8,
+  });
+  let now = 1_000;
+  for (let i = 0; i < 40; i++) { now += 16; widget.tickAnimation(now); }
+  const glyphs = orbGlyphs(widget.render(80), 80);
+  assert.ok(glyphs.length > 40, `braille orb rendered ${glyphs.length} glyphs`);
+  // Every orb glyph is a Braille character and is theme-colored (not black).
+  for (const g of glyphs) {
+    // scanColors only records x; re-parse: Braille glyphs are U+2800+mask.
+    assert.ok(g.c.r + g.c.g + g.c.b > 0, "braille cells must be colored");
+  }
+  // The rendered lines themselves contain Braille codepoints in the orb panel.
+  const lines = widget.render(80);
+  const orbText = lines.slice(1, Math.max(1, lines.length - 2)).join("");
+  const brailleCount = [...orbText].filter((ch) => {
+    const cp = ch.codePointAt(0) ?? 0;
+    return cp >= 0x2800 && cp <= 0x28ff;
+  }).length;
+  assert.ok(brailleCount > 40, `orb area carries ${brailleCount} Braille glyphs`);
+});
+
+test("working orb reads calmer than the talking orb", () => {
+  const tui = { requestRender: () => {} } as unknown as TUI;
+  const theme = fakeTheme({ ...DARK_THEME });
+  const run = (talking: boolean): ColoredGlyph[] => {
+    const state = viewState();
+    if (talking) { state.source = "user"; state.inputRms = 0.5; }
+    else state.piAgentStatus = "working";
+    const widget = new VoiceWidget(tui, theme, () => state, {
+      orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 16, activityLines: 6, scratchpadPanelHeight: 8,
+    });
+    let now = 1_000;
+    for (let i = 0; i < 40; i++) { now += 16; widget.tickAnimation(now); }
+    const glyphs = orbGlyphs(widget.render(80), 80);
+    assert.ok(glyphs.length > 40, `orb rendered ${glyphs.length} glyphs`);
+    return glyphs;
+  };
+  const brightness = (gs: ColoredGlyph[]) => gs.reduce((s, g) => s + (g.c.r + g.c.g + g.c.b) / 3, 0) / Math.max(1, gs.length);
+  const talking = run(true);
+  const working = run(false);
+  // The working globe is dimmed and softly desaturated; talking flares bright.
+  assert.ok(brightness(working) < brightness(talking) * 0.9, `working ${brightness(working).toFixed(1)} vs talking ${brightness(talking).toFixed(1)}`);
+});
+
+test("listening orb stays alive and colorful without any audio", () => {
+  const tui = { requestRender: () => {} } as unknown as TUI;
+  const theme = fakeTheme({ ...DARK_THEME });
+  const state = viewState(); // idle, no mic, no voice, no Pi work
+  const widget = new VoiceWidget(tui, theme, () => state, {
+    orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 10, activityLines: 6, scratchpadPanelHeight: 8,
+  });
+  let now = 1_000;
+  for (let i = 0; i < 40; i++) { now += 16; widget.tickAnimation(now); }
+  const glyphs = orbGlyphs(widget.render(80), 80);
+  assert.ok(glyphs.length > 15, `silent listening orb rendered ${glyphs.length} glyphs`);
+  // The gradient renders rich theme colors (saturated, not gray): a quiet
+  // room must never collapse the listening orb into a bland monochrome field.
+  const saturated = glyphs.filter((g) => Math.max(g.c.r, g.c.g, g.c.b) - Math.min(g.c.r, g.c.g, g.c.b) > 20).length;
+  assert.ok(saturated > glyphs.length * 0.25, `only ${saturated}/${glyphs.length} cells carry theme color`);
+});
+
+test("mode switch dissolves keep repainting until the crossfade ends", () => {
+  const requests: number[] = [];
+  const tui = { requestRender: () => requests.push(1) } as unknown as TUI;
+  const state = viewState();
+  const widget = new VoiceWidget(tui, fakeTheme({ ...DARK_THEME }), () => state, {
+    orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 10, activityLines: 6, scratchpadPanelHeight: 8,
+  });
+  let now = 1_000;
+  for (let i = 0; i < 80; i++) { now += 16; widget.tickAnimation(now); }
+  // Pi finishes working → back to idle: the searching→smoke dissolve begins
+  // on the first repaint and must keep the orb repainting for its duration.
+  state.piAgentStatus = "idle";
+  widget.tickAnimation(now += 16); // mode switch repaints once
+  widget.render(80); // actual repaint — the renderer starts dissolving
+  requests.length = 0;
+  for (let i = 0; i < 12; i++) { now += 16; widget.tickAnimation(now); widget.render(80); }
+  assert.ok(requests.length > 0, "the mode dissolve must keep requesting repaints");
+  // Once the fade completes, a static idle orb stops repainting.
+  for (let i = 0; i < 40; i++) { now += 16; widget.tickAnimation(now); widget.render(80); }
+  requests.length = 0;
+  for (let i = 0; i < 5; i++) { now += 16; widget.tickAnimation(now); widget.render(80); }
+  assert.equal(requests.length, 0, "idle smoke orb must not repaint while static");
 });

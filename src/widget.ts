@@ -1,32 +1,35 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ActivityEntry } from "./activity.js";
-import { OrbMotion, OrbRenderer, orbLayerHeat, rasterAt, type OrbFrame, type OrbLayer } from "./orb.js";
-import { createOrbPalette, type OrbPalette, type OrbThemeColor, type ThemeLike } from "./theme.js";
+import { OrbMotion, OrbRenderer, orbLayerHeat, rasterAt, type OrbFrame, type OrbLayer, type OrbMode } from "./orb.js";
+import { createOrbPalette, mix, type OrbPalette, type OrbThemeColor, type Rgb, type ThemeLike } from "./theme.js";
 import type { VoiceViewState } from "./types.js";
 
-interface WidgetOptions { orbAspect:number; orbDensity:number; panelHeight:number; activityLines:number; scratchpadPanelHeight:number }
+interface WidgetOptions { orbAspect:number; orbDensity:number; orbReactivity:number; orbBraille:boolean; panelHeight:number; activityLines:number; scratchpadPanelHeight:number }
 
 export class VoiceWidget implements Component {
   private readonly motion = new OrbMotion();
   private readonly renderer: OrbRenderer;
   private palette: OrbPalette;
+  private mode: OrbMode = "smoke";
   private frame: OrbFrame = { userEnergy:0, agentEnergy:0, energy:0, peak:0, phaseA:0, phaseB:0, source:"idle" };
+  /** Latest animation clock (ms) so the renderer can drive mode crossfades. */
+  private nowMs = 0;
   /** Last frame that was actually sent to the TUI, used to skip imperceptible animation frames. */
-  private lastPainted = { userEnergy:-1, agentEnergy:-1, phaseA:-1, phaseB:-1 };
+  private lastPainted = { userEnergy:-1, agentEnergy:-1, phaseA:-1, phaseB:-1, t:-1, mode:"smoke" as OrbMode };
   /** Scratchpad wrap cache: content is immutable, so reference+width equality is a safe key. */
   private wrapKey: string | undefined;
   private wrapWidth = 0;
   private wrapLines: string[] = [];
 
   constructor(private readonly tui:TUI, private readonly theme:ThemeLike, private readonly getState:()=>VoiceViewState, private readonly options:WidgetOptions) {
-    this.renderer = new OrbRenderer(options.orbDensity);
+    this.renderer = new OrbRenderer(options.orbDensity, options.orbReactivity, options.orbBraille);
     // Every color in this widget comes from Pi's active theme. The palette
     // resolves the theme's primary accent and secondary (violet) tokens and
     // builds the orb gradient from them; Tokyo Night values are only a last
     // resort when a theme token cannot be resolved.
     this.palette = createOrbPalette(theme);
   }
-  tick(nowMs=Date.now()):void { this.stepFrame(nowMs); this.tui.requestRender(); }
+  tick(nowMs=Date.now()):void { this.nowMs = nowMs; this.stepFrame(nowMs); this.tui.requestRender(); }
 
   /**
    * Animation loop entry point. Steps the motion clock on every timer tick but
@@ -36,15 +39,37 @@ export class VoiceWidget implements Component {
    * stall it causes drains the hardware jitter buffer into audible gaps.
    */
   tickAnimation(nowMs=Date.now()):void {
+    this.nowMs = nowMs;
     this.stepFrame(nowMs);
     const f=this.frame;
     const p=this.lastPainted;
-    if (Math.abs(f.userEnergy-p.userEnergy)<0.01 && Math.abs(f.agentEnergy-p.agentEnergy)<0.01
-        && Math.abs(f.phaseA-p.phaseA)<0.035 && Math.abs(f.phaseB-p.phaseB)<0.035) return;
-    p.userEnergy=f.userEnergy; p.agentEnergy=f.agentEnergy; p.phaseA=f.phaseA; p.phaseB=f.phaseB;
+    // The sash/scan animations are driven by the continuous clock, so while
+    // one of them is active the frame must be repainted as t advances; the
+    // smoke field only repaints when energy/phase actually moved. A mode
+    // switch itself always repaints immediately, and a crossfade between two
+    // modes needs frames for its whole duration, not just the first one.
+    const animated=this.mode!=="smoke";
+    if (!this.renderer.fading && this.mode===p.mode && Math.abs(f.userEnergy-p.userEnergy)<0.01 && Math.abs(f.agentEnergy-p.agentEnergy)<0.01
+        && Math.abs(f.phaseA-p.phaseA)<0.035 && Math.abs(f.phaseB-p.phaseB)<0.035
+        && (!animated || Math.abs((f.t??0)-p.t)<0.04)) return;
+    p.userEnergy=f.userEnergy; p.agentEnergy=f.agentEnergy; p.phaseA=f.phaseA; p.phaseB=f.phaseB; p.t=f.t??0; p.mode=this.mode;
     this.tui.requestRender();
   }
-  private stepFrame(nowMs:number):void { const state=this.getState(); this.frame=this.motion.step(nowMs,state.inputRms,state.outputRms,state.outputRms>0.015,state.muted); }
+  private stepFrame(nowMs:number):void {
+    const state=this.getState();
+    this.frame=this.motion.step(nowMs,state.inputRms,state.outputRms,state.outputRms>0.015,state.muted);
+    this.mode=this.resolveMode(state);
+  }
+  /**
+   * Animation state: talking → the voice ribbon (carved sash, reacts to the
+   * mic), Pi working → ring waves traveling through the sphere, otherwise the
+   * listening wave-grooves.
+   */
+  private resolveMode(state:VoiceViewState):OrbMode {
+    if (state.source==="user" || this.frame.userEnergy>0.02) return "composing";
+    if (state.piAgentStatus==="working") return "searching";
+    return "smoke";
+  }
   invalidate():void {
     // Pi calls invalidate() when the active theme changes in settings. The
     // palette bakes precomputed ANSI codes (secondaryText violet, orb glyph
@@ -64,13 +89,13 @@ export class VoiceWidget implements Component {
     const gap=2;
     const rightWidth=Math.max(20,width-leftWidth-gap);
     const bodyHeight=Math.max(5,height-3);
-    const raster=this.renderer.render(leftWidth,bodyHeight,this.options.orbAspect,this.frame);
+    const raster=this.renderer.render(leftWidth,bodyHeight,this.options.orbAspect,this.frame,this.mode,this.nowMs||undefined);
     const left:string[]=[];
     for(let y=0;y<raster.height;y++){
       let line="";
       for(let x=0;x<raster.width;x++){
         const cell=rasterAt(raster,x,y);
-        line+=cell.glyph?this.colorCell(cell.glyph,cell.shade,cell.layer):" ";
+        line+=cell.glyph?this.colorCell(cell.glyph,cell.shade,cell.layer,x,raster.width):" ";
       }
       left.push(line);
     }
@@ -160,13 +185,13 @@ export class VoiceWidget implements Component {
       return lines;
     }
     const h=Math.max(4,Math.min(6,this.options.panelHeight-3));
-    const raster=this.renderer.render(width,h,this.options.orbAspect,this.frame);
+    const raster=this.renderer.render(width,h,this.options.orbAspect,this.frame,this.mode,this.nowMs||undefined);
     const lines=[this.theme.fg("accent",`ORB · `)+this.palette.secondaryText(statusForDisplay(state.status,state.muted))];
     for(let y=0;y<raster.height;y++){
       let line="";
       for(let x=0;x<raster.width;x++){
         const c=rasterAt(raster,x,y);
-        line+=c.glyph?this.colorCell(c.glyph,c.shade,c.layer):" ";
+        line+=c.glyph?this.colorCell(c.glyph,c.shade,c.layer,x,raster.width):" ";
       }
       lines.push(line);
     }
@@ -178,14 +203,57 @@ export class VoiceWidget implements Component {
     return lines;
   }
 
-  private colorCell(glyph:string,shade:number,layer:OrbLayer):string {
+  private colorCell(glyph:string,shade:number,layer:OrbLayer,x:number,width:number):string {
     // Themed orb layers map onto the primary→secondary gradient that the
     // palette derives from the active theme; anything outside the smoke uses
     // the theme's neutral tokens.
     if(layer==="none")return this.theme.fg(shade>0.5?"muted":"dim",glyph);
-    return this.palette.orbGlyph(orbLayerHeat(layer,shade),glyph);
+    // Listening: the calm themed gradient, always visibly alive thanks to the
+    // renderer's ambient presence floor — a quiet room still reads as a
+    // living sphere, distinct from the bright talking envelope below.
+    if(this.mode==="smoke")return this.palette.orbGlyph(orbLayerHeat(layer,shade),glyph);
+    // Audio-reactive modes color each cell from the live audio envelope:
+    // mic energy biases toward the theme's primary accent, voice output toward
+    // the secondary violet, saturation grows with activity, and bright cells
+    // flare toward white on sharp transients. Muted renders a gray sphere.
+    const f=this.frame;
+    const base=this.palette.rampAt(orbLayerHeat(layer,shade));
+    if(f.muted)return this.palette.color(desaturate(base),glyph);
+    const activity=clamp01(f.energy*this.options.orbReactivity);
+    const xNorm=width<=1?0:x/(width-1);
+    const input=clamp01(f.userEnergy);
+    const output=clamp01(f.agentEnergy);
+    const inW=input*(1.05-0.35*xNorm);
+    const outW=output*(0.70+0.35*xNorm);
+    const sum=inW+outW+0.0001;
+    if(this.mode==="searching"){
+      // Working: a calmer, cooler identity — softly desaturated and dimmed so
+      // "Pi is thinking" reads as focused rather than loud, clearly distinct
+      // from the bright saturated talking sphere.
+      const cool=mix(this.palette.primary,this.palette.secondary,0.35+0.4*activity);
+      const c=scale(mix(base,cool,clamp01(0.25+0.6*activity)),0.72+0.28*activity);
+      return this.palette.color(c,glyph);
+    }
+    // Talking: the full audio envelope with white-hot transient flares.
+    const hue=mix(this.palette.primary,this.palette.secondary,outW/sum);
+    const saturation=clamp01(0.25+activity*0.9);
+    let c=mix(base,hue,saturation);
+    const transient=clamp01(f.transient??0);
+    const hot=clamp01((shade-0.68)*2.8)*activity;
+    c=mix(c,WHITE,hot*(0.35+0.45*transient));
+    return this.palette.color(c,glyph);
   }
 }
+
+function clamp01(value:number):number{return Math.max(0,Math.min(1,value))}
+/** Scale an RGB color toward black by a factor in [0,1] (dimming). */
+function scale(c:Rgb,f:number):Rgb{return{r:c.r*f,g:c.g*f,b:c.b*f}}
+/** Luminance-preserving grayscale used for the muted orb. */
+function desaturate(c:Rgb):Rgb{
+  const l=0.299*c.r+0.587*c.g+0.114*c.b;
+  return { r:l, g:l, b:l };
+}
+const WHITE:Rgb={ r:255, g:255, b:255 };
 
 /**
  * Status line shown in the widget title. While the microphone is muted the

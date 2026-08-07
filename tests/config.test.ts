@@ -19,15 +19,23 @@ test("JSON config controls UI, session and prompt file",async()=>{
   const root=await mkdtemp(join(tmpdir(),"orb-config-"));
   const prompt=join(root,"voice.md");const configFile=join(root,"config.json");
   await writeFile(prompt,"CUSTOM ORB PROMPT","utf8");
-  await writeFile(configFile,JSON.stringify({provider:"gemini",voice:{temperature:0.31,promptFile:prompt,greeting:false},ui:{panelHeight:11,orbDensity:1.3},session:{geminiSessionResumption:true,geminiContextCompression:true}}),"utf8");
+  await writeFile(configFile,JSON.stringify({provider:"gemini",voice:{temperature:0.31,promptFile:prompt,greeting:false},ui:{panelHeight:11,orbDensity:1.3,orbReactivity:0.35,orbBraille:true},session:{geminiSessionResumption:true,geminiContextCompression:true}}),"utf8");
   await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:configFile},async()=>{
     const config=await loadVoiceConfig(undefined,root);
-    assert.equal(config.temperature,0.31);assert.equal(config.systemPrompt,"CUSTOM ORB PROMPT");assert.equal(config.panelHeight,11);assert.equal(config.orbDensity,1.3);assert.equal(config.greetingEnabled,false);assert.equal(config.configFiles.includes(configFile),true);
+    assert.equal(config.temperature,0.31);assert.equal(config.systemPrompt,"CUSTOM ORB PROMPT");assert.equal(config.panelHeight,11);assert.equal(config.orbDensity,1.3);assert.equal(config.orbReactivity,0.35);assert.equal(config.orbBraille,true);assert.equal(config.greetingEnabled,false);assert.equal(config.configFiles.includes(configFile),true);
   });
 });
 
 test("Gemini long-session protections are enabled by default",async()=>withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_GEMINI_SESSION_RESUMPTION:undefined,ORB_GEMINI_CONTEXT_COMPRESSION:undefined},async()=>{
   const config=await loadVoiceConfig("gemini",tmpdir());assert.equal(config.geminiSessionResumption,true);assert.equal(config.geminiContextCompression,true);
+}));
+
+test("Braille rendering is the default orb style",async()=>withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_BRAILLE:undefined,PI_VOICE_ORB_BRAILLE:undefined},async()=>{
+  const config=await loadVoiceConfig("gemini",tmpdir());assert.equal(config.orbBraille,true);
+  // Opting out still works, both via env and via config.
+  await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_BRAILLE:"0",PI_VOICE_ORB_BRAILLE:undefined},async()=>{
+    assert.equal((await loadVoiceConfig("gemini",tmpdir())).orbBraille,false);
+  });
 }));
 
 

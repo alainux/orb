@@ -40,6 +40,8 @@ export interface VoiceConfig {
   greetingEnabled: boolean;
   orbAspect: number;
   orbDensity: number;
+  orbReactivity: number;
+  orbBraille: boolean;
   panelHeight: number;
   activityLines: number;
   logDir: string;

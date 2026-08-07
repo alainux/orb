@@ -38,7 +38,7 @@ Go audio sidecar → adaptive playout buffer → operating-system audio callback
 - `src/providers/` — realtime provider adapters.
 - `src/audio/` — TypeScript ↔ Go framing/bridge.
 - `audio-helper/` — hardware-timed capture/playback and adaptive playout buffer.
-- `src/orb.ts` — deterministic themed particle-wave field.
+- `src/orb.ts` — deterministic themed orb with one visual language: a full sphere of dots rendered with the lab's negative-space technique (`site/orb-braille-source-math-variations.html`), with each state carving coherent traveling features out of that sphere — `smoke` (listening) carves latitude wave-grooves that spiral over the surface, `composing` (talking) carves a voice ribbon (a great-circle sash that opens wider with audio), and `searching` (working) carves ring waves that slide pole to pole. The sphere is deliberately never rotated as a rigid body (rotating point clouds alias into shimmer at terminal resolution) — features travel by the animation clock phase instead. Every mode stays alive when not muted (a silent room still renders a living sphere — only muting goes dormant as a plain un-carved frozen sphere), and mode switches dissolve between renderings over ~0.55s instead of popping. Audio reactivity scales with `ui.orbReactivity`. With `ui.orbBraille` enabled, every mode is rasterized into a 2×4 subpixel grid and packed into 8-dot Braille glyphs (U+2800+mask) for a much denser, finer-grained orb — the same theme/audio color pipeline applies per cell.
 - `src/widget.ts` — Pi-themed Orb/scratchpad UI.
 - `src/config.ts` — layered JSON/env configuration.
 

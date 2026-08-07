@@ -349,6 +349,8 @@ export class VoiceController {
       const widget = new VoiceWidget(tui, theme, () => this.viewState, {
         orbAspect: config.orbAspect,
         orbDensity: config.orbDensity,
+        orbReactivity: config.orbReactivity,
+        orbBraille: config.orbBraille,
         panelHeight: config.panelHeight,
         activityLines: config.activityLines,
         scratchpadPanelHeight: config.scratchpad.panelHeight,

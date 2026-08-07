@@ -71,6 +71,10 @@ export interface OrbPalette {
    * secondary highlight).
    */
   orbGlyph(t: number, glyph: string): string;
+  /** The gradient color at position `t` (0 = deep primary, 1 = bright highlight). */
+  rampAt(t: number): Rgb;
+  /** Render a glyph with an arbitrary resolved RGB (theme-derived color math). */
+  color(c: Rgb, glyph: string): string;
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +256,10 @@ function safeBgAnsi(theme: ThemeLike, name: "selectedBg"): string | undefined {
 
 function ansiPrefix(c: Rgb, mode: ColorMode | undefined): string {
   if (mode === "256color") return `\x1b[38;5;${rgbToAnsi256(c)}m`;
-  return `\x1b[38;2;${c.r};${c.g};${c.b}m`;
+  // Truecolor ANSI requires integer components 0-255; the orb's dimming/
+  // desaturation helpers can produce float channels, so clamp+round here at
+  // the single choke point where every color leaves for the terminal.
+  return `\x1b[38;2;${Math.round(Math.max(0, Math.min(255, c.r)))};${Math.round(Math.max(0, Math.min(255, c.g)))};${Math.round(Math.max(0, Math.min(255, c.b)))}m`;
 }
 
 export function createOrbPalette(theme: ThemeLike): OrbPalette {
@@ -276,5 +283,7 @@ export function createOrbPalette(theme: ThemeLike): OrbPalette {
       const index = Math.min(32, Math.max(0, Math.round(clamp01(t) * 32)));
       return `${codes[index] ?? "\x1b[39m"}${glyph}\x1b[39m`;
     },
+    rampAt: (t: number) => rampColor(ramp, t),
+    color: (c: Rgb, glyph: string) => `${ansiPrefix(c, mode)}${glyph}\x1b[39m`,
   };
 }

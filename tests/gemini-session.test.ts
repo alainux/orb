@@ -39,6 +39,8 @@ function geminiConfig(): VoiceConfig {
     greetingEnabled: false,
     orbAspect: 2,
     orbDensity: 1.1,
+    orbReactivity: 0.7,
+    orbBraille: false,
     panelHeight: 14,
     activityLines: 10,
     logDir: "/tmp/orb-test",

@@ -32,7 +32,9 @@ API keys intentionally stay in environment variables.
     "panelHeight": 12,
     "activityLines": 8,
     "orbAspect": 2.0,
-    "orbDensity": 1.30
+    "orbDensity": 1.30,
+    "orbReactivity": 0.7,
+    "orbBraille": true
   },
   "audio": {
     "bufferMs": 140,
@@ -132,7 +134,7 @@ When open, the right side of the Orb widget shows the scratchpad document plus a
 - `ORB_PROMPT_FILE`, `ORB_SYSTEM_PROMPT`
 - `ORB_TEMPERATURE`
 - `ORB_PANEL_HEIGHT`, `ORB_ACTIVITY_LINES`
-- `ORB_ASPECT`, `ORB_DENSITY`
+- `ORB_ASPECT`, `ORB_DENSITY`, `ORB_REACTIVITY`, `ORB_BRAILLE`
 - `ORB_LOG_DIR`
 - `ORB_GEMINI_SESSION_RESUMPTION`
 - `ORB_GEMINI_CONTEXT_COMPRESSION`

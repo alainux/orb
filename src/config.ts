@@ -97,6 +97,8 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
     greetingEnabled: boolValue(envFirst("ORB_GREETING", "PI_VOICE_GREETING") ?? voiceConfig.greeting, true, "voice.greeting"),
     orbAspect: numberValue(envFirst("ORB_ASPECT", "PI_VOICE_ORB_ASPECT") ?? uiConfig.orbAspect, 2, 0.45, 3, "ui.orbAspect"),
     orbDensity: numberValue(envFirst("ORB_DENSITY", "PI_VOICE_ORB_DENSITY") ?? uiConfig.orbDensity, 1.30, 0.7, 1.8, "ui.orbDensity"),
+    orbReactivity: numberValue(envFirst("ORB_REACTIVITY", "PI_VOICE_ORB_REACTIVITY") ?? uiConfig.orbReactivity, 0.7, 0, 1, "ui.orbReactivity"),
+    orbBraille: boolValue(envFirst("ORB_BRAILLE", "PI_VOICE_ORB_BRAILLE") ?? uiConfig.orbBraille, true, "ui.orbBraille"),
     panelHeight: Math.round(numberValue(envFirst("ORB_PANEL_HEIGHT", "PI_VOICE_PANEL_HEIGHT") ?? uiConfig.panelHeight, 12, 8, 24, "ui.panelHeight")),
     activityLines: Math.round(numberValue(envFirst("ORB_ACTIVITY_LINES", "PI_VOICE_ACTIVITY_LINES") ?? uiConfig.activityLines, 8, 3, 30, "ui.activityLines")),
     logDir: expandPath(String(logDirRaw ?? defaultLogDir), cwd),
