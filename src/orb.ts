@@ -402,8 +402,12 @@ function isCarved(mode: OrbMode, nx: number, ny: number, z: number, lat: number,
  */
 function carveWave(lat: number, lon: number, audio: number, transient: number, t: number, widthScale: number): boolean {
   const ring = ((lat + Math.PI / 2) / Math.PI) * 14;
-  const w = 0.62 * Math.sin(t * 2.1 - ring * 0.52) + 0.38 * Math.sin(t * 1.27 + ring * 0.83);
-  const displaced = lat + lon * 0.5 * Math.sin(t * 1.9 + ring * 0.7) + w * (0.045 + 0.075 * audio);
+  // The time-phase coefficients on `t` set how fast the grooves travel over
+  // the sphere: the primary ripple and the counter-propagating component both
+  // move their carved bands along the ring coordinate, and the longitude sway
+  // spins the spiral — together they read as waves flowing across the surface.
+  const w = 0.62 * Math.sin(t * 3.4 - ring * 0.52) + 0.38 * Math.sin(t * 2.0 + ring * 0.83);
+  const displaced = lat + lon * 0.5 * Math.sin(t * 3.1 + ring * 0.7) + w * (0.045 + 0.075 * audio);
   const d = Math.abs(Math.sin(displaced * 8.1 + lon * 0.5));
   const width = (0.11 + 0.08 * audio + 0.035 * Math.max(0, w) + 0.022 * transient) * widthScale;
   return d < width;
