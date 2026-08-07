@@ -4,13 +4,14 @@ import { normalizedRadius, OrbMotion, OrbRenderer, rasterAt, type OrbFrame, type
 
 const frame: OrbFrame = { userEnergy: 0.3, agentEnergy: 0.1, energy: 0.3, source: "user" };
 
-test("smoke orb is full but granular and never uses oversized filled-circle glyphs", () => {
+test("presence orb is a filled, solid sphere carrying two energy regions", () => {
   const raster = new OrbRenderer().render(56, 26, 2, frame);
   const allowed = new Set(["·", "∙", ":", "⋯"]);
   let inside = 0;
   let occupied = 0;
-  let filaments = 0;
-  const layers = new Set<string>();
+  let low = 0;
+  let high = 0;
+  const regions = new Set<string>();
   for (let y = 0; y < raster.height; y++) {
     for (let x = 0; x < raster.width; x++) {
       if (normalizedRadius(raster, x, y) > 0.88) continue;
@@ -18,20 +19,22 @@ test("smoke orb is full but granular and never uses oversized filled-circle glyp
       const cell = rasterAt(raster, x, y);
       if (!cell.glyph) continue;
       occupied++;
-      layers.add(cell.layer);
+      regions.add(cell.layer);
       assert.equal(allowed.has(cell.glyph), true, `unexpected glyph ${cell.glyph}`);
       assert.notEqual(cell.glyph, "●");
       assert.notEqual(cell.glyph, "•");
-      if (cell.layer === "filament") filaments++;
+      if (cell.identity > 0.55) high++;
+      else if (cell.identity < 0.45) low++;
     }
   }
   const occupancy = occupied / inside;
-  assert.ok(occupancy > 0.58 && occupancy < 0.96, `occupancy ${occupancy}`);
-  assert.ok(filaments > 16, `filaments ${filaments}`);
+  assert.ok(occupancy > 0.85, `presence sphere occupancy ${occupancy}`);
+  assert.ok(low > 0, `primary (low) energy region present ${low}`);
+  assert.ok(high > 0, `secondary (high) energy region present ${high}`);
   // Inside the disk the solid sphere shows the two core theme bands — bright
   // front filament and mid mist; the cooler mist bands sit near the limb
   // (outside r<0.88) where the depth shading dims them out.
-  assert.ok(layers.size >= 2, `theme regions ${[...layers].join(",")}`);
+  assert.ok(regions.size >= 2, `theme regions ${[...regions].join(",")}`);
 });
 
 test("orb is deterministic and physically circular", () => {
@@ -42,19 +45,19 @@ test("orb is deterministic and physically circular", () => {
   assert.ok(Math.abs(b.radiusX / (b.radiusY * b.cellAspect) - 1) < 1e-12);
 });
 
-test("the surface field travels with the clock, not rigid-body rotation", () => {
-  // The negative-space renderer never rotates the sphere as a rigid body: at
-  // terminal resolution, rotating point clouds alias into incoherent shimmer.
-  // The sphere stays fixed and its carved features travel with the animation
-  // clock: half a second later the listening grooves have moved across the
-  // surface.
+test("the surface field and two-region boundary travel with the clock, not rotation", () => {
+  // The new language never rotates the sphere as a rigid body: the noise
+  // fields, the energy boundary, the breathing radius, and the drifting light
+  // all advance by the animation-clock phase instead. Even in total silence
+  // the presence orb unfolds over a couple of seconds — it drifts by design,
+  // far calmer than the audio-reactive composing sweep.
   const t1 = new OrbRenderer().render(52, 24, 2, frameAt(5));
-  const t2 = new OrbRenderer().render(52, 24, 2, frameAt(5.5));
+  const t2 = new OrbRenderer().render(52, 24, 2, frameAt(7.5));
   let changed = 0;
   for (let index = 0; index < t1.cells.length; index++) {
     if (t1.cells[index]?.glyph !== t2.cells[index]?.glyph) changed++;
   }
-  assert.ok(changed > 10, `clock travel changed ${changed} cells`);
+  assert.ok(changed > 3, `clock travel changed ${changed} cells`);
 });
 
 test("motion attacks and releases smoothly", () => {
@@ -106,36 +109,50 @@ function frameAt(t: number, userEnergy = 0, agentEnergy = 0): OrbFrame {
   return { userEnergy, agentEnergy, energy: Math.max(userEnergy, agentEnergy), source: userEnergy > 0 ? "user" : "idle", t };
 }
 
-test("every mode renders the same traveling wave base", () => {
+test("every mode renders the same solid sphere with per-mode shading", () => {
   const renderer = new OrbRenderer();
   // Snapshot cells before the next render: the renderer reuses its cell buffer.
   const frames = new Map<OrbMode, { glyph: string; layer: string; shade: number }[]>();
   for (const mode of ["smoke", "composing", "searching"] as OrbMode[]) {
     frames.set(mode, snapshotCells(renderer.render(56, 26, 2, frameAt(5, 0.4), mode)));
   }
-  // Listening's wavy pattern is the base carve for every mode; the modes only
+  // Listening's the positive-space body is the base for every mode; the modes only
   // differ in color identity (applied in widget.ts), so the geometry matches.
   const smoke = frames.get("smoke")!;
+  // Positive space: every mode fills the same solid round body. The exact rim
+  // outline breathes a little per mode (each has its own breathing/edge
+  // amplitude), so assert the weighted interior overlaps well above 90%.
   for (const mode of ["composing", "searching"] as OrbMode[]) {
-    assert.deepEqual(frames.get(mode), smoke, `${mode} must share the listening wave geometry`);
+    const other = frames.get(mode)!;
+    let bothLit = 0;
+    let lit = 0;
+    for (let i = 0; i < other.length; i++) {
+      const s = smoke[i]?.glyph !== "";
+      const o = other[i]?.glyph !== "";
+      if (s || o) {
+        lit++;
+        if (s && o) bothLit++;
+      }
+    }
+    assert.ok(bothLit / Math.max(1, lit) > 0.9, `${mode} body overlap ${(bothLit / Math.max(1, lit)).toFixed(2)}`);
   }
   // Deterministic: the same frame always produces the same cells.
   assert.deepEqual(smoke, snapshotCells(renderer.render(56, 26, 2, frameAt(5, 0.4), "smoke")));
-  // Negative space: the sphere stays mostly solid (the wave grooves are carved
-  // OUT of it), with bright filament bands where the depth shading is strongest
+  // The sphere is a solid body: the lit face carries the bright highlight
+  // and the far limb keeps the dimmer mist/toward the dark side.
   // and the cooler mist bands around the limb.
   const populated = smoke.filter((c) => c.glyph).length;
-  assert.ok(populated > 300, `wave sphere populated ${populated}`);
-  assert.ok(smoke.some((c) => c.layer === "filament"), "the sphere has bright filament bands");
-  assert.ok(smoke.some((c) => c.layer === "mistC" || c.layer === "mistB"), "limb cells keep the cooler mist bands");
+  assert.ok(populated > 300, `sphere populated ${populated}`);
+  assert.ok(smoke.some((c) => c.layer === "filament"), "the sphere has bright face/highlight bands");
+  assert.ok(smoke.some((c) => c.layer === "mistC" || c.layer === "mistB"), "the far limb keeps the dimmer mist bands");
 });
 
-test("mic input widens the wave grooves and adds disturbance", () => {
+test("mic input drives the composing sphere's bright pressure bloom", () => {
   const renderer = new OrbRenderer();
   const calmCells = renderer.render(56, 26, 2, frameAt(6, 0.02), "composing").cells.map((c) => ({ ...c }));
   const loud = renderer.render(56, 26, 2, frameAt(6, 0.85), "composing");
-  // Same t, same geometry — only the mic energy differs, so the carve must
-  // visibly change (not just brightness): louder input carves wider grooves
+  // Same t, same geometry — only the mic energy differs, so the cells
+  // visibly change (not just brightness): louder input changes more cells
   // out of the solid sphere, so fewer cells stay populated.
   let changed = 0;
   for (let index = 0; index < calmCells.length; index++) {
@@ -144,15 +161,15 @@ test("mic input widens the wave grooves and adds disturbance", () => {
     if (c.glyph !== l.glyph || c.layer !== l.layer || Math.abs(c.shade - l.shade) > 0.05) changed++;
   }
   assert.ok(changed > 30, `loud mic changed ${changed} cells`);
-  assert.ok(
-    loud.cells.filter((c) => c.glyph).length < calmCells.filter((c) => c.glyph).length,
-    "a louder mic carves wider grooves, so fewer cells stay populated",
-  );
+  // Louder input raises the sphere's white pressure bloom (the filament term),
+  // instead of shrinking the solid sphere.
+  const bloomSum = (cells: { filament: number }[]) => cells.reduce((s, c) => s + c.filament, 0);
+  assert.ok(bloomSum(loud.cells) > bloomSum(calmCells), "a louder mic raises the white pressure bloom");
 });
 
 test("searching keeps the base wave traveling over time", () => {
   const renderer = new OrbRenderer();
-  // The shared wave pattern: the carved grooves travel by clock phase.
+  // The same noise-field sphere: the surface shading travels by clock phase.
   const t0Cells = renderer.render(56, 26, 2, frameAt(1.96), "searching").cells.map((c) => ({ ...c }));
   const t1 = renderer.render(56, 26, 2, frameAt(2.2), "searching");
   assert.ok(t0Cells.filter((c) => c.glyph).length > 150, `wave sphere populated ${t0Cells.filter((c) => c.glyph).length}`);
@@ -200,14 +217,29 @@ function diffCount(a: { glyph: string }[], b: { glyph: string }[]): number {
   return changed;
 }
 
-test("attack transients sharpen the composing disturbance", () => {
-  const renderer = new OrbRenderer();
-  const calm = snapshotCells(renderer.render(56, 26, 2, audioFrame(5, 0.5, 0, 0), "composing"));
-  const sharp = renderer.render(56, 26, 2, audioFrame(5, 0.5, 0, 1), "composing");
-  assert.ok(diffCount(calm, snapshotCells(sharp)) > 0, "a transient must visibly disturb the wave grooves");
-  // Deterministic: the same transient and frame always produce the same cells.
-  const again = renderer.render(56, 26, 2, audioFrame(5, 0.5, 0, 1), "composing");
-  assert.deepEqual(snapshotCells(sharp), snapshotCells(again));
+test("a pressure onset sweeps the composing sphere's stride, then relaxes", () => {
+  // An attack transient births a center-to-edge pressure wave: it spans over
+  // the body brightening it well above the no-pulse trace, then relaxes back
+  // to exactly the calm baseline once the pulse completes (~2s later). This
+  // is the lab's "positive audio flux creates discrete pressure waves" and the
+  // whole lifecycle is clock-driven & deterministic (single onset, no hearsay).
+  const trace = (onset: boolean) => {
+    const renderer = new OrbRenderer();
+    let peak = 0;
+    let finalShade = 0;
+    for (let t0 = 0; t0 <= 2.4; t0 += 0.1) {
+      const transient = onset && t0 < 0.05 ? 1 : 0;
+      const raster = renderer.render(52, 24, 2, audioFrame(t0, 0.5, 0, transient), "composing");
+      const shade = raster.cells.reduce<number>((s, c) => s + (c.glyph ? c.shade : 0), 0);
+      if (t0 >= 1.0 && t0 <= 1.6) peak = Math.max(peak, shade);
+      if (t0 > 2.35) finalShade = shade;
+    }
+    return { peak, finalShade };
+  };
+  const pulsed = trace(true);
+  const calm = trace(false);
+  assert.ok(pulsed.peak > calm.peak + 25, `pulse flight Δ ${(pulsed.peak - calm.peak).toFixed(1)}`);
+  assert.ok(Math.abs(pulsed.finalShade - calm.finalShade) < 3, "the pressure wave must relax back to the calm baseline");
 });
 
 test("the reactivity knob scales the audio response", () => {
@@ -215,13 +247,13 @@ test("the reactivity knob scales the audio response", () => {
   const hot = new OrbRenderer(1.08, 1);
   const frame = audioFrame(5, 0.9);
   // Composing at high energy: reactivity scales the audio term that widens the
-  // carved grooves, so 0 vs 1 must carve visibly different wave patterns.
+  // audio terms, so 0 vs 1 must render different sphere patterns.
   const dormant = snapshotCells(flat.render(56, 26, 2, frame, "composing"));
   const reactive = hot.render(56, 26, 2, frame, "composing");
-  assert.ok(diffCount(dormant, snapshotCells(reactive)) > 60, "full reactivity must widen the carved grooves far beyond zero reactivity");
+  assert.ok(diffCount(dormant, snapshotCells(reactive)) > 25, "full reactivity drives a visibly different composing sphere");
   const dormantBraille = snapshotCells(new OrbRenderer(1.08, 0, true).render(56, 26, 2, frame, "composing"));
   const reactiveBraille = new OrbRenderer(1.08, 1, true).render(56, 26, 2, frame, "composing");
-  assert.ok(diffCount(dormantBraille, snapshotCells(reactiveBraille)) > 60, "braille reactivity must scale too");
+  assert.ok(diffCount(dormantBraille, snapshotCells(reactiveBraille)) > 25, "braille reactivity must scale too");
 });
 
 test("muted frames drop audio disturbance but keep the base wave", () => {
@@ -288,7 +320,7 @@ test("braille mode packs every mode into U+2800..U+28FF glyphs", () => {
     assert.ok(populated > 100, `${mode} braille populated ${populated}`);
     assert.ok(masks.size > 20, `${mode} braille masks lack variety (${masks.size})`);
     // The full sphere packs several dots per cell; even the ring-wave mode
-    // with its carved fronts averages well over one dot per populated cell.
+    // with its highlight fronts averages well over one dot per populated cell.
     const minDotsPerCell = mode === "searching" ? 1.2 : 2;
     assert.ok(totalDots > populated * minDotsPerCell, `${mode}: ${totalDots} dots / ${populated} cells`);
   }
@@ -319,7 +351,7 @@ test("braille mode is denser than the glyph mode for the same frame", () => {
 
 test("braille mode keeps audio reactivity and the always-traveling base wave", () => {
   const renderer = new OrbRenderer(1.08, 0.7, true);
-  // Same t, louder mic → the carved grooves widen (negative space) and shade.
+  // Same t, louder mic → the pressure bloom and surface shading change.
   const quietCells = renderer.render(56, 26, 2, audioFrame(4, 0.05), "composing").cells.map((c) => ({ ...c }));
   const loud = renderer.render(56, 26, 2, audioFrame(4, 0.85), "composing");
   let changed = 0;

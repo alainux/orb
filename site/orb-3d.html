@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alive Braille Voice Orb — Fluid + Audio Reactive</title>
+<style>
+:root{
+  --bg:#0a0b10;
+  --bg2:#0d0f16;
+  --panel:#10121a;
+  --panel2:#0d0f16;
+  --line:#242938;
+  --fg:#d8def8;
+  --muted:#6f7898;
+  --accent:#82d8ff;
+  --accent2:#a994ff;
+  --audio-energy:0;
+  --edge-energy:0;
+  --aura-scale:.95;
+  --aura-opacity:.25;
+  --aura-core:9%;
+  --aura-edge:4%;
+  --shell-haze:7%;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  min-height:100vh;
+  background:
+    radial-gradient(circle at 50% 38%, color-mix(in srgb,var(--accent2) 9%,transparent), transparent 34rem),
+    linear-gradient(180deg,var(--bg2) 0%,var(--bg) 100%);
+  color:var(--fg);
+  font-family:"CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono","SFMono-Regular",Consolas,monospace;
+  transition:background .35s ease,color .35s ease;
+}
+.app{max-width:920px;margin:28px auto;padding:0 16px}
+.shell{
+  position:relative;
+  overflow:hidden;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--panel) 96%,transparent),color-mix(in srgb,var(--panel2) 97%,transparent));
+  border:1px solid var(--line);
+  border-radius:18px;
+  box-shadow:0 24px 70px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.025);
+  transition:background .35s ease,border-color .35s ease;
+}
+.shell::before{
+  content:"";
+  position:absolute;
+  inset:-38% 5% auto;
+  height:340px;
+  pointer-events:none;
+  background:radial-gradient(ellipse,color-mix(in srgb,var(--accent2) var(--shell-haze),transparent),transparent 67%);
+  filter:blur(30px);
+}
+.bar{
+  position:relative;
+  z-index:2;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 15px;
+  border-bottom:1px solid color-mix(in srgb,var(--line) 82%,transparent);
+  background:color-mix(in srgb,var(--bg) 50%,transparent);
+  color:var(--muted);
+  font-size:11px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+.bar strong{color:var(--fg);font-weight:500;letter-spacing:.03em}
+.stage{
+  position:relative;
+  min-height:580px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:42px 20px 30px;
+}
+.orb-aura{
+  position:absolute;
+  left:50%;
+  top:47%;
+  width:min(61vw,450px);
+  aspect-ratio:1;
+  transform:translate(-50%,-50%) scale(var(--aura-scale));
+  border-radius:50%;
+  pointer-events:none;
+  opacity:var(--aura-opacity);
+  background:
+    radial-gradient(circle,
+      color-mix(in srgb,var(--accent2) var(--aura-core),transparent) 0%,
+      color-mix(in srgb,var(--accent) var(--aura-edge),transparent) 34%,
+      transparent 70%);
+  filter:blur(34px);
+  transition:opacity .08s linear;
+}
+.orb-wrap{
+  position:relative;
+  z-index:1;
+  min-height:405px;
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+#orb{
+  margin:0;
+  white-space:pre;
+  letter-spacing:0;
+  user-select:none;
+  font:24px/1 "CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono",monospace;
+  filter:saturate(1.05);
+  text-shadow:0 0 7px currentColor,0 0 18px color-mix(in srgb,currentColor 30%,transparent);
+  transform:translateZ(0);
+  will-change:contents;
+}
+#probe{
+  position:absolute;
+  visibility:hidden;
+  pointer-events:none;
+  white-space:pre;
+  font:24px/1 "CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono",monospace;
+}
+.state-copy{
+  position:relative;
+  z-index:2;
+  min-height:34px;
+  margin-top:-2px;
+  text-align:center;
+}
+.state-copy strong{
+  display:block;
+  color:var(--fg);
+  font-size:12px;
+  font-weight:500;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.state-copy span{
+  display:block;
+  margin-top:5px;
+  color:var(--muted);
+  font-size:10px;
+}
+.controls{
+  position:relative;
+  z-index:2;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:13px 14px;
+  border-top:1px solid color-mix(in srgb,var(--line) 82%,transparent);
+  background:color-mix(in srgb,var(--bg) 56%,transparent);
+}
+.state-buttons,.extras{display:flex;align-items:center;gap:7px}
+button,select{
+  border:1px solid var(--line);
+  border-radius:999px;
+  padding:9px 13px;
+  background:color-mix(in srgb,var(--panel) 84%,transparent);
+  color:color-mix(in srgb,var(--fg) 67%,var(--muted));
+  font:inherit;
+  font-size:11px;
+  text-align:center;
+  cursor:pointer;
+  transition:border-color .22s ease,background .22s ease,color .22s ease,box-shadow .22s ease,transform .22s ease;
+}
+button{min-width:104px}
+button:hover,select:hover{color:var(--fg);border-color:color-mix(in srgb,var(--accent) 32%,var(--line));background:color-mix(in srgb,var(--panel) 92%,transparent)}
+button:active{transform:scale(.98)}
+button.active{
+  color:var(--fg);
+  border-color:color-mix(in srgb,var(--accent) 48%,var(--line));
+  background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 15%,var(--panel)),color-mix(in srgb,var(--panel) 88%,transparent));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.055),0 0 20px color-mix(in srgb,var(--accent) 7%,transparent);
+}
+select{
+  min-width:154px;
+  appearance:auto;
+  text-align:left;
+}
+.excite{
+  min-width:86px;
+  color:var(--fg);
+  border-color:color-mix(in srgb,var(--accent2) 36%,var(--line));
+}
+.excite.flash{box-shadow:0 0 24px color-mix(in srgb,var(--accent) 22%,transparent)}
+@media(max-width:720px){
+  .app{margin:12px auto;padding:0 10px}
+  .stage{min-height:500px;padding:30px 10px 24px}
+  .orb-wrap{min-height:350px}
+  #orb,#probe{font-size:19px}
+  .controls{align-items:stretch;flex-direction:column;padding:11px 9px}
+  .state-buttons,.extras{width:100%}
+  .state-buttons button{min-width:0;flex:1;padding:9px 7px}
+  .extras select{min-width:0;flex:1}
+  .extras button{min-width:90px}
+  .bar{font-size:9px}
+}
+@media(prefers-reduced-motion:reduce){
+  .orb-aura{transition:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="shell">
+    <span id="probe">0000000000</span>
+
+    <div class="bar">
+      <span>ORB / fluid voice presence</span>
+      <strong id="stateLabel">LISTENING</strong>
+    </div>
+
+    <main class="stage">
+      <div class="orb-aura" aria-hidden="true"></div>
+      <div class="orb-wrap">
+        <pre id="orb" aria-label="Animated audio-reactive voice assistant orb"></pre>
+      </div>
+      <div class="state-copy" aria-live="polite">
+        <strong id="stateName">Listening</strong>
+        <span id="stateDescription">Contrasting energy regions drift fluidly and react to pressure.</span>
+      </div>
+    </main>
+
+    <nav class="controls" aria-label="Orb controls">
+      <div class="state-buttons" aria-label="Orb state">
+        <button id="mutedBtn" type="button">muted</button>
+        <button id="thinkingBtn" type="button">thinking</button>
+        <button id="listeningBtn" type="button" class="active">listening</button>
+      </div>
+      <div class="extras">
+        <label for="themeSelect" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">Console theme</label>
+        <select id="themeSelect" aria-label="Console theme">
+          <option value="tokyo">Tokyo Night</option>
+          <option value="monochrome">Monochrome</option>
+          <option value="dracula">Dracula</option>
+          <option value="nord">Nord</option>
+          <option value="gruvbox">Gruvbox</option>
+          <option value="solarized">Solarized Dark</option>
+          <option value="catppuccin">Catppuccin</option>
+          <option value="monokai">Monokai</option>
+        </select>
+        <button id="exciteBtn" class="excite" type="button" title="Trigger a synthetic audio excitation">excite</button>
+      </div>
+    </nav>
+  </div>
+</div>
+
+<script>
+(()=>{
+  const COLS=28, ROWS=14, W=COLS*2, H=ROWS*4, FPS=60;
+  const BITS=[[1,8],[2,16],[4,32],[64,128]];
+  const BAYER8=[
+    [0,48,12,60,3,51,15,63],[32,16,44,28,35,19,47,31],
+    [8,56,4,52,11,59,7,55],[40,24,36,20,43,27,39,23],
+    [2,50,14,62,1,49,13,61],[34,18,46,30,33,17,45,29],
+    [10,58,6,54,9,57,5,53],[42,26,38,22,41,25,37,21]
+  ];
+
+  const THEMES={
+    tokyo:{
+      bg:'#0f1017',bg2:'#16161e',panel:'#1a1b26',panel2:'#13141d',line:'#292e42',fg:'#c0caf5',muted:'#565f89',
+      colors:[[125,207,255],[187,154,247],[247,118,142],[122,162,247]],energies:[[125,207,255],[247,118,142],[224,175,104],[187,154,247]],white:[246,249,255],deep:[15,18,34],rim:[151,220,255]
+    },
+    monochrome:{
+      bg:'#090a0c',bg2:'#0e1013',panel:'#121418',panel2:'#0b0d10',line:'#292d33',fg:'#e7e9ec',muted:'#737981',
+      colors:[[218,222,226],[181,187,193],[244,245,246],[145,151,158]],energies:[[247,249,251],[116,122,130],[214,218,223],[154,160,168]],white:[255,255,255],deep:[13,15,18],rim:[225,229,234],mono:true
+    },
+    dracula:{
+      bg:'#1f2029',bg2:'#282a36',panel:'#282a36',panel2:'#21222c',line:'#44475a',fg:'#f8f8f2',muted:'#6272a4',
+      colors:[[139,233,253],[189,147,249],[255,121,198],[80,250,123]],energies:[[139,233,253],[255,121,198],[241,250,140],[189,147,249]],white:[255,255,255],deep:[28,29,39],rim:[184,242,255]
+    },
+    nord:{
+      bg:'#242933',bg2:'#2e3440',panel:'#2e3440',panel2:'#272c36',line:'#4c566a',fg:'#d8dee9',muted:'#7b88a1',
+      colors:[[136,192,208],[129,161,193],[180,142,173],[163,190,140]],energies:[[136,192,208],[191,97,106],[235,203,139],[180,142,173]],white:[236,239,244],deep:[37,42,52],rim:[180,222,232]
+    },
+    gruvbox:{
+      bg:'#1d2021',bg2:'#282828',panel:'#282828',panel2:'#202020',line:'#504945',fg:'#ebdbb2',muted:'#928374',
+      colors:[[131,165,152],[211,134,155],[254,128,25],[184,187,38]],energies:[[142,192,124],[251,73,52],[250,189,47],[211,134,155]],white:[251,241,199],deep:[36,34,31],rim:[180,204,194]
+    },
+    solarized:{
+      bg:'#00242d',bg2:'#002b36',panel:'#073642',panel2:'#002b36',line:'#31535b',fg:'#eee8d5',muted:'#657b83',
+      colors:[[42,161,152],[38,139,210],[108,113,196],[211,54,130]],energies:[[42,161,152],[220,50,47],[181,137,0],[108,113,196]],white:[253,246,227],deep:[0,36,45],rim:[127,204,198]
+    },
+    catppuccin:{
+      bg:'#0d0d15',bg2:'#11111b',panel:'#181825',panel2:'#11111b',line:'#313244',fg:'#cdd6f4',muted:'#6c7086',
+      colors:[[137,220,235],[203,166,247],[245,194,231],[137,180,250]],energies:[[137,220,235],[243,139,168],[249,226,175],[203,166,247]],white:[242,245,255],deep:[17,17,27],rim:[180,232,244]
+    },
+    monokai:{
+      bg:'#1d1e1a',bg2:'#272822',panel:'#272822',panel2:'#20211d',line:'#49483e',fg:'#f8f8f2',muted:'#75715e',
+      colors:[[102,217,239],[174,129,255],[249,38,114],[166,226,46]],energies:[[102,217,239],[249,38,114],[230,219,116],[166,226,46]],white:[255,255,250],deep:[29,30,26],rim:[164,235,247]
+    }
+  };
+
+  const STATES={
+    muted:{
+      label:'Muted',description:'Disabled theme colors, quiet motion, minimal presence.',
+      speed:.12,energy:.08,breath:.014,warp:.026,edge:.018,glow:.34,sat:.48,light:.70
+    },
+    thinking:{
+      label:'Thinking',description:'A broad curved cognition pulse sweeps quickly across the sphere.',
+      speed:.42,energy:.44,breath:.030,warp:.072,edge:.038,glow:.74,sat:.84,light:.90
+    },
+    listening:{
+      label:'Listening',description:'Two contrasting energy regions drift fluidly with a crisp living boundary.',
+      speed:.30,energy:.74,breath:.047,warp:.118,edge:.058,glow:1.0,sat:.95,light:1.0
+    }
+  };
+
+  const orbEl=document.querySelector('#orb');
+  const probe=document.querySelector('#probe');
+  const stateLabel=document.querySelector('#stateLabel');
+  const stateName=document.querySelector('#stateName');
+  const stateDescription=document.querySelector('#stateDescription');
+  const themeSelect=document.querySelector('#themeSelect');
+  const exciteBtn=document.querySelector('#exciteBtn');
+  const buttons={
+    muted:document.querySelector('#mutedBtn'),
+    thinking:document.querySelector('#thinkingBtn'),
+    listening:document.querySelector('#listeningBtn')
+  };
+
+  let state='listening';
+  let themeName='tokyo';
+  let theme=THEMES[themeName];
+  let cellW=12,lineH=24;
+  let t=0,last=0;
+  let signal=.20, externalLevel=null, rawLevel=.20, previousRaw=.20;
+  let externalAnalyser=null, analyserData=null;
+  let lastAutoExcitation=-10;
+  const pulses=[];
+  const motion={...STATES[state]};
+
+  const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+  const lerp=(a,b,u)=>a+(b-a)*u;
+  const mix=(a,b,u)=>a.map((v,i)=>Math.round(lerp(v,b[i],u)));
+  const css=c=>`rgb(${c[0]},${c[1]},${c[2]})`;
+  const braille=mask=>String.fromCodePoint(0x2800+mask);
+  const hexRgb=hex=>{
+    const h=hex.replace('#','');
+    return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];
+  };
+
+  function disabledColor(color){
+    // Theme-aware disabled treatment: preserve a trace of the hue while collapsing
+    // saturation and luminance toward the theme's muted/deep UI colors.
+    const mutedRgb=hexRgb(theme.muted);
+    return mix(mix(color,mutedRgb,.68),theme.deep,.18);
+  }
+
+  // Seeded improved Perlin noise. Smooth in x/y/time and cheap enough for this grid.
+  const PERM=(()=>{
+    const base=Array.from({length:256},(_,i)=>i);
+    let seed=0x9e3779b9;
+    const rand=()=>{
+      seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;
+      return (seed>>>0)/4294967296;
+    };
+    for(let i=255;i>0;i--){
+      const j=Math.floor(rand()*(i+1));
+      [base[i],base[j]]=[base[j],base[i]];
+    }
+    return [...base,...base];
+  })();
+
+  const fade=n=>n*n*n*(n*(n*6-15)+10);
+  const grad=(hash,x,y,z)=>{
+    const h=hash&15;
+    const u=h<8?x:y;
+    const v=h<4?y:(h===12||h===14?x:z);
+    return ((h&1)?-u:u)+((h&2)?-v:v);
+  };
+
+  function perlin3(x,y,z){
+    const X=Math.floor(x)&255,Y=Math.floor(y)&255,Z=Math.floor(z)&255;
+    x-=Math.floor(x);y-=Math.floor(y);z-=Math.floor(z);
+    const u=fade(x),v=fade(y),w=fade(z);
+    const A=PERM[X]+Y,AA=PERM[A]+Z,AB=PERM[A+1]+Z;
+    const B=PERM[X+1]+Y,BA=PERM[B]+Z,BB=PERM[B+1]+Z;
+    const x1=lerp(grad(PERM[AA],x,y,z),grad(PERM[BA],x-1,y,z),u);
+    const x2=lerp(grad(PERM[AB],x,y-1,z),grad(PERM[BB],x-1,y-1,z),u);
+    const y1=lerp(x1,x2,v);
+    const x3=lerp(grad(PERM[AA+1],x,y,z-1),grad(PERM[BA+1],x-1,y,z-1),u);
+    const x4=lerp(grad(PERM[AB+1],x,y-1,z-1),grad(PERM[BB+1],x-1,y-1,z-1),u);
+    return lerp(y1,lerp(x3,x4,v),w);
+  }
+
+  function fbm3(x,y,z,octaves=4){
+    let value=0,amp=.52,freq=1,norm=0;
+    for(let i=0;i<octaves;i++){
+      value+=perlin3(x*freq,y*freq,z*freq)*amp;
+      norm+=amp;
+      freq*=2.03;
+      amp*=.50;
+    }
+    return value/(norm||1);
+  }
+
+  function normalize3(x,y,z){
+    const m=Math.hypot(x,y,z)||1;
+    return [x/m,y/m,z/m];
+  }
+
+  function dot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]}
+
+  function measure(){
+    const r=probe.getBoundingClientRect();
+    cellW=r.width/10||12;
+    lineH=parseFloat(getComputedStyle(orbEl).lineHeight)||24;
+  }
+
+  function screenCoord(gx,gy){
+    const dotW=cellW/2,dotH=lineH/4;
+    const totalW=W*dotW,totalH=H*dotH;
+    // More breathing room than v1 so the audio particle halo can live outside the body.
+    const radius=Math.min(totalW,totalH)*.390;
+    const px=(gx+.5)*dotW,py=(gy+.5)*dotH;
+    return {x:(px-totalW/2)/radius,y:(py-totalH/2)/radius};
+  }
+
+  function smoothMotion(dt){
+    const target=STATES[state];
+    const k=1-Math.exp(-dt*2.8);
+    for(const key of ['speed','energy','breath','warp','edge','glow','sat','light']){
+      motion[key]=lerp(motion[key],target[key],k);
+    }
+  }
+
+  function triggerExcitation(amount=.72,synthetic=false){
+    const amp=clamp(amount,.18,1);
+    pulses.push({
+      born:t,
+      amp,
+      speed:.58+Math.random()*.14,
+      width:.090+Math.random()*.038,
+      drift:(Math.random()-.5)*.14,
+      seed:Math.random()*20
+    });
+    if(pulses.length>10) pulses.splice(0,pulses.length-10);
+
+    if(synthetic){
+      signal=Math.max(signal,.24+amp*.68);
+      exciteBtn.classList.remove('flash');
+      void exciteBtn.offsetWidth;
+      exciteBtn.classList.add('flash');
+      setTimeout(()=>exciteBtn.classList.remove('flash'),180);
+    }
+  }
+
+  function pulseInfo(r){
+    let shell=0,core=0,edge=0;
+    for(const pulse of pulses){
+      const age=t-pulse.born;
+      if(age<0) continue;
+      const radius=-.06+age*pulse.speed;
+      const life=Math.exp(-Math.max(0,age-1.25)*2.5);
+      const localR=r+pulse.drift*Math.sin(r*5.4+pulse.seed+age*.7)*(1-r)*.28;
+      const band=Math.exp(-Math.pow((localR-radius)/pulse.width,2))*pulse.amp*life;
+      shell+=band;
+      core+=pulse.amp*Math.exp(-age*5.2)*Math.exp(-r*r/.055);
+      edge+=pulse.amp*Math.exp(-Math.pow((radius-1.0)/.145,2))*life;
+    }
+    return {shell:clamp(shell),core:clamp(core),edge:clamp(edge)};
+  }
+
+  function prunePulses(){
+    for(let i=pulses.length-1;i>=0;i--){
+      if(t-pulses[i].born>2.45) pulses.splice(i,1);
+    }
+  }
+
+  function readAnalyserLevel(){
+    if(!externalAnalyser) return null;
+    if(!analyserData || analyserData.length!==externalAnalyser.fftSize){
+      analyserData=new Uint8Array(externalAnalyser.fftSize);
+    }
+    externalAnalyser.getByteTimeDomainData(analyserData);
+    let sum=0;
+    for(let i=0;i<analyserData.length;i++){
+      const v=(analyserData[i]-128)/128;
+      sum+=v*v;
+    }
+    const rms=Math.sqrt(sum/analyserData.length);
+    return clamp(rms*4.2);
+  }
+
+  function updateSignal(dt){
+    let target;
+    const analyserLevel=state==='listening'?readAnalyserLevel():null;
+    if(analyserLevel!==null){
+      target=analyserLevel;
+    }else if(externalLevel!==null && state==='listening'){
+      target=clamp(externalLevel);
+    }else if(state==='muted'){
+      target=.018+.010*(.5+.5*Math.sin(t*.45));
+    }else if(state==='thinking'){
+      const pulse=.5+.5*Math.sin(t*1.18+Math.sin(t*.27));
+      target=.10+.10*pulse;
+    }else{
+      // Quiet synthetic speech envelope so the audio behavior remains visible without a mic.
+      const phrase=.5+.5*Math.sin(t*.73+.50*Math.sin(t*.19));
+      const syllable=.5+.5*Math.sin(t*2.45+1.2+.18*Math.sin(t*.31));
+      const accent=Math.max(0,Math.sin(t*5.1+.55))**7;
+      target=.10+.14*phrase+.08*syllable+.18*accent;
+    }
+
+    previousRaw=rawLevel;
+    rawLevel=clamp(target);
+    const attack=rawLevel>signal?10.5:4.4;
+    signal+=(rawLevel-signal)*(1-Math.exp(-dt*attack));
+
+    // Positive audio flux creates discrete pressure waves; refractory time prevents machine-gun rings.
+    const flux=Math.max(0,rawLevel-previousRaw);
+    if(state==='listening' && t-lastAutoExcitation>.12 && rawLevel>.13 && flux>.018){
+      triggerExcitation(clamp(.18+flux*5.8+rawLevel*.22,.16,.88));
+      lastAutoExcitation=t;
+    }
+
+    prunePulses();
+  }
+
+  function flowField(x,y){
+    const time=t*(.075+motion.speed*.18);
+    const qx=fbm3(x*.83+2.1,y*.83-1.7,time,3);
+    const qy=fbm3(x*.83-5.4,y*.83+3.2,time+7.8,3);
+    const rx=fbm3(x*1.38+qx*.82,y*1.38+qy*.82,time*1.27+11.4,4);
+    const ry=fbm3(x*1.38+qx*.82+8.6,y*1.38+qy*.82-4.9,time*1.19-3.7,4);
+    const fine=fbm3(x*2.65+rx*.30,y*2.65+ry*.30,time*1.61+2.2,3);
+    return {x:rx+.20*fine,y:ry-.17*fine,qx,qy};
+  }
+
+  function shapeAt(gx,gy){
+    const p=screenCoord(gx,gy);
+
+    const driftX=.020*fbm3(.3,.7,t*.065,3)+.010*Math.sin(t*.17+.4);
+    const driftY=.020*fbm3(7.1,2.6,t*.061+4.3,3)+.009*Math.cos(t*.15+.9);
+    let x=p.x-driftX;
+    let y=p.y-driftY;
+
+    const squash=.018*fbm3(1.2,8.4,t*.072,3)+motion.energy*.008*Math.sin(t*.33);
+    x/=1+squash;
+    y/=1-squash*.72;
+
+    const angle=Math.atan2(y,x);
+    const rawR=Math.hypot(x,y);
+
+    // Seamless circular fBm: sampling noise on cos/sin(angle) avoids a preferred rotation direction.
+    const edgeTime=t*(.055+motion.speed*.12);
+    const circleX=Math.cos(angle),circleY=Math.sin(angle);
+    const edgeLow=fbm3(circleX*1.23+2.8,circleY*1.23-4.1,edgeTime,4);
+    const edgeHigh=fbm3(circleX*2.35-6.7,circleY*2.35+1.9,edgeTime*1.31+5.4,3);
+    const breathing=motion.breath*(.45+.55*Math.sin(t*(.48+motion.speed*.20)))
+      +(state==='listening'?signal*.015:0);
+
+    const radius=1+breathing+motion.edge*(edgeLow*.92+edgeHigh*.34);
+    const d=rawR/radius;
+    if(d>1.26) return null;
+
+    // Particles need coordinates outside the body, so retain the point before surface projection.
+    if(d>1){
+      return {x,y,d,id:d,z:0,angle,normal:[x/(rawR||1),y/(rawR||1),0],outside:true};
+    }
+
+    const falloff=Math.pow(clamp(1-d),.42);
+    const flow=flowField(x,y);
+    const listenGain=state==='listening'?1:(state==='thinking'?.62:.28);
+    const wx=x+motion.warp*listenGain*(flow.x*.92+flow.qy*.22)*falloff;
+    const wy=y+motion.warp*listenGain*(flow.y*.92-flow.qx*.20)*falloff;
+
+    const id=Math.hypot(wx,wy)/radius;
+    const z=Math.sqrt(Math.max(0,1-Math.min(1,id*id)));
+    const normal=normalize3(wx/radius,wy/radius,z+.08);
+
+    return {x,y,wx,wy,d,id,z,angle,normal,falloff,flow,outside:false};
+  }
+
+  function themePair(){
+    // Every theme is intentionally restricted to two distant energy anchors.
+    // The first two `energies` entries were chosen as the strongest contrast pair
+    // (cyan/pink, cyan/red, green/red, light/dark in monochrome, etc.).
+    const source=theme.energies||theme.colors;
+    return [source[0],source[1]||source[0]];
+  }
+
+  function twoColorBoundary(field,disabled=false){
+    const colors=themePair();
+    const a=disabled?disabledColor(colors[0]):colors[0];
+    const b=disabled?disabledColor(colors[1]):colors[1];
+
+    // Keep each side essentially pure. Only a very narrow feather avoids a jagged
+    // digital seam while preserving a clearly readable two-color boundary.
+    const feather=.055;
+    if(field<=-feather) return a;
+    if(field>= feather) return b;
+    const u=clamp((field+feather)/(feather*2));
+    const smooth=u*u*(3-2*u);
+    return mix(a,b,smooth);
+  }
+
+  function energyRegionColor(s){
+    const time=t*(.052+motion.speed*.13);
+
+    // One domain-warped signed field creates exactly TWO large, evolving regions.
+    // No second classifier means no accidental third/fourth colors and far less
+    // gradient soup. The boundary itself drifts fluidly with the noise.
+    const qx=fbm3(s.wx*.78+1.7,s.wy*.78-3.8,time,3);
+    const qy=fbm3(s.wx*.78-5.6,s.wy*.78+2.4,time+6.3,3);
+    const field=.84*fbm3(s.wx*1.12+qx*.78+2.7,s.wy*1.12+qy*.78-1.9,time*1.08+4.1,4)
+      +.20*fbm3(s.wx*2.24-qy*.28,s.wy*2.24+qx*.28,time*1.43-2.3,3);
+    return twoColorBoundary(field,false);
+  }
+
+  function colorField(s){
+    if(state==='listening') return energyRegionColor(s);
+
+    const time=t*(.065+motion.speed*.16);
+    const q1=fbm3(s.wx*.95+1.3,s.wy*.95-4.7,time,4);
+    const q2=fbm3(s.wx*.95-6.2,s.wy*.95+2.9,time+8.1,4);
+    const broad=fbm3(s.wx*1.30+q1*.78,s.wy*1.30+q2*.78,time*1.17+13.2,4);
+    const detail=fbm3(s.wx*2.35+q2*.35,s.wy*2.35-q1*.35,time*1.46-5.8,3);
+    const field=broad*.90+detail*.18;
+
+    return twoColorBoundary(field,state==='muted');
+  }
+
+  function thinkingSweep(s){
+    // Travel over the spherical surface rather than across flat screen X.
+    // Constant longitude becomes a curved meridian in projection, so the band
+    // visibly hugs the orb as it crosses from left -> right.
+    const duration=1.82;
+    const phase=((t/duration)%1+1)%1;
+    const center=-1.46+phase*2.92;
+    const longitude=Math.atan2(s.normal[0],Math.max(.035,s.normal[2]));
+    const organic=.028*fbm3(s.normal[1]*2.1+3.1,t*.19,s.normal[0]*.8-2.2,3);
+    const d=longitude+organic-center;
+
+    // Wider main pulse with a broad shoulder and a restrained trailing echo.
+    const band=Math.exp(-Math.pow(d/.235,2));
+    const aura=Math.exp(-Math.pow(d/.43,2));
+    const trailing=Math.exp(-Math.pow((d+.34)/.27,2))*.24;
+    return {band:clamp(band),aura:clamp(aura),trailing:clamp(trailing)};
+  }
+
+  function sampleAt(gx,gy){
+    const s=shapeAt(gx,gy);
+    if(!s) return null;
+
+    const pulse=pulseInfo(Math.min(s.d,1.25));
+
+    if(s.outside){
+      // Sparse fluid particle halo. It is almost absent at rest, then blooms as a pulse reaches the edge.
+      const halo=clamp(1-(s.d-1)/.26);
+      const particleEnergy=clamp(.020+signal*.030+pulse.edge*1.18);
+      const drift=fbm3(s.x*7.2+t*.08,s.y*7.2-t*.06,t*.28+3.4,3);
+      const grain=.5+.5*fbm3(s.x*14.0-2.7,s.y*14.0+6.1,t*.50,2);
+      const particle=.62*(.5+.5*drift)+.38*grain;
+      const threshold=.915-particleEnergy*.34;
+      if(particle<threshold) return null;
+
+      const sparkle=clamp((particle-threshold)/(1-threshold+.0001));
+      const energyColors=theme.energies||theme.colors;
+      const base=energyColors[Math.floor(clamp(.5+.5*drift)*energyColors.length)%energyColors.length];
+      const color=mix(base,theme.white,.24+.54*pulse.edge);
+      const intensity=(.14+.62*particleEnergy)*halo*(.42+.58*sparkle);
+      return {intensity:clamp(intensity),color};
+    }
+
+    const key=normalize3(-.68,-.56,1.0);
+    const fill=normalize3(.45,.16,.72);
+    const kd=Math.max(0,dot(s.normal,key));
+    const fd=Math.max(0,dot(s.normal,fill));
+    const rim=Math.pow(1-Math.max(0,s.normal[2]),1.65);
+    const spec=Math.pow(Math.max(0,dot(s.normal,normalize3(-.31,-.25,1))),20);
+
+    let color=colorField(s);
+
+    const core=Math.pow(clamp(s.z),4.0)*(.07+.11*motion.glow);
+    const highlight=Math.pow(kd,4.5)*(.13+.20*motion.glow)+spec*(.10+.24*motion.glow);
+    const audioLift=state==='listening'
+      ? signal*(.045+.13*Math.pow(clamp(s.z),2.6))
+        +Math.pow(pulse.shell,.72)*.76
+        +Math.pow(pulse.core,.78)*.62
+      : 0;
+    color=mix(color,theme.white,clamp(core+highlight+audioLift,0,.965));
+
+    const edgeShade=clamp((s.d-.61)/.46);
+    color=mix(color,theme.deep,edgeShade*(state==='muted'?.58:.34));
+    color=mix(color,theme.rim,rim*.065*motion.glow);
+
+    let intensity=.18+.43*kd+.15*fd+.18*s.z+.07*motion.glow+spec*.16;
+
+    if(state==='muted'){
+      intensity*=.57;
+      color=mix(color,theme.deep,.18);
+    }
+
+    if(state==='thinking'){
+      const sweep=thinkingSweep(s);
+      intensity+=sweep.band*.48+sweep.aura*.085+sweep.trailing*.055;
+      color=mix(color,theme.white,clamp(sweep.band*.72+sweep.aura*.10+sweep.trailing*.075,0,.80));
+    }
+
+    if(state==='listening'){
+      // Audio is luminance-first: bright core followed by an unmistakable near-white
+      // pressure shell. The field geometry remains fluid instead of scaling like a ball.
+      intensity+=signal*(.055+.10*Math.pow(clamp(s.z),2.4));
+      intensity+=Math.pow(pulse.shell,.70)*.70+Math.pow(pulse.core,.76)*.44;
+    }
+
+    return {intensity:clamp(intensity),color};
+  }
+
+  function thresholdAt(gx,gy){return (BAYER8[gy&7][gx&7]+.5)/64}
+
+  function render(){
+    let html='';
+    for(let cy=0;cy<ROWS;cy++){
+      for(let cx=0;cx<COLS;cx++){
+        let mask=0,count=0,sr=0,sg=0,sb=0;
+
+        for(let dy=0;dy<4;dy++){
+          for(let dx=0;dx<2;dx++){
+            const gx=cx*2+dx,gy=cy*4+dy;
+            const sample=sampleAt(gx,gy);
+            if(!sample) continue;
+
+            const shaped=clamp((sample.intensity-.34)*1.43+.50);
+            if(shaped>thresholdAt(gx,gy)) mask|=BITS[dy][dx];
+
+            sr+=sample.color[0];
+            sg+=sample.color[1];
+            sb+=sample.color[2];
+            count++;
+          }
+        }
+
+        if(!count){
+          html+=braille(0);
+        }else{
+          const color=[Math.round(sr/count),Math.round(sg/count),Math.round(sb/count)];
+          html+=`<span style="color:${css(color)}">${braille(mask)}</span>`;
+        }
+      }
+      if(cy<ROWS-1) html+='\n';
+    }
+    orbEl.innerHTML=html;
+  }
+
+  function updateCssEnergy(){
+    const edge=pulseInfo(1).edge;
+    const root=document.documentElement;
+    root.style.setProperty('--audio-energy',signal.toFixed(3));
+    root.style.setProperty('--edge-energy',edge.toFixed(3));
+    root.style.setProperty('--aura-scale',(.95+edge*.12).toFixed(3));
+    root.style.setProperty('--aura-opacity',(.22+signal*.16+edge*.25).toFixed(3));
+    root.style.setProperty('--aura-core',`${(8+signal*8).toFixed(2)}%`);
+    root.style.setProperty('--aura-edge',`${(3+edge*10).toFixed(2)}%`);
+    root.style.setProperty('--shell-haze',`${(7+signal*4).toFixed(2)}%`);
+  }
+
+  function setState(next){
+    if(!STATES[next]) return;
+    state=next;
+    for(const [name,button] of Object.entries(buttons)){
+      button.classList.toggle('active',name===state);
+    }
+    stateLabel.textContent=STATES[state].label.toUpperCase();
+    stateName.textContent=STATES[state].label;
+    stateDescription.textContent=STATES[state].description;
+    applyThemeCss();
+  }
+
+  function applyThemeCss(){
+    const root=document.documentElement;
+    root.style.setProperty('--bg',theme.bg);
+    root.style.setProperty('--bg2',theme.bg2);
+    root.style.setProperty('--panel',theme.panel);
+    root.style.setProperty('--panel2',theme.panel2);
+    root.style.setProperty('--line',theme.line);
+    root.style.setProperty('--fg',theme.fg);
+    root.style.setProperty('--muted',theme.muted);
+    const energies=theme.energies||theme.colors;
+    const accent=state==='muted'?disabledColor(energies[0]):energies[0];
+    const accent2=state==='muted'?disabledColor(energies[Math.min(1,energies.length-1)]):energies[Math.min(1,energies.length-1)];
+    root.style.setProperty('--accent',css(accent));
+    root.style.setProperty('--accent2',css(accent2));
+  }
+
+  function setTheme(name){
+    if(!THEMES[name]) return;
+    themeName=name;
+    theme=THEMES[name];
+    themeSelect.value=name;
+    applyThemeCss();
+  }
+
+  Object.entries(buttons).forEach(([name,button])=>{
+    button.addEventListener('click',()=>setState(name));
+  });
+
+  themeSelect.addEventListener('change',()=>setTheme(themeSelect.value));
+  exciteBtn.addEventListener('click',()=>{
+    if(state!=='listening') setState('listening');
+    triggerExcitation(.82+Math.random()*.18,true);
+  });
+
+  // Integration points for the host app:
+  //   window.setOrbAudioLevel(0..1)  -> feeds the listening envelope directly
+  //   window.setOrbAudioLevel(null)  -> returns to analyser/synthetic input
+  //   window.setOrbAnalyser(analyser)-> samples any existing Web Audio AnalyserNode (no mic UI here)
+  //   window.exciteOrb(0..1)         -> creates a center-to-edge pressure wave
+  //   window.setOrbState('muted'|'thinking'|'listening')
+  //   window.setOrbTheme('tokyo'|'monochrome'|'dracula'|'nord'|'gruvbox'|'solarized'|'catppuccin'|'monokai')
+  window.setOrbAudioLevel=value=>{
+    externalLevel=(value===null||value===undefined)?null:clamp(Number(value)||0);
+  };
+  window.setOrbAnalyser=analyser=>{
+    externalAnalyser=analyser||null;
+    analyserData=externalAnalyser?new Uint8Array(externalAnalyser.fftSize):null;
+  };
+  window.exciteOrb=amount=>triggerExcitation(amount===undefined?.90:Number(amount)||.18,true);
+  window.setOrbState=setState;
+  window.setOrbTheme=setTheme;
+
+  measure();
+  setTheme(themeName);
+  setState(state);
+  triggerExcitation(.62);
+
+  function loop(ts){
+    requestAnimationFrame(loop);
+    if(ts-last<1000/FPS) return;
+
+    const dt=Math.min((ts-last)/1000,.05)||1/FPS;
+    last=ts;
+    t+=dt;
+
+    smoothMotion(dt);
+    updateSignal(dt);
+    updateCssEnergy();
+    render();
+  }
+
+  window.addEventListener('resize',measure,{passive:true});
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

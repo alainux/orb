@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Matrix Orb</title>
+<style>
+:root{
+  --bg:#020503;
+  --bg2:#08110a;
+  --panel:#07100a;
+  --line:#12301b;
+  --fg:#b9ffb3;
+  --muted:#5ca266;
+  --green:#73ff7c;
+  --green2:#38d964;
+  --green3:#baffc5;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:radial-gradient(circle at 50% 10%,#0b160d 0,#020503 48rem);color:var(--fg)}
+body{font-family:"CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono","SFMono-Regular",Consolas,monospace}
+.app{max-width:1100px;margin:22px auto;padding:0 14px}
+.shell{overflow:hidden;border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,rgba(6,13,8,.97),rgba(2,7,4,.99));box-shadow:0 24px 80px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.03)}
+.bar,.footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;background:rgba(1,5,2,.58);color:var(--muted);font-size:11px}
+.bar{border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.06em}.footer{border-top:1px solid var(--line)}
+.bar strong,.footer strong{color:var(--fg);font-weight:500}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 310px}
+.stage{position:relative;min-width:0;padding:18px 18px 14px}
+.controls{border-left:1px solid var(--line);background:rgba(4,10,5,.54);padding:14px}
+.prompt{font-size:12px;line-height:1.6;color:var(--muted)}.prompt b{color:var(--green);font-weight:500}.ok{color:var(--green3)}
+.orb-wrap{position:relative;display:flex;align-items:center;justify-content:center;min-height:540px;overflow:hidden}
+.rain{position:absolute;inset:0;overflow:hidden;pointer-events:none;opacity:.32;mask-image:radial-gradient(circle at 50% 47%,transparent 0,transparent 18%,black 52%,transparent 84%)}
+.rain span{position:absolute;top:-12%;font-size:14px;line-height:1;color:#8aff8d;opacity:.48;white-space:pre;animation:fall linear infinite}
+@keyframes fall{from{transform:translateY(-6%)}to{transform:translateY(122%)}}
+.aura{position:absolute;left:50%;top:47%;width:min(68vw,520px);aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;filter:blur(42px);opacity:.24;background:radial-gradient(circle,rgba(255,255,255,.05),rgba(115,255,124,.12) 25%,rgba(56,217,100,.08) 42%,transparent 74%);pointer-events:none}
+#frame{position:relative;z-index:1;margin:0;white-space:pre;font:21px/1 "CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono",monospace;letter-spacing:0;user-select:none;text-shadow:0 0 6px currentColor,0 0 16px color-mix(in srgb,currentColor 28%,transparent)}
+#probe{position:absolute;visibility:hidden;pointer-events:none;white-space:pre;font:21px/1 "CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono",monospace}
+.copy{text-align:center;min-height:56px}.copy strong{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:500}.copy span{display:block;margin-top:6px;color:var(--muted);font-size:10px;line-height:1.55}
+.section{margin-top:16px}.section:first-child{margin-top:0}.section-title{font-size:10px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:7px}
+.preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+button,select,input{font:inherit}
+button,select{border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);font-size:10px;padding:8px 9px;cursor:pointer}
+button:hover,select:hover{border-color:color-mix(in srgb,var(--green) 45%,var(--line))}
+button.active{border-color:var(--green);color:var(--green);box-shadow:0 0 15px rgba(115,255,124,.09)}
+button.warm.active{border-color:var(--green3);color:var(--green3)}
+select{width:100%}.row{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.ctrl{margin-top:11px}.ctrl label{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:var(--muted);margin-bottom:5px}.ctrl output{color:var(--green)}
+input[type=range]{width:100%;accent-color:var(--green)}
+.readout{border-left:2px solid var(--line);padding:9px 10px;background:rgba(8,14,8,.62);font-size:10px;line-height:1.55;color:var(--muted)}.readout b{color:var(--fg);font-weight:500}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chip{border:1px solid var(--line);border-radius:999px;padding:3px 7px;font-size:9px;color:var(--muted)}
+@media(max-width:900px){.main{grid-template-columns:1fr}.controls{border-left:0;border-top:1px solid var(--line)}.orb-wrap{min-height:420px}}
+@media(max-width:620px){.app{margin:10px auto;padding:0 8px}.stage{padding:14px 8px}.orb-wrap{min-height:350px}#frame,#probe{font-size:17px}.bar,.footer{font-size:9px;flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="shell">
+    <span id="probe">0000000000</span>
+    <div class="bar"><span>ORB / matrix anomaly renderer</span><strong id="stateLabel">AWAKENING</strong></div>
+    <div class="main">
+      <main class="stage">
+        <div class="prompt"><span class="ok">●</span> glyph field online · <b>green code rain</b> · Braille raster carrier for a synthetic presence</div>
+        <div class="orb-wrap">
+          <div class="rain" id="rain"></div>
+          <div class="aura" id="aura"></div>
+          <pre id="frame" aria-label="Animated matrix-themed orb"></pre>
+        </div>
+        <div class="copy"><strong id="name">Awakening</strong><span id="desc">The field is gathering coherence. Strands of green signal begin to align into a sentient knot.</span></div>
+      </main>
+      <aside class="controls">
+        <div class="section">
+          <div class="section-title">Modes</div>
+          <div class="preset-grid" id="presetGrid">
+            <button data-preset="dormant">dormant</button>
+            <button data-preset="scanning">scanning</button>
+            <button data-preset="awakening" class="active">awakening</button>
+            <button data-preset="oracle">oracle</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Field</div>
+          <div class="row">
+            <select id="style" aria-label="Internal style">
+              <option value="rain">code rain</option>
+              <option value="grid">grid logic</option>
+              <option value="spiral">signal spiral</option>
+              <option value="lattice">agent lattice</option>
+            </select>
+            <select id="tint" aria-label="Tint">
+              <option value="matrix">matrix green</option>
+              <option value="phosphor">phosphor</option>
+              <option value="white">terminal white</option>
+            </select>
+          </div>
+          <div class="ctrl"><label>signal <output id="signalV">58</output></label><input id="signal" type="range" min="0" max="100" value="58"></div>
+          <div class="ctrl"><label>glitch <output id="glitchV">26</output></label><input id="glitch" type="range" min="0" max="100" value="26"></div>
+          <div class="ctrl"><label>density <output id="densityV">62</output></label><input id="density" type="range" min="0" max="100" value="62"></div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Events</div>
+          <div class="row"><button id="pulseBtn">pulse</button><button id="traceBtn">trace route</button></div>
+        </div>
+
+        <div class="section readout" id="readout"><b>Awakening</b><br>The code is no longer ambient background. It is condensing into an organized entity.</div>
+        <div class="section chips"><span class="chip">matrix palette</span><span class="chip">code rain particles</span><span class="chip">Braille raster</span><span class="chip">event waves</span><span class="chip">ambient glyph field</span></div>
+      </aside>
+    </div>
+    <div class="footer"><span><strong>Idea:</strong> the iconic code rain becomes both atmosphere and internal cognition structure.</span><span id="status">60 fps target · 30×15 cells</span></div>
+  </div>
+</div>
+<script>
+(()=>{
+const COLS=30,ROWS=15,W=COLS*2,H=ROWS*4,FPS=60;
+const BITS=[[1,8],[2,16],[4,32],[64,128]];
+const BAYER8=[[0,48,12,60,3,51,15,63],[32,16,44,28,35,19,47,31],[8,56,4,52,11,59,7,55],[40,24,36,20,43,27,39,23],[2,50,14,62,1,49,13,61],[34,18,46,30,33,17,45,29],[10,58,6,54,9,57,5,53],[42,26,38,22,41,25,37,21]];
+const PRESETS={
+  dormant:{desc:'Low activity. Residual machine life flickers in the dark, but nothing has fully resolved yet.',note:'A sleeping machine soul — almost off, but never empty.',signal:26,glitch:12,density:36,style:'grid'},
+  scanning:{desc:'The orb searches the field, sweeping vertical code bands through its interior like a live scan.',note:'This version feels investigative — attention is moving through the data stream.',signal:52,glitch:20,density:58,style:'rain'},
+  awakening:{desc:'The field is gathering coherence. Strands of green signal begin to align into a sentient knot.',note:'The classic Matrix fantasy: code assembling itself into a mind.',signal:58,glitch:26,density:62,style:'rain'},
+  oracle:{desc:'Bright, legible, and strangely calm. The entity is fully present and seems to see through the code.',note:'More presence than effect — the code serves a stable intelligence rather than obscuring it.',signal:74,glitch:14,density:70,style:'lattice'}
+};
+const TINTS={
+  matrix:[[77,255,102],[45,204,81],[186,255,198],[244,255,244],[3,8,4]],
+  phosphor:[[142,255,169],[94,231,131],[225,255,232],[252,255,253],[5,12,6]],
+  white:[[180,255,190],[170,220,180],[242,255,244],[255,255,255],[8,10,8]]
+};
+const el=id=>document.getElementById(id),frame=el('frame'),probe=el('probe'),aura=el('aura'),rain=el('rain');
+const signalEl=el('signal'),glitchEl=el('glitch'),densityEl=el('density'),styleEl=el('style'),tintEl=el('tint');
+let t=0,last=0,cellW=10,lineH=21,preset='awakening',signal=.58,glitch=.26,density=.62; const waves=[],traces=[];
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v)),lerp=(a,b,u)=>a+(b-a)*u,mix=(a,b,u)=>a.map((v,i)=>Math.round(lerp(v,b[i],u))),css=c=>`rgb(${c[0]},${c[1]},${c[2]})`,braille=m=>String.fromCodePoint(0x2800+m);
+const normalize=(x,y,z)=>{const m=Math.hypot(x,y,z)||1;return[x/m,y/m,z/m]},dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],smoothstep=(a,b,x)=>{const u=clamp((x-a)/(b-a||1));return u*u*(3-2*u)};
+const PERM=(()=>{const base=Array.from({length:256},(_,i)=>i);let s=0x9e3779b9;const rnd=()=>{s^=s<<13;s^=s>>>17;s^=s<<5;return(s>>>0)/4294967296};for(let i=255;i>0;i--){const j=Math.floor(rnd()*(i+1));[base[i],base[j]]=[base[j],base[i]]}return[...base,...base]})();
+const fade=n=>n*n*n*(n*(n*6-15)+10);function grad(h,x,y,z){h&=15;const u=h<8?x:y,v=h<4?y:(h===12||h===14?x:z);return((h&1)?-u:u)+((h&2)?-v:v)}
+function noise(x,y,z){const X=Math.floor(x)&255,Y=Math.floor(y)&255,Z=Math.floor(z)&255;x-=Math.floor(x);y-=Math.floor(y);z-=Math.floor(z);const u=fade(x),v=fade(y),w=fade(z),A=PERM[X]+Y,AA=PERM[A]+Z,AB=PERM[A+1]+Z,B=PERM[X+1]+Y,BA=PERM[B]+Z,BB=PERM[B+1]+Z;const x1=lerp(grad(PERM[AA],x,y,z),grad(PERM[BA],x-1,y,z),u),x2=lerp(grad(PERM[AB],x,y-1,z),grad(PERM[BB],x-1,y-1,z),u),y1=lerp(x1,x2,v),x3=lerp(grad(PERM[AA+1],x,y,z-1),grad(PERM[BA+1],x-1,y,z-1),u),x4=lerp(grad(PERM[AB+1],x,y-1,z-1),grad(PERM[BB+1],x-1,y-1,z-1),u);return lerp(y1,lerp(x3,x4,v),w)}
+function fbm(x,y,z,o=4){let v=0,a=.55,f=1,n=0;for(let i=0;i<o;i++){v+=noise(x*f,y*f,z*f)*a;n+=a;a*=.5;f*=2.03}return v/(n||1)}
+function measure(){const r=probe.getBoundingClientRect();cellW=r.width/10||10;lineH=parseFloat(getComputedStyle(frame).lineHeight)||21}
+function coord(gx,gy){const dw=cellW/2,dh=lineH/4,tw=W*dw,th=H*dh,R=Math.min(tw,th)*.39;return{x:((gx+.5)*dw-tw/2)/R,y:((gy+.5)*dh-th/2)/R}}
+function addWave(amp=.7){waves.push({born:t,amp,speed:.53+Math.random()*.18,width:.085+Math.random()*.055});if(waves.length>10)waves.shift()}
+function addTrace(){traces.push({born:t,phase:Math.random()*6.28,amp:.7+Math.random()*.2});if(traces.length>6)traces.shift()}
+function waveAt(r){let shell=0,edge=0,core=0;for(const w of waves){const age=t-w.born,rr=-.05+age*w.speed,life=Math.exp(-Math.max(0,age-1.2)*2.3),b=Math.exp(-Math.pow((r-rr)/w.width,2))*w.amp*life;shell+=b;core+=w.amp*Math.exp(-age*5.1)*Math.exp(-r*r/.055);edge+=w.amp*Math.exp(-Math.pow((rr-1)/.13,2))*life}return{shell:clamp(shell),edge:clamp(edge),core:clamp(core)}}
+function traceAt(x,y){let v=0;for(const tr of traces){const age=t-tr.born;if(age<0)continue;const px=.7*Math.sin(age*1.4+tr.phase),py=.4*Math.cos(age*1.1+tr.phase*1.3),d=Math.hypot(x-px,y-py),spark=Math.exp(-d*d/.018)*Math.exp(-age*.45);v+=spark*tr.amp}return clamp(v)}
+function setPreset(key){preset=key;const p=PRESETS[key];document.querySelectorAll('[data-preset]').forEach(b=>b.classList.toggle('active',b.dataset.preset===key));el('stateLabel').textContent=key.toUpperCase();el('name').textContent=key[0].toUpperCase()+key.slice(1);el('desc').textContent=p.desc;el('readout').innerHTML=`<b>${el('name').textContent}</b><br>${p.note}`;signalEl.value=p.signal;glitchEl.value=p.glitch;densityEl.value=p.density;styleEl.value=p.style;syncControls();if(key==='oracle')addTrace();}
+function syncControls(){signal=+signalEl.value/100;glitch=+glitchEl.value/100;density=+densityEl.value/100;el('signalV').textContent=signalEl.value;el('glitchV').textContent=glitchEl.value;el('densityV').textContent=densityEl.value}
+function buildRain(){const chars='01アイウエオカキクケコサシスセソABCDEFGHIJKLMNOPQRSTUVWXYZ';rain.innerHTML='';for(let i=0;i<32;i++){const span=document.createElement('span');let text='';const len=8+Math.floor(Math.random()*14);for(let j=0;j<len;j++)text+=chars[Math.floor(Math.random()*chars.length)]+'\n';span.textContent=text;span.style.left=`${Math.random()*100}%`;span.style.animationDuration=`${7+Math.random()*10}s`;span.style.animationDelay=`${-Math.random()*18}s`;span.style.opacity=(.18+Math.random()*.35).toFixed(2);span.style.fontSize=`${11+Math.random()*5}px`;rain.appendChild(span)}}
+function sphereSample(gx,gy){const p=coord(gx,gy),r=Math.hypot(p.x,p.y),ang=Math.atan2(p.y,p.x);const deform=(.02+glitch*.06)*fbm(p.x*1.2,p.y*1.2,t*.14,3)+glitch*.05*Math.sin(ang*4+t*.8);const outer=1+.016*Math.sin(t*.55)+deform; if(r>outer+.28)return null; const d=r/(outer||1); if(d>1)return{outside:true,x:p.x,y:p.y,d}; const x=p.x/outer,y=p.y/outer,z=Math.sqrt(Math.max(0,1-x*x-y*y)),n=normalize(x,y,z),lon=Math.atan2(n[0],Math.max(.001,n[2])),lat=Math.asin(clamp(n[1],-1,1)); return{outside:false,x,y,z,d,n,lon,lat,ang}}
+function styleValue(s){const time=t*(.06+.16*signal),qx=fbm(s.x*.95+2.1,s.y*.95-3.6,time,3),qy=fbm(s.x*.95-4.2,s.y*.95+2.8,time+6.1,3); if(styleEl.value==='rain'){const stream=Math.sin((s.x+qx*.16)*3.0+s.y*.45)*.08;return Math.sin((s.x+stream)*.7 + (s.y*7.2) - time*(2.4+signal*1.5) + qx*.4)*.82 + .16*qy;} if(styleEl.value==='grid'){return Math.sin(s.x*7.0+time*1.1)*.42 + Math.sin(s.y*7.4-time*1.6)*.42 + .18*qx;} if(styleEl.value==='spiral'){return Math.sin(s.ang*4.0 + s.d*9.0 - time*(1.8+signal) + qx*.8)*.78 + .16*qy;} const a=Math.exp(-Math.pow(Math.sin(s.lon*5.2+time*.7+qx),2)/.045),b=Math.exp(-Math.pow(Math.sin(s.lat*5.0-time*.5+qy),2)/.05); return (a+b)-.76;}
+function paletteColor(v){const P=TINTS[tintEl.value],u=smoothstep(-.42,.42,v);let c=mix(P[1],P[0],u);if(v>.35)c=mix(c,P[2],clamp((v-.35)*.9));return c}
+function sample(gx,gy){const s=sphereSample(gx,gy); if(!s)return null; const P=TINTS[tintEl.value]; if(s.outside){ const halo=clamp(1-(s.d-1)/.28),w=waveAt(Math.min(s.d,1.25)),cloud=.5+.5*fbm(s.x*8+t*.06,s.y*8-t*.05,t*.3,3),threshold=.95-(signal*.08+w.edge*.26+density*.06); if(cloud<threshold)return null; let c=mix(P[1],P[0],cloud); c=mix(c,P[2],w.edge*.40); return {intensity:(.13+.34*signal+.40*w.edge)*halo,color:c}; }
+  let v=styleValue(s), color=paletteColor(v), intensity=.17; const key=normalize(-.72,-.54,1),fill=normalize(.32,.12,.72), kd=Math.max(0,dot(s.n,key)), fd=Math.max(0,dot(s.n,fill)), rim=Math.pow(1-Math.max(0,s.n[2]),1.55), spec=Math.pow(Math.max(0,dot(s.n,normalize(-.25,-.18,1))),22); intensity+=.37*kd+.13*fd+.18*s.z+.11*signal+spec*.16; color=mix(color,P[3],clamp(.05*s.z+.18*spec,0,.34)); const w=waveAt(s.d); intensity+=w.shell*.46+w.core*.24; color=mix(color,P[3],clamp(w.shell*.38+w.core*.26,0,.62));
+  const scan=Math.exp(-Math.pow((s.x-.7*Math.sin(t*.62))/.12,2))*Math.exp(-Math.pow(s.y/.9,2)); if(preset==='scanning'){intensity+=scan*.18; color=mix(color,P[2],scan*.22);} const spark=traceAt(s.x,s.y); if(spark>0){intensity+=spark*.42; color=mix(color,P[3],spark*.62);} if(preset==='oracle'){ const serenity=Math.exp(-Math.pow(Math.sin(s.lon*2.4+s.lat*1.2-t*.42),2)/.09); intensity+=serenity*.12; color=mix(color,P[2],serenity*.14);} if(preset==='dormant'){ intensity*=.72; color=mix(color,P[4],.18);} color=mix(color,P[1],rim*.08); color=mix(color,P[4],clamp((s.d-.66)/.46)*(.18+.16*glitch)); return {intensity:clamp(intensity),color}; }
+function threshold(gx,gy){return(BAYER8[gy&7][gx&7]+.5)/64}
+function render(){let html='';for(let cy=0;cy<ROWS;cy++){for(let cx=0;cx<COLS;cx++){let mask=0,count=0,sr=0,sg=0,sb=0;for(let dy=0;dy<4;dy++)for(let dx=0;dx<2;dx++){const gx=cx*2+dx,gy=cy*4+dy,q=sample(gx,gy);if(!q)continue;const shaped=clamp((q.intensity-.34)*1.44+.5);if(shaped>threshold(gx,gy))mask|=BITS[dy][dx];sr+=q.color[0];sg+=q.color[1];sb+=q.color[2];count++}if(!count)html+=braille(0);else html+=`<span style="color:${css([Math.round(sr/count),Math.round(sg/count),Math.round(sb/count)])}">${braille(mask)}</span>`}if(cy<ROWS-1)html+='\n'}frame.innerHTML=html;const edge=waveAt(1).edge;aura.style.transform=`translate(-50%,-50%) scale(${1+edge*.08+signal*.03})`;aura.style.opacity=(.14+.14*signal+.18*edge).toFixed(2);el('status').textContent=`60 fps target · ${COLS}×${ROWS} cells · ${preset}`}
+document.querySelectorAll('[data-preset]').forEach(b=>b.addEventListener('click',()=>setPreset(b.dataset.preset)));
+[signalEl,glitchEl,densityEl].forEach(x=>x.addEventListener('input',syncControls));styleEl.addEventListener('change',render);tintEl.addEventListener('change',render);el('pulseBtn').addEventListener('click',()=>addWave(.82));el('traceBtn').addEventListener('click',()=>{addTrace(); if(preset!=='oracle') setPreset('oracle');});
+measure();buildRain();setPreset('awakening');addWave(.28);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{measure();render()});window.addEventListener('resize',()=>{measure();render()},{passive:true});
+function loop(ts){requestAnimationFrame(loop); if(ts-last<1000/FPS)return; const dt=Math.min((ts-last)/1000,.05)||1/FPS; last=ts; t+=dt; for(let i=waves.length-1;i>=0;i--) if(t-waves[i].born>2.7) waves.splice(i,1); for(let i=traces.length-1;i>=0;i--) if(t-traces[i].born>3.2) traces.splice(i,1); render(); }
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

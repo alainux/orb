@@ -3,13 +3,16 @@ import type { VoiceSource } from "./types.js";
 export type OrbLayer = "none" | "mistA" | "mistB" | "mistC" | "filament";
 
 /**
- * Orb animation states. Every state renders the same fixed full sphere of
- * dots (the lab's negative-space technique) and carves the same traveling
- * wave pattern out of it; the states differ only in color identity (see
- * widget.ts): `smoke` (listening) is the calm themed gradient, `composing`
- * (speaking) the bright audio envelope with white-hot flares, and `searching`
- * (thinking) a calmer, cooler look. The sphere is never rotated as a rigid
- * body — the wave travels by phase.
+ * Orb animation states. Every mode renders the same living sphere — a fluid,
+ * domain-warped particle field whose color is a signed noise field over the
+ * surface (see the site labs: site/orb-3d.html's two-energy-region listening
+ * look, site/presence.html's soul signature). The modes differ in motion
+ * parameters (speed/breath/warp/edge/glow) and color behavior in widget.ts:
+ * `smoke` (idle) is the calm continuous presence drift, `composing` (talking)
+ * the audio-reactive two-region sphere with white pressure blooms, and
+ * `searching` (thinking) the calmer look with a broad cognition pulse
+ * sweeping the sphere. The sphere is never rotated as a rigid body — the
+ * noise fields travel by the clock phase instead.
  */
 export type OrbMode = "smoke" | "composing" | "searching";
 
@@ -23,6 +26,14 @@ export interface OrbCell {
   density: number;
   glyph: string;
   layer: OrbLayer;
+  /**
+   * Energy-anchor selector 0..1: where the cell sits on the signed
+   * domain-warped field that colors the sphere. The widget maps it onto the
+   * theme's two energy anchors (primary accent → secondary violet) with a
+   * mode-dependent boundary feather — 0 and 1 are the two pure anchors, and
+   * values near 0.5 sit on the drifting boundary between regions.
+   */
+  identity: number;
 }
 
 export interface OrbFrame {
@@ -30,7 +41,7 @@ export interface OrbFrame {
   agentEnergy: number;
   energy: number;
   source: VoiceSource;
-  /** Continuous animation clock in seconds — always advances (the base wave keeps traveling even while muted). */
+  /** Continuous animation clock in seconds — always advances (the noise fields keep flowing even while muted). */
   t?: number;
   /** Sharp attack transient: spikes when audio jumps, decays at ~8/s. */
   transient?: number;
@@ -49,7 +60,7 @@ export interface OrbRaster {
   cells: OrbCell[];
 }
 
-const EMPTY_CELL: OrbCell = Object.freeze({ coverage: 0, shade: 0, filament: 0, density: 0, glyph: "", layer: "none" });
+const EMPTY_CELL: OrbCell = Object.freeze({ coverage: 0, shade: 0, filament: 0, density: 0, glyph: "", layer: "none", identity: 0 });
 
 /**
  * Where each rendered layer sits on the Orb's theme gradient. The gradient is
@@ -90,8 +101,8 @@ export class OrbMotion {
     this.lastMs = nowMs;
 
     // While muted the mic is dead: the user cannot drive the field, so the
-    // base wave keeps traveling but nothing reacts to input. Agent playback
-    // keeps animating.
+    // noise keeps flowing but nothing reacts to input. Agent playback keeps
+    // animating.
     const userTarget = muted ? 0 : clamp((inputRms - 0.006) / 0.12, 0, 1);
     let agentTarget = clamp((outputRms - 0.0035) / 0.17, 0, 1);
     if (agentSpeaking && agentTarget < 0.1) agentTarget = 0.1;
@@ -102,15 +113,15 @@ export class OrbMotion {
     const energy = Math.max(this.userEnergy, this.agentEnergy);
 
     // Attack transient (from the lab): spikes on sharp audio onsets and decays
-    // at ~8/s, driving the sharper surface vibration of the audio-reactive modes.
+    // at ~8/s, driving the sharper pressure waves of the audio-reactive modes.
     const rawTarget = Math.max(userTarget, agentTarget, Math.sqrt((userTarget * userTarget + agentTarget * agentTarget) * 0.55));
     const rawDelta = Math.max(0, rawTarget - this.prevTarget);
     this.transient = Math.max(rawDelta * 2.7, this.transient * Math.exp(-dt * 8));
     this.prevTarget = rawTarget;
 
-    // The base wave animation runs on a continuous clock that never stops:
-    // even muted, the carved grooves keep traveling over the sphere (only the
-    // audio-driven disturbance and color go dormant).
+    // The base field animation runs on a continuous clock that never stops:
+    // even muted, the domain-warped noise keeps flowing over the sphere (only
+    // the audio-driven response and color go dormant).
     this.elapsed += dt;
 
     let source: VoiceSource = "idle";
@@ -130,6 +141,9 @@ export class OrbRenderer {
   private fadeT = 1;
   private clockMs = 0;
   private rendered = false;
+  /** Center-to-edge pressure waves (the labs' pulses), born on audio onsets. */
+  private pulses: OrbPulse[] = [];
+  private lastPulseT = -10;
   constructor(
     private readonly densityScale = 1.08,
     /** Lab reactivity 0..1: how strongly audio energy drives motion and color. */
@@ -146,6 +160,13 @@ export class OrbRenderer {
   render(width: number, height: number, cellAspect: number, frame: OrbFrame, mode: OrbMode = "smoke", nowMs?: number): OrbRaster {
     const raster = this.prepareRaster(width, height, cellAspect, frame);
     if (!raster.radiusY) return raster;
+
+    // Pressure waves: sharp audio onsets (attack transients) birth center-to-
+    // edge pulses whose shell/core/edge contributions drive the audio bloom
+    // and the particle halo. A refractory window stops machine-gun rings.
+    // The queue is clock-driven, so identical render sequences stay
+    // deterministic (the labs' flux-triggered excitation).
+    if (frame.t !== undefined) this.updatePulses(frame.t, frame);
 
     // Crossfade bookkeeping: on a mode change, dissolve from the previous
     // mode's raster into the new one over ~0.55s (eased), so state switches
@@ -165,7 +186,7 @@ export class OrbRenderer {
     if (nowMs === undefined) {
       this.fadeFrom = null;
       this.fadeT = 1;
-      return this.renderMode(raster, frame);
+      return this.renderMode(raster, frame, this.lastMode);
     }
     if (this.fadeFrom !== null) {
       const dt = this.clockMs ? clamp((clock - this.clockMs) / 1000, 0, 1) : 0.016;
@@ -177,15 +198,15 @@ export class OrbRenderer {
         const w = smoothstep(0, 1, this.fadeT);
         const fromRaster = this.scratchRaster(raster, this.scratchA);
         const toRaster = this.scratchRaster(raster, this.scratchB);
-        this.renderMode(fromRaster, frame);
-        this.renderMode(toRaster, frame);
+        this.renderMode(fromRaster, frame, this.fadeFrom);
+        this.renderMode(toRaster, frame, this.lastMode);
         this.dissolve(fromRaster, toRaster, w);
         return raster;
       }
     } else {
       this.clockMs = clock;
     }
-    return this.renderMode(raster, frame);
+    return this.renderMode(raster, frame, this.lastMode);
   }
 
   /** Set up the raster geometry and reset the shared cell buffer. */
@@ -200,11 +221,13 @@ export class OrbRenderer {
     const energy = clamp(frame.energy, 0, 1);
     // Every mode renders a living sphere: even a silent room keeps an ambient
     // presence floor so the orb never collapses into a bland static field.
-    // Muted is exempt — the wave keeps traveling at its minimum, but the
-    // sphere stays compact rather than breathing with the room.
+    // Muted is exempt — the field keeps flowing at its minimum, but the
+    // sphere stays compact rather than breathing with the room. The base
+    // radius leaves headroom for the particle halo (pattern radius ~1.26),
+    // so the sparse rim particles stay inside the panel.
     const radiusEnergy = frame.muted ? 0 : clamp(0.34 + 0.66 * energy, 0, 1);
-    const baseRadiusY = maxRadiusY * 0.79;
-    const radiusY = Math.min(maxRadiusY * 0.97, baseRadiusY * (1 + 0.105 * radiusEnergy));
+    const baseRadiusY = maxRadiusY * 0.78;
+    const radiusY = Math.min(maxRadiusY * 0.8, baseRadiusY * (1 + 0.1 * radiusEnergy));
     const radiusX = radiusY * cellAspect;
     raster.centerX = (width - 1) / 2;
     raster.centerY = (height - 1) / 2;
@@ -245,7 +268,9 @@ export class OrbRenderer {
    * both keep a crossfaded shade while their glyph swaps at a per-cell
    * staggered point (golden-ratio hash), so the geometry morphs gradually
    * instead of the whole field popping at once; cells unique to either side
-   * fade their intensity in/out — a dissolve rather than a cut.
+   * fade their intensity in/out — a dissolve rather than a cut. The identity
+   * and bloom channels crossfade with the shade so the color identity morphs
+   * in step with the geometry.
    */
   private dissolve(from: OrbRaster, to: OrbRaster, w: number): void {
     const fromW = 1 - w;
@@ -264,7 +289,8 @@ export class OrbRenderer {
         const target = this.cells[i]!;
         target.coverage = src.coverage;
         target.shade = clamp(ca.shade * fromW + cb.shade * w, 0, 1);
-        target.filament = src.filament;
+        target.identity = clamp(ca.identity * fromW + cb.identity * w, 0, 1);
+        target.filament = clamp(ca.filament * fromW + cb.filament * w, 0, 1);
         target.density = src.density;
         target.glyph = src.glyph;
         target.layer = src.layer;
@@ -272,6 +298,7 @@ export class OrbRenderer {
         const target = this.cells[i]!;
         target.coverage = ca.coverage;
         target.shade = ca.shade * fromW;
+        target.identity = ca.identity;
         target.filament = ca.filament;
         target.density = ca.density;
         target.glyph = ca.glyph;
@@ -280,6 +307,7 @@ export class OrbRenderer {
         const target = this.cells[i]!;
         target.coverage = cb.coverage;
         target.shade = cb.shade * w;
+        target.identity = cb.identity;
         target.filament = cb.filament;
         target.density = cb.density;
         target.glyph = cb.glyph;
@@ -289,202 +317,340 @@ export class OrbRenderer {
   }
 
   /** Render the given mode's geometry into the raster's cell buffer. */
-  private renderMode(raster: OrbRaster, frame: OrbFrame): OrbRaster {
-    // Every mode renders the same living sphere with the same carved wave
-    // pattern (negative space — see the source-math Braille lab); the mode
-    // only selects the color identity (see widget.ts). Braille re-rasterizes
-    // at 2×4 subpixel resolution and packs each cell into a U+2800+mask glyph;
-    // glyph mode tests one sample per cell.
-    if (this.braille) return this.renderSurface(raster, frame, true);
-    return this.renderSurface(raster, frame, false);
+  private renderMode(raster: OrbRaster, frame: OrbFrame, mode: OrbMode): OrbRaster {
+    if (this.braille) return this.renderSurface(raster, frame, mode, true);
+    return this.renderSurface(raster, frame, mode, false);
   }
 
-  /** Reused subpixel field buffer — avoids a multi-KB allocation per frame. */
-  private brailleField: Float32Array | undefined;
-  /** Reused per-braille-cell material texture (object-space grain). */
-  private materialCache: Float32Array | undefined;
+  /** Reused per-cell buffers — no per-frame allocation. */
+  private cellRadius: Float32Array | undefined;
+  private cellIdentity: Float32Array | undefined;
+  private cellIntensity: Float32Array | undefined;
+  private cellBloom: Float32Array | undefined;
+  private cellEdge: Float32Array | undefined;
 
   /**
-   * Surface renderer — the orb's one visual language. Every mode draws the
-   * same full sphere of dots (the lab's negative-space technique from
-   * site/orb-braille-source-math-variations.html) and carves listening's
-   * traveling wave grooves out of it. The sphere is shaded by a real
-   * two-light model (a slowly drifting key light with a fixed fill): diffuse
-   * terminators put a dark side on the ball, a Phong highlight travels with
-   * the light, a fresnel rim lights the silhouette, and a coarse object-space
-   * material texture gives the surface a variegated sheen — the orb reads as
-   * a lit solid, not a flat circle. Microphone/voice energy widens the carved
-   * grooves and, once loud enough, physically pushes the surface: edge points
-   * explode outward along their normal and scatter tangentially, and the
-   * silhouette breaks apart into bright fringe particles beyond the circle.
-   * Muted and silent frames get none of that disturbance — the base wave
-   * keeps traveling at its minimum under the same light.
+   * Surface renderer — the orb's one visual language, ported from the new
+   * site labs (site/orb-3d.html's fluid listening field, site/presence.html's
+   * soul signature). The sphere is a positive-space particle field:
+   *
+   *  - SHAPE: a breathing, gently drifting, slightly squashed disk whose edge
+   *    is deformed by a seamless circular fBm (noise sampled on cos/sin of the
+   *    angle, so there is no preferred rotation direction). Interior sample
+   *    coordinates are displaced by a domain-warped flow field (nested fBm),
+   *    weighted toward the surface so the internal currents read through the
+   *    shading.
+   *  - COLOR: a signed domain-warped fBm field over the surface picks each
+   *    cell's identity between two energy anchors (primary ↔ secondary, see
+   *    widget.ts). Composing holds a crisp two-region boundary; smoke drifts
+   *    continuously; searching reads mid-way with a broad cognition pulse
+   *    sweeping the longitude (the labs' thinking sweep).
+   *  - LIGHT: the same two-light rig as before (drifting key + fixed fill +
+   *    Phong highlight + fresnel rim), but audio is luminance-first: mic
+   *    energy brightens the core and adds a near-white pressure bloom driven
+   *    by the pulse shell/core — the labs' listening look.
+   *  - HALO: outside the body a sparse particle halo lives (d up to ~1.26);
+   *    almost absent at rest, it blooms as a pressure pulse reaches the edge
+   *    and brightens with signal.
+   *  - DITHER: braille packs 2×4 subpixels per terminal cell with an 8×8
+   *    Bayer threshold — dot density conveys the shading instead of a fixed
+   *    0.24 cutoff.
    *
    * The sphere is deliberately NOT rotated as a rigid body: at terminal
-   * resolution, rotating point clouds alias into incoherent shimmer. Here the
-   * sphere stays fixed and the wave travels over its surface by phase, while
-   * only the LIGHT direction drifts — shadows and highlights move without
-   * rotating the point cloud, a motion that reads cleanly even in a 2×4
-   * subpixel grid.
+   * resolution, rotating point clouds alias into incoherent shimmer. Only the
+   * noise fields, the boundary, the sweep, and the light direction travel by
+   * clock phase. Muted frames get no audio terms (no pulses, no bloom) but
+   * the base field keeps flowing at its minimum.
    *
-   * In `sub` mode every terminal cell is split into 2×4 subpixels (Braille);
-   * otherwise each cell center is sampled directly (glyph mode). The surface
-   * is smooth below the subpixel grid, so per-subpixel shading keeps the look
-   * while per-row latitude work keeps the loop fast. The object-space material
-   * texture is coarse enough to be evaluated once per braille cell.
+   * Expensive noise is sampled once per terminal cell (subpixels within a
+   * cell are far below the noise scales that matter), while the per-subpixel
+   * pass stays cheap: d (inside/outside + halo), the Bayer threshold, and the
+   * sparse halo grain. That keeps braille within the widget's frame budget.
    */
-  private renderSurface(raster: OrbRaster, frame: OrbFrame, sub: boolean): OrbRaster {
-    const fw = raster.width * (sub ? 2 : 1);
-    const fh = raster.height * (sub ? 4 : 1);
-    const field = this.surfaceField(fw, fh);
-    const cx = raster.centerX * (sub ? 2 : 1);
-    const cy = raster.centerY * (sub ? 4 : 1);
-    const radiusX = raster.radiusX * (sub ? 2 : 1);
-    const radiusY = raster.radiusY * (sub ? 4 : 1);
-    const energy = clamp(frame.energy, 0, 1);
-    // Audio widens the carved grooves and drives the disturbance; muted
-    // frames get none of it, so the base wave keeps traveling at its minimum.
-    const audio = frame.muted ? 0 : clamp(energy * (0.4 + 0.6 * this.reactivity), 0, 1);
-    const transient = frame.muted ? 0 : clamp(frame.transient ?? 0, 0, 1);
+  private renderSurface(raster: OrbRaster, frame: OrbFrame, mode: OrbMode, sub: boolean): OrbRaster {
     const t = frame.t ?? 0;
-    // Disturbance: sustained loudness keeps the surface pushed apart, and
-    // attack transients snap it outward on audio peaks.
-    const disturb = clamp(Math.max(0, audio - 0.1) * 0.5 + transient * 0.9, 0, 1);
-    const lights = orbLights(t);
-    const widthScale = sub ? 1 : 4;
-    const edge = Math.min(0.18, 0.56 / radiusY);
-    const edgeMin = 1 - edge;
-    const edgeMax = 1 + edge;
-    const edgeMin2 = edgeMin * edgeMin;
-    const edgeMax2 = edgeMax * edgeMax;
-    const outer = 1 + disturb * 0.55;
-    const outer2 = outer * outer;
-    // The explode is a rim effect: displacement for interior points is
-    // imperceptible, so they stay on the quiet path (and the breakup ramps in
-    // smoothly from r≈0.5), keeping loud renders near the cost of quiet ones.
-    const disturbInner2 = 0.25;
-    // Material texture for braille: coarse object-space grain evaluated once
-    // per terminal cell (the 2×4 subpixels of one cell sit too close together
-    // to matter for a texture this large), so braille keeps ~all its speed.
-    const material = sub ? this.cellMaterial(raster, cx, cy, radiusX, radiusY, edgeMax2) : undefined;
-    for (let fy = 0; fy < fh; fy++) {
-      const ny = (fy - cy) / radiusY;
-      const lat0 = Math.asin(clamp(ny, -1, 1));
-      const row = fy * fw;
-      for (let fx = 0; fx < fw; fx++) {
-        const nx = (fx - cx) / radiusX;
-        const r2 = nx * nx + ny * ny;
-        if (disturb > 0.001 && r2 >= disturbInner2) {
-          // Disturbance: loud audio physically breaks the surface apart.
-          // Edge points explode outward along their normal and scatter
-          // tangentially (noise-shaped, so the breakup is irregular, not a
-          // ring), and points that blow past the silhouette survive as
-          // fringe particles beyond the circle — the orb's rim visually
-          // fragments on audio peaks.
-          if (r2 >= outer2) continue;
-          const r = Math.sqrt(r2);
-          const edgeF = smoothstep(0.12, 1, r);
-          // Ramp the breakup in smoothly toward the interior so the disturbed
-          // region blends into the untouched center without a seam.
-          const ramp = smoothstep(0.5, 0.7, r);
-          const noise =
-            0.58 * (0.5 + 0.5 * Math.sin(nx * 10.5 - ny * 7.4 + t * 10.8)) +
-            0.42 * (0.5 + 0.5 * Math.sin(nx * 17 + ny * 9 - t * 13.2));
-          const radial = disturb * ramp * (0.02 + 0.22 * edgeF) * (0.45 + 0.55 * noise);
-          const tangent = disturb * ramp * 0.1 * (0.25 + 0.75 * edgeF) * Math.sin(nx * 9 + ny * 6.5 + t * 15);
-          const wobble = disturb * ramp * 0.035 * Math.sin((nx - ny) * 11 - t * 9);
-          const inv = r > 1e-5 ? 1 / r : 1;
-          const ux = nx * inv;
-          const uy = ny * inv;
-          const tx = -uy;
-          const ty = ux;
-          const xs = nx + ux * radial + tx * tangent;
-          const ys = ny + uy * (radial * 0.95 + wobble) + ty * (tangent * 0.35);
-          const rs2 = xs * xs + ys * ys;
-          if (rs2 <= 1) {
-            let coverage = 1;
-            if (rs2 > edgeMin2) {
-              coverage = 1 - smoothstep(edgeMin, edgeMax, Math.sqrt(rs2));
-              if (coverage <= 0.02) continue;
-            }
-            const z = Math.sqrt(Math.max(0, 1 - rs2));
-            const lat = Math.asin(clamp(ys, -1, 1));
-            const lon = Math.atan2(xs, z);
-            if (carveWave(lat, lon, audio, transient, t, widthScale)) continue;
-            const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat, lon);
-            field[row + fx] = clamp(coverage * orbLighting(xs, ys, z, lights, mat, audio, transient, t), FIELD_FLOOR, 1);
-          } else if (rs2 <= outer2) {
-            // Fringe particle: this point blew past the silhouette. Clamp it
-            // back onto the sphere and keep it as a bright rim fragment whose
-            // strength fades with how far it escaped.
-            const rs = Math.sqrt(rs2);
-            const band = 1 - (rs - 1) / (outer - 1);
-            const chance = band * (0.52 + 0.48 * noise) + disturb * 0.22;
-            if (chance > 0.46) {
-              const c = 0.985 / Math.max(1e-5, rs);
-              const px = xs * c;
-              const py = ys * c;
-              const pz = Math.sqrt(Math.max(0, 1 - px * px - py * py));
-              const lat = Math.asin(clamp(py, -1, 1));
-              const lon = Math.atan2(px, pz);
-              const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat, lon);
-              const lit = orbLighting(px, py, pz, lights, mat, audio, transient, t);
-              field[row + fx] = clamp(band * (0.55 + 0.45 * band) * lit + 0.04, FIELD_FLOOR, 1);
-            }
-          }
-          continue;
-        }
-        // Quiet path: silent frames, or the undisturbed interior of a loud
-        // frame — no displacement, keep it as cheap as possible.
-        if (r2 >= edgeMax2) continue;
-        let coverage = 1;
-        if (r2 > edgeMin2) {
-          coverage = 1 - smoothstep(edgeMin, edgeMax, Math.sqrt(r2));
-          if (coverage <= 0.02) continue;
-        }
-        const z = Math.sqrt(Math.max(0, 1 - r2));
-        const lon = Math.atan2(nx, z);
-        if (carveWave(lat0, lon, audio, transient, t, widthScale)) continue;
-        const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat0, lon);
-        field[row + fx] = clamp(coverage * orbLighting(nx, ny, z, lights, mat, audio, transient, t), FIELD_FLOOR, 1);
-      }
-    }
-    if (sub) return packBraille(raster, field, fw, fh);
-    return fieldToRaster(raster, field);
+    const audio = frame.muted ? 0 : clamp(frame.energy * (0.4 + 0.6 * this.reactivity), 0, 1);
+    const params = modeMotion(mode);
+    // Cell-wide geometry + material: radius (breathing + seamless circular
+    // fBm edge), flow-warped coordinates, identity field, lighting/bloom,
+    // and the pulse edge that drives the halo.
+    this.computeCells(raster, frame, params, audio, t, mode);
+    if (sub) return this.packBraille(raster, t, audio);
+    return this.packGlyphs(raster, t, audio);
   }
 
   /**
-   * Coarse object-space material texture per braille cell, computed at each
-   * cell's center subpixel. The texture is a couple of low-frequency sines in
-   * the sphere's own coordinates, so it reads as static surface grain (never
-   * rotating with the light) and gives the otherwise-smooth shading a touch
-   * of personality.
+   * Braille pack: one terminal cell holds 2×4 subpixels; each subpixel lights
+   * its dot when the shaped intensity beats the 8×8 Bayer threshold (density-
+   * adjusted), so the shading reads as ordered-dithered dot density. Cells on
+   * the halo band sample sparse particles instead of the body. The cell's
+   * identity/bloom are averaged over its sampled subpixels; shade comes from
+   * the brightest lit subpixel.
    */
-  private cellMaterial(raster: OrbRaster, cx: number, cy: number, radiusX: number, radiusY: number, edgeMax2: number): Float32Array {
-    if (!this.materialCache || this.materialCache.length < raster.width * raster.height) {
-      this.materialCache = new Float32Array(raster.width * raster.height);
-    }
-    const m = this.materialCache;
-    for (let y = 0; y < raster.height; y++) {
-      const ny = (y * 4 + 2 - cy) / radiusY;
-      const lat = ny < -1 || ny > 1 ? 0 : Math.asin(ny);
-      for (let x = 0; x < raster.width; x++) {
-        const nx = (x * 2 + 1 - cx) / radiusX;
-        const r2 = nx * nx + ny * ny;
-        m[y * raster.width + x] = r2 >= edgeMax2 ? 0.5 : materialOf(lat, Math.atan2(nx, Math.sqrt(Math.max(0, 1 - r2))));
+  private packBraille(raster: OrbRaster, t: number, audio: number): OrbRaster {
+    const { width, height, cells, centerX, centerY, radiusX, radiusY } = raster;
+    const radius = this.cellRadius!;
+    const identity = this.cellIdentity!;
+    const intensity = this.cellIntensity!;
+    const bloom = this.cellBloom!;
+    const edge = this.cellEdge!;
+    const densityOffset = 0.05 * (this.densityScale - 1);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const index = y * width + x;
+        const cellRadius = radius[index] ?? 0;
+        if (cellRadius <= 0) continue;
+        const cellEdge = edge[index] ?? 0;
+        let mask = 0;
+        let count = 0;
+        let sumIdentity = 0;
+        let sumBloom = 0;
+        let max = 0;
+        for (let dy = 0; dy < 4; dy++) {
+          for (let dx = 0; dx < 2; dx++) {
+            const gx = x * 2 + dx;
+            const gy = y * 4 + dy;
+            const nx = (gx - centerX * 2) / (radiusX * 2);
+            const ny = (gy - centerY * 4) / (radiusY * 4);
+            const d = Math.hypot(nx, ny) / cellRadius;
+            if (d > 1.26) continue;
+            let v: number;
+            let id: number;
+            let bl: number;
+            if (d > 1) {
+              // Sparse particle halo — per-subpixel so it reads as particles.
+              const halo = 1 - (d - 1) / 0.26;
+              const particleEnergy = clamp(0.02 + audio * 0.03 + cellEdge * 1.18);
+              const drift = fbm3(nx * 7.2 + t * 0.08, ny * 7.2 - t * 0.06, t * 0.28 + 3.4, 3);
+              const grain = 0.5 + 0.5 * fbm3(nx * 14 - 2.7, ny * 14 + 6.1, t * 0.5, 2);
+              const particle = 0.62 * (0.5 + 0.5 * drift) + 0.38 * grain;
+              const threshold = 0.915 - particleEnergy * 0.34;
+              if (particle < threshold) continue;
+              const sparkle = clamp((particle - threshold) / (1 - threshold + 0.0001));
+              v = (0.14 + 0.62 * particleEnergy) * halo * (0.42 + 0.58 * sparkle);
+              id = clamp(0.5 + 0.5 * drift);
+              bl = clamp(0.15 + 0.6 * sparkle);
+            } else {
+              v = intensity[index] ?? 0;
+              id = identity[index] ?? 0;
+              bl = bloom[index] ?? 0;
+            }
+            const shaped = clamp((v - 0.34) * 1.43 + 0.5);
+            if (shaped > (BAYER8[gy & 7]![gx & 7]! + 0.5) / 64 - densityOffset) mask |= BRAILLE_BITS[dy]![dx]!;
+            count++;
+            sumIdentity += id;
+            sumBloom += bl;
+            if (v > max) max = v;
+          }
+        }
+        if (!mask) continue;
+        const target = cells[index]!;
+        target.coverage = 1;
+        target.density = max;
+        target.filament = count ? clamp(sumBloom / count, 0, 1) : 0;
+        target.shade = clamp(0.16 + 0.84 * max, 0, 1);
+        target.layer = max > 0.6 ? "filament" : max > 0.38 ? "mistA" : max > 0.16 ? "mistB" : "mistC";
+        target.identity = count ? clamp(sumIdentity / count, 0, 1) : 0.5;
+        target.glyph = BRAILLE_GLYPHS[mask]!;
       }
     }
-    return m;
+    return raster;
   }
 
-  /** Reused field buffer — grow-or-fill, no per-frame allocation. */
-  private surfaceField(fw: number, fh: number): Float32Array {
-    if (!this.brailleField || this.brailleField.length < fw * fh) {
-      this.brailleField = new Float32Array(fw * fh);
-    } else {
-      this.brailleField.fill(0);
+  /**
+   * Glyph-mode pack: one sample per terminal cell at its center; the cell
+   * mark scales with the sample intensity. Halo cells sample a single
+   * particle.
+   */
+  private packGlyphs(raster: OrbRaster, t: number, audio: number): OrbRaster {
+    const { width, height, cells, centerX, centerY, radiusX, radiusY } = raster;
+    const radius = this.cellRadius!;
+    const identity = this.cellIdentity!;
+    const intensity = this.cellIntensity!;
+    const bloom = this.cellBloom!;
+    const edge = this.cellEdge!;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const index = y * width + x;
+        const cellRadius = radius[index] ?? 0;
+        if (cellRadius <= 0) continue;
+        const nx = (x + 0.5 - centerX) / radiusX;
+        const ny = (y + 0.5 - centerY) / radiusY;
+        const d = Math.hypot(nx, ny) / cellRadius;
+        if (d > 1.26) continue;
+        let v: number;
+        let id: number;
+        let bl: number;
+        if (d > 1) {
+          const halo = 1 - (d - 1) / 0.26;
+          const particleEnergy = clamp(0.02 + audio * 0.03 + (edge[index] ?? 0) * 1.18);
+          const drift = fbm3(nx * 7.2 + t * 0.08, ny * 7.2 - t * 0.06, t * 0.28 + 3.4, 3);
+          const grain = 0.5 + 0.5 * fbm3(nx * 14 - 2.7, ny * 14 + 6.1, t * 0.5, 2);
+          const particle = 0.62 * (0.5 + 0.5 * drift) + 0.38 * grain;
+          const threshold = 0.915 - particleEnergy * 0.34;
+          if (particle < threshold) continue;
+          const sparkle = clamp((particle - threshold) / (1 - threshold + 0.0001));
+          v = (0.14 + 0.62 * particleEnergy) * halo * (0.42 + 0.58 * sparkle);
+          id = clamp(0.5 + 0.5 * drift);
+          bl = clamp(0.15 + 0.6 * sparkle);
+        } else {
+          v = intensity[index] ?? 0;
+          id = identity[index] ?? 0;
+          bl = bloom[index] ?? 0;
+        }
+        if (v <= 0.02) continue;
+        const target = cells[index]!;
+        target.coverage = 1;
+        target.density = v;
+        target.filament = clamp(bl, 0, 1);
+        target.shade = clamp(0.16 + 0.84 * v, 0, 1);
+        target.layer = v > 0.6 ? "filament" : v > 0.38 ? "mistA" : v > 0.16 ? "mistB" : "mistC";
+        target.identity = clamp(id, 0, 1);
+        target.glyph = pointGlyph(v, x, y);
+      }
     }
-    return this.brailleField;
+    return raster;
+  }
+
+  /**
+   * Per-cell geometry + material pass (one sample per terminal cell at its
+   * center): the breathing radius with the seamless circular fBm edge, the
+   * domain-warped flow displacement, the identity field, the two-light
+   * shading, the audio pressure bloom, and the thinking sweep. Everything
+   * below the noise scales is constant across a cell's 2×4 subpixels, so the
+   * per-subpixel pass only re-derives d, the Bayer threshold, and halo grain.
+   */
+  private computeCells(raster: OrbRaster, frame: OrbFrame, params: OrbMotionParams, audio: number, t: number, mode: OrbMode): void {
+    const { width, height, centerX, centerY, radiusX, radiusY } = raster;
+    const n = width * height;
+    this.cellRadius = growF32(this.cellRadius, n);
+    this.cellIdentity = growF32(this.cellIdentity, n);
+    this.cellIntensity = growF32(this.cellIntensity, n);
+    this.cellBloom = growF32(this.cellBloom, n);
+    this.cellEdge = growF32(this.cellEdge, n);
+    const radius = this.cellRadius!;
+    const identityOut = this.cellIdentity!;
+    const intensityOut = this.cellIntensity!;
+    const bloomOut = this.cellBloom!;
+    const edgeOut = this.cellEdge!;
+    const muted = frame.muted === true;
+
+    // Global drift and squash — pure time functions (the labs' shape terms).
+    const driftX = 0.02 * fbm3(0.3, 0.7, t * 0.065, 3) + 0.01 * Math.sin(t * 0.17 + 0.4);
+    const driftY = 0.02 * fbm3(7.1, 2.6, t * 0.061 + 4.3, 3) + 0.009 * Math.cos(t * 0.15 + 0.9);
+    const squash = 0.018 * fbm3(1.2, 8.4, t * 0.072, 3) + params.energy * 0.008 * Math.sin(t * 0.33);
+    const listenGain = mode === "composing" ? 1 : mode === "searching" ? 0.62 : 0.28;
+    const breathing = params.breath * (0.45 + 0.55 * Math.sin(t * (0.48 + params.speed * 0.2))) + (mode === "composing" ? audio * 0.015 : 0);
+
+    const key = normalize3(-0.68, -0.56, 1.0);
+    const fill = normalize3(0.45, 0.16, 0.72);
+    const specDir = normalize3(-0.31, -0.25, 1.0);
+
+    for (let y = 0; y < height; y++) {
+      const nyc = (y + 0.5 - centerY) / radiusY;
+      const row = y * width;
+      for (let x = 0; x < width; x++) {
+        const nxc = (x + 0.5 - centerX) / radiusX;
+        // Shape: drift, squash, then the seamless circular fBm edge.
+        const px = nxc - driftX;
+        const py = nyc - driftY;
+        const sx = px / (1 + squash);
+        const sy = py / (1 - squash * 0.72);
+        const rawR = Math.hypot(sx, sy);
+        const circleX = rawR > 1e-6 ? sx / rawR : 1;
+        const circleY = rawR > 1e-6 ? sy / rawR : 0;
+        const edgeTime = t * (0.055 + params.speed * 0.12);
+        const edgeLow = fbm3(circleX * 1.23 + 2.8, circleY * 1.23 - 4.1, edgeTime, 4);
+        const edgeHigh = fbm3(circleX * 2.35 - 6.7, circleY * 2.35 + 1.9, edgeTime * 1.31 + 5.4, 3);
+        const surfaceR = 1 + breathing + params.edge * (edgeLow * 0.92 + edgeHigh * 0.34);
+        const d = rawR / surfaceR;
+        radius[row + x] = d > 1.26 ? 0 : surfaceR;
+        if (d > 1.26) continue;
+
+        // Pulse edge at this cell's radius — drives the halo bloom.
+        edgeOut[row + x] = pulseInfo(this.pulses, t, Math.min(d, 1.25)).edge;
+
+        // Flow-warped interior sample (displacement toward the surface).
+        const falloff = Math.pow(clamp(1 - d), 0.42);
+        const flow = flowFieldAt(sx, sy, params, t);
+        const warp = params.warp * listenGain;
+        const wx = sx + warp * (flow.x * 0.92 + flow.qy * 0.22) * falloff;
+        const wy = sy + warp * (flow.y * 0.92 - flow.qx * 0.2) * falloff;
+        const id = Math.hypot(wx, wy) / surfaceR;
+        const z = Math.sqrt(Math.max(0, 1 - Math.min(1, id * id)));
+        const normal = normalize3(wx / surfaceR, wy / surfaceR, z + 0.08);
+
+        // Identity: signed domain-warped fBm field → energy-anchor selector.
+        identityOut[row + x] = identityFieldAt(wx, wy, params, t);
+
+        // Two-light shading (the labs' listening lighting).
+        const kd = Math.max(0, dot3(normal, key));
+        const fd = Math.max(0, dot3(normal, fill));
+        const rim = Math.pow(1 - Math.max(0, normal[2]), 1.65);
+        const spec = Math.pow(Math.max(0, dot3(normal, specDir)), 20);
+        const zc = clamp(z, 0, 1);
+
+        // Pulse shell/core at this cell's radius (audio pressure waves).
+        const pulse = pulseInfo(this.pulses, t, Math.min(d, 1.25));
+
+        let intensity = 0.18 + 0.43 * kd + 0.15 * fd + 0.18 * zc + 0.07 * params.glow + spec * 0.16;
+        let bloom = clamp(Math.pow(zc, 4) * (0.07 + 0.11 * params.glow) + Math.pow(kd, 4.5) * (0.13 + 0.2 * params.glow) + spec * (0.1 + 0.24 * params.glow), 0, 0.965);
+
+        if (mode === "composing") {
+          // Audio is luminance-first: bright core, then an unmistakable
+          // near-white pressure shell from the pulse waves.
+          bloom += audio * (0.045 + 0.13 * Math.pow(zc, 2.6)) + Math.pow(pulse.shell, 0.72) * 0.76 + Math.pow(pulse.core, 0.78) * 0.62;
+          intensity += audio * (0.055 + 0.1 * Math.pow(zc, 2.4)) + Math.pow(pulse.shell, 0.7) * 0.7 + Math.pow(pulse.core, 0.76) * 0.44;
+        } else if (mode === "searching") {
+          // Thinking: a broad cognition pulse sweeps the longitude meridian.
+          const sweep = thinkingSweep(normal, t);
+          intensity += sweep.band * 0.48 + sweep.aura * 0.085 + sweep.trailing * 0.055;
+          bloom += clamp(sweep.band * 0.72 + sweep.aura * 0.1 + sweep.trailing * 0.075, 0, 0.8);
+        }
+
+        if (muted) {
+          // Quiet presence: dimmed body, no bloom — the widget renders it gray.
+          intensity *= 0.57;
+          bloom *= 0.35;
+        }
+
+        // Depth / roundness: darken toward the rim (the lab's edge shading
+        // "mix(color, deep, edgeShade)"), so the sphere reads as a lit ball
+        // instead of a uniform bright disk — the depth cue also keeps the
+        // idle smoke from boiling into an even, over-bright glow.
+        const edgeDepth = 1 - clamp((d - 0.61) / 0.46, 0, 1) * (muted ? 0.58 : 0.34);
+
+        intensityOut[row + x] = clamp(intensity * edgeDepth, 0, 1);
+        bloomOut[row + x] = clamp(bloom * edgeDepth, 0, 1);
+      }
+    }
+  }
+
+  /**
+   * Birth and prune pressure pulses. A pulse is born when the attack
+   * transient spikes (audio onset) and the refractory window has passed —
+   * the labs' "positive audio flux creates discrete pressure waves". The
+   * jitter is derived from a hash of the clock, so the queue is deterministic
+   * for identical render sequences. Muted frames never birth pulses.
+   */
+  private updatePulses(t: number, frame: OrbFrame): void {
+    const transient = frame.muted ? 0 : clamp(frame.transient ?? 0, 0, 1);
+    if (transient > 0.4 && t - this.lastPulseT > 0.16) {
+      const h = hash01(Math.round(t * 50), this.pulses.length, 0x51e17);
+      this.pulses.push({
+        born: t,
+        amp: clamp(0.34 + transient * 0.6, 0.3, 1),
+        speed: 0.58 + h * 0.14,
+        width: 0.09 + h * 0.038,
+        drift: (hash01(Math.round(t * 50), this.pulses.length + 1, 0x61e17) - 0.5) * 0.14,
+        seed: h * 20,
+      });
+      this.lastPulseT = t;
+      if (this.pulses.length > 10) this.pulses.splice(0, this.pulses.length - 10);
+    }
+    for (let i = this.pulses.length - 1; i >= 0; i--) {
+      if (t - this.pulses[i]!.born > 2.45) this.pulses.splice(i, 1);
+    }
   }
 }
 
@@ -501,124 +667,213 @@ export function normalizedRadius(raster: OrbRaster, x: number, y: number): numbe
 }
 
 // ---------------------------------------------------------------------------
-// Negative-space surface features (site/orb-braille-source-math-variations.html)
+// Per-mode motion parameters (the labs' state vocabulary)
+// ---------------------------------------------------------------------------
+
+interface OrbMotionParams {
+  speed: number;
+  breath: number;
+  warp: number;
+  edge: number;
+  glow: number;
+  energy: number;
+}
+
+/**
+ * The labs define each state by a small set of motion parameters. Our three
+ * modes map onto the new site orbs' states: smoke ≈ presence (quiet, slow),
+ * composing ≈ listening (fast, warped, glowy, audio-driven), searching ≈
+ * thinking (fast field with the cognition sweep).
+ */
+function modeMotion(mode: OrbMode): OrbMotionParams {
+  switch (mode) {
+    case "composing":
+      return { speed: 0.3, breath: 0.047, warp: 0.118, edge: 0.058, glow: 1.0, energy: 0.74 };
+    case "searching":
+      return { speed: 0.42, breath: 0.03, warp: 0.072, edge: 0.038, glow: 0.74, energy: 0.44 };
+    default:
+      return { speed: 0.12, breath: 0.014, warp: 0.026, edge: 0.018, glow: 0.34, energy: 0.08 };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Seeded Perlin noise + fBm (the labs' field language)
+// ---------------------------------------------------------------------------
+
+const PERM = (() => {
+  const base = Array.from({ length: 256 }, (_, i) => i);
+  let seed = 0x9e3779b9;
+  const rand = () => {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return (seed >>> 0) / 4294967296;
+  };
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    const temp = base[i]!;
+    base[i] = base[j]!;
+    base[j] = temp;
+  }
+  return [...base, ...base];
+})();
+
+const fade = (n: number) => n * n * n * (n * (n * 6 - 15) + 10);
+function grad(hash: number, x: number, y: number, z: number): number {
+  const h = hash & 15;
+  const u = h < 8 ? x : y;
+  const v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+  return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+
+/** Seeded improved Perlin noise — smooth in x/y/time, deterministic. */
+function perlin3(x: number, y: number, z: number): number {
+  const X = Math.floor(x) & 255;
+  const Y = Math.floor(y) & 255;
+  const Z = Math.floor(z) & 255;
+  x -= Math.floor(x);
+  y -= Math.floor(y);
+  z -= Math.floor(z);
+  const u = fade(x);
+  const v = fade(y);
+  const w = fade(z);
+  const A = PERM[X]! + Y;
+  const AA = PERM[A]! + Z;
+  const AB = PERM[A + 1]! + Z;
+  const B = PERM[X + 1]! + Y;
+  const BA = PERM[B]! + Z;
+  const BB = PERM[B + 1]! + Z;
+  const x1 = lerp(grad(PERM[AA]!, x, y, z), grad(PERM[BA]!, x - 1, y, z), u);
+  const x2 = lerp(grad(PERM[AB]!, x, y - 1, z), grad(PERM[BB]!, x - 1, y - 1, z), u);
+  const y1 = lerp(x1, x2, v);
+  const x3 = lerp(grad(PERM[AA + 1]!, x, y, z - 1), grad(PERM[BA + 1]!, x - 1, y, z - 1), u);
+  const x4 = lerp(grad(PERM[AB + 1]!, x, y - 1, z - 1), grad(PERM[BB + 1]!, x - 1, y - 1, z - 1), u);
+  return lerp(y1, lerp(x3, x4, v), w);
+}
+
+function fbm3(x: number, y: number, z: number, octaves = 4): number {
+  let value = 0;
+  let amp = 0.52;
+  let freq = 1;
+  let norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    value += perlin3(x * freq, y * freq, z * freq) * amp;
+    norm += amp;
+    freq *= 2.03;
+    amp *= 0.5;
+  }
+  return value / (norm || 1);
+}
+
+function normalize3(x: number, y: number, z: number): [number, number, number] {
+  const m = Math.hypot(x, y, z) || 1;
+  return [x / m, y / m, z / m];
+}
+function dot3(a: readonly number[], b: readonly number[]): number {
+  return a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
+}
+
+// ---------------------------------------------------------------------------
+// Field functions (the labs' domain-warped flow + identity fields)
 // ---------------------------------------------------------------------------
 
 /**
- * THE BASE WAVE — traveling latitude grooves (the lab's missingWave/resonance
- * bands), used by every mode. Two tempo waves ripple the ring coordinate while
- * a longitude phase makes the grooves spiral around the sphere, so they read
- * as waves flowing over the surface. Audio deepens the ripple and widens the
- * carving — the visual "disturbance" that ramps with the microphone — while
- * transients add a sharper high-frequency ripple. With audio at zero (silence
- * or muted) the wave keeps traveling at its minimum width.
- *
- * `widthScale` maps feature widths to the sample grid: braille subpixels sit
- * 4× closer than terminal cells, so cell-space (glyph) rendering needs wider
- * carve bands to read at all.
- *
- * The floor sits just above the braille dot threshold (0.24) so the deepest
- * terminator still lights its dots: the raw field on the shadow side lands at
- * ~0.05-0.4, below the threshold, so without this lift the dark hemisphere
- * renders almost empty and the carved wave dies out before crossing the
- * sphere. Raising the floor turns the whole sphere into a dense particle
- * field (the wave reads as gaps everywhere), while shade contrast still
- * keeps the lit side clearly brighter.
+ * Domain-warped flow field: nested fBm that displaces interior sample
+ * coordinates, giving the sphere its fluid internal currents. The fine
+ * octave keeps the warp from going static.
  */
-const FIELD_FLOOR = 0.26;
-function carveWave(lat: number, lon: number, audio: number, transient: number, t: number, widthScale: number): boolean {
-  const ring = ((lat + Math.PI / 2) / Math.PI) * 14;
-  // The time-phase coefficients on `t` set how fast the grooves travel over
-  // the sphere: the primary ripple and the counter-propagating component both
-  // move their carved bands along the ring coordinate, and the longitude sway
-  // spins the spiral — together they read as waves flowing across the surface.
-  const w = 0.62 * Math.sin(t * 3.4 - ring * 0.52) + 0.38 * Math.sin(t * 2.0 + ring * 0.83);
-  // Diagonal travel: a phase that decreases with both ring and longitude rides
-  // the whole groove field from the lower right toward the upper left — the
-  // wave's reach spans the full sphere instead of sloshing in place on the
-  // lit side. Combined with the steep spiral slant below, the grooves read as
-  // ridges sweeping bottom-right → upper-left as they travel.
-  const drift = 0.1 * Math.sin(-t * 2.6 - ring * 0.7 - lon * 1.8);
-  // Disturbance: audio widens the sway; transients add a sharp ripple.
-  const sway = w * (0.045 + 0.13 * audio) + drift + transient * 0.05 * Math.sin(lon * 8 - t * 9);
-  // Steep spiral slant so the grooves sweep the full bottom-right ↔ upper-left
-  // diagonal of the sphere instead of hugging the equator band.
-  const displaced = lat + lon * 0.8 * Math.sin(t * 3.1 + ring * 0.7) + sway;
-  const d = Math.abs(Math.sin(displaced * 8.1 + lon * 0.5));
-  const width = (0.11 + 0.13 * audio + 0.035 * Math.max(0, w) + 0.03 * transient) * widthScale;
-  return d < width;
+function flowFieldAt(x: number, y: number, params: OrbMotionParams, t: number): { x: number; y: number; qx: number; qy: number } {
+  const time = t * (0.075 + params.speed * 0.18);
+  const qx = fbm3(x * 0.83 + 2.1, y * 0.83 - 1.7, time, 3);
+  const qy = fbm3(x * 0.83 - 5.4, y * 0.83 + 3.2, time + 7.8, 3);
+  const rx = fbm3(x * 1.38 + qx * 0.82, y * 1.38 + qy * 0.82, time * 1.27 + 11.4, 4);
+  const ry = fbm3(x * 1.38 + qx * 0.82 + 8.6, y * 1.38 + qy * 0.82 - 4.9, time * 1.19 - 3.7, 4);
+  const fine = fbm3(x * 2.65 + rx * 0.3, y * 2.65 + ry * 0.3, time * 1.61 + 2.2, 3);
+  return { x: rx + 0.2 * fine, y: ry - 0.17 * fine, qx, qy };
 }
 
 /**
- * Per-frame light rig. The key light drifts slowly (a sway in azimuth and
- * elevation) so the sphere's shadows and Phong highlight travel with it —
- * the orb feels lit by a live source, not a static icon — while the fixed
- * fill light from the front-low opposite side keeps the dark side readable.
- * Only the light moves; the sphere itself never rotates. The result is
- * written into a module-level object (single-threaded) so a render allocates
- * no per-frame light object.
+ * The signed domain-warped field that selects each cell's energy anchor.
+ * One field creates exactly TWO large evolving regions; the boundary itself
+ * drifts fluidly with the noise. The widget turns this selector into the
+ * theme's two-color boundary (crisp in composing, drifting in smoke).
  */
-const ORB_LIGHTS: { kx: number; ky: number; kz: number; fx: number; fy: number; fz: number } = { kx: 0, ky: 0, kz: 0, fx: 0, fy: 0, fz: 0 };
-function orbLights(t: number): { kx: number; ky: number; kz: number; fx: number; fy: number; fz: number } {
-  // A deliberately lateral key: the z component stays high enough to light the
-  // front of the sphere, but the strong leftward bias puts the right side into
-  // a real terminator shadow, so the disk reads as a lit ball rather than a
-  // uniformly bright circle. The drift sways the shadow and highlight.
-  const lx = -0.68 + 0.14 * Math.cos(t * 0.31);
-  const ly = -0.3 + 0.12 * Math.sin(t * 0.23);
-  const lz = 0.66;
-  const lk = Math.hypot(lx, ly, lz);
-  const fl = Math.hypot(0.32, 0.12, 0.94);
-  ORB_LIGHTS.kx = lx / lk;
-  ORB_LIGHTS.ky = ly / lk;
-  ORB_LIGHTS.kz = lz / lk;
-  ORB_LIGHTS.fx = 0.32 / fl;
-  ORB_LIGHTS.fy = 0.12 / fl;
-  ORB_LIGHTS.fz = 0.94 / fl;
-  return ORB_LIGHTS;
+function identityFieldAt(x: number, y: number, params: OrbMotionParams, t: number): number {
+  // A slightly faster base than the lab so the two-region boundary keeps
+  // visibly drifting even in the calm idle presence on a small terminal orb
+  // (reports the lab's "no rotation, the field flows" but at a rate that
+  // reads as alive rather than frozen at sub-cell resolution).
+  const time = t * (0.09 + params.speed * 0.16);
+  const qx = fbm3(x * 0.78 + 1.7, y * 0.78 - 3.8, time, 3);
+  const qy = fbm3(x * 0.78 - 5.6, y * 0.78 + 2.4, time + 6.3, 3);
+  const field =
+    0.84 * fbm3(x * 1.12 + qx * 0.78 + 2.7, y * 1.12 + qy * 0.78 - 1.9, time * 1.08 + 4.1, 4) +
+    0.2 * fbm3(x * 2.24 - qy * 0.28, y * 2.24 + qx * 0.28, time * 1.43 - 2.3, 3);
+  return clamp((field + 1.05) / 2.1, 0, 1);
 }
 
 /**
- * Two-light shading of a unit surface point: key diffuse + terminator
- * darkening (the shadow side), fill diffuse, a tight Phong highlight from
- * the reflected key ray, fresnel rim light along the silhouette, and the
- * object-space material grain. The coefficients are deliberately high-
- * contrast: a strong key, a weak fill, and a deep terminator put a clearly
- * lit side against a clearly dark side, so the sphere reads as a solid ball
- * even at 2×4 subpixel resolution. Audio brightens the whole surface and
- * transients add a sharp shimmer.
+ * The thinking sweep: a broad curved pulse that travels over the spherical
+ * surface (constant longitude becomes a curved meridian in projection), with
+ * a broad shoulder and a restrained trailing echo — the searching state's
+ * "cognition pulse sweeping the sphere".
  */
-function orbLighting(nx: number, ny: number, z: number, l: { kx: number; ky: number; kz: number; fx: number; fy: number; fz: number }, material: number, audio: number, transient: number, t: number): number {
-  const kd = nx * l.kx + ny * l.ky + z * l.kz;
-  const keyDiff = Math.max(0, kd);
-  const fillDiff = Math.max(0, nx * l.fx + ny * l.fy + z * l.fz);
-  const terminator = Math.max(0, -kd);
-  // Phong highlight: the reflected key ray dotted with the view (0,0,1), i.e.
-  // the z component of reflect(-key, n). Power 40 = x^32·x^8, kept as
-  // multiplies so the hot spot costs less than a Math.pow call.
-  const d = -l.kx * nx - l.ky * ny - l.kz * z;
-  const rz = -l.kz - 2 * d * z;
-  const s = Math.max(0, rz);
-  const s2 = s * s;
-  const s4 = s2 * s2;
-  const s8 = s4 * s4;
-  const s16 = s8 * s8;
-  const s32 = s16 * s16;
-  const specular = s32 * s8;
-  // Fresnel rim ≈ (1-z)^1.6 via three multiplies (a slightly lifted square):
-  // u^1.6 sits between u and u^2, so u²·(1.25 − 0.25u) lands within a few
-  // percent across [0,1] and avoids a Math.pow per sample.
-  const u = 1 - Math.max(0, z);
-  const rim = u * u * (1.25 - 0.25 * u);
-  const shimmer = 0.05 * Math.sin(nx * 11 + ny * 7 + t * 2.6);
-  const flare = 0.09 * transient * Math.sin(nx * 17 - t * 29);
-  return 0.05 + 0.72 * keyDiff + 0.09 * fillDiff - 0.2 * terminator + 0.3 * specular + 0.16 * rim + 0.18 * material + 0.16 * audio + shimmer + flare;
+function thinkingSweep(normal: readonly number[], t: number): { band: number; aura: number; trailing: number } {
+  const duration = 1.82;
+  const phase = (((t / duration) % 1) + 1) % 1;
+  const center = -1.46 + phase * 2.92;
+  const longitude = Math.atan2(normal[0]!, Math.max(0.035, normal[2]!));
+  const organic = 0.028 * fbm3(normal[1]! * 2.1 + 3.1, t * 0.19, normal[0]! * 0.8 - 2.2, 3);
+  const d = longitude + organic - center;
+  const band = Math.exp(-((d / 0.235) ** 2));
+  const aura = Math.exp(-((d / 0.43) ** 2));
+  const trailing = Math.exp(-(((d + 0.34) / 0.27) ** 2)) * 0.24;
+  return { band: clamp(band), aura: clamp(aura), trailing: clamp(trailing) };
 }
 
-/** Coarse object-space surface grain (the demo's material field, trimmed). */
-function materialOf(lat: number, lon: number): number {
-  return clamp(0.5 + 0.16 * Math.sin(lon * 2 + lat * 0.76) + 0.08 * Math.cos(lon * 3 - lat * 1.42 + 1.1), 0, 1);
+interface OrbPulse {
+  born: number;
+  amp: number;
+  speed: number;
+  width: number;
+  drift: number;
+  seed: number;
 }
+
+/** Shell/core/edge contributions of the live pressure pulses at radius r. */
+function pulseInfo(pulses: OrbPulse[], t: number, r: number): { shell: number; core: number; edge: number } {
+  let shell = 0;
+  let core = 0;
+  let edge = 0;
+  for (const pulse of pulses) {
+    const age = t - pulse.born;
+    if (age < 0) continue;
+    const radius = -0.06 + age * pulse.speed;
+    const life = Math.exp(-Math.max(0, age - 1.25) * 2.5);
+    const localR = r + pulse.drift * Math.sin(r * 5.4 + pulse.seed + age * 0.7) * (1 - r) * 0.28;
+    const band = Math.exp(-(((localR - radius) / pulse.width) ** 2)) * pulse.amp * life;
+    shell += band;
+    core += pulse.amp * Math.exp(-age * 5.2) * Math.exp((-r * r) / 0.055);
+    edge += pulse.amp * Math.exp(-(((radius - 1.0) / 0.145) ** 2)) * life;
+  }
+  return { shell: clamp(shell), core: clamp(core), edge: clamp(edge) };
+}
+
+// ---------------------------------------------------------------------------
+// Rasterization
+// ---------------------------------------------------------------------------
+
+/** 8×8 Bayer matrix — ordered dithering gives dot density its shading. */
+const BAYER8 = [
+  [0, 48, 12, 60, 3, 51, 15, 63],
+  [32, 16, 44, 28, 35, 19, 47, 31],
+  [8, 56, 4, 52, 11, 59, 7, 55],
+  [40, 24, 36, 20, 43, 27, 39, 23],
+  [2, 50, 14, 62, 1, 49, 13, 61],
+  [34, 18, 46, 30, 33, 17, 45, 29],
+  [10, 58, 6, 54, 9, 57, 5, 53],
+  [42, 26, 38, 22, 41, 25, 37, 21],
+];
 
 /**
  * Braille 8-dot bit order (U+2800 + mask), matching the lab: the left column
@@ -635,67 +890,21 @@ const BRAILLE_BITS = [
 /** All 256 braille glyphs precomputed — no per-cell string allocation. */
 const BRAILLE_GLYPHS: string[] = Array.from({ length: 256 }, (_, mask) => String.fromCharCode(0x2800 + mask));
 
+/** Grow-or-fill a reused Float32Array cache (no per-frame allocation). */
+function growF32(cache: Float32Array | undefined, n: number): Float32Array {
+  if (!cache || cache.length < n) return new Float32Array(n);
+  cache.fill(0);
+  return cache;
+}
+
 /**
- * Pack a 2×4 subpixel intensity field into one Braille glyph per terminal
- * cell (the lab's rasterizer): a subpixel lights its dot above 0.24, the cell
- * shade/layer come from the brightest lit subpixel.
+ * Braille pack: one terminal cell holds 2×4 subpixels; each subpixel lights
+ * its dot when the shaped intensity beats the 8×8 Bayer threshold (density-
+ * adjusted), so the shading reads as ordered-dithered dot density. Cells on
+ * the halo band sample sparse particles instead of the body. The cell's
+ * identity/bloom are averaged over its sampled subpixels; shade comes from
+ * the brightest lit subpixel.
  */
-function packBraille(raster: OrbRaster, field: Float32Array, subW: number, subH: number): OrbRaster {
-  const { width, height, cells } = raster;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      let mask = 0;
-      let max = 0;
-      for (let dy = 0; dy < 4; dy++) {
-        for (let dx = 0; dx < 2; dx++) {
-          const v = field[(y * 4 + dy) * subW + (x * 2 + dx)] ?? 0;
-          if (v > 0.24) {
-            mask |= BRAILLE_BITS[dy]![dx]!;
-            if (v > max) max = v;
-          }
-        }
-      }
-      if (!mask) continue;
-      const index = y * width + x;
-      const shade = clamp(0.16 + 0.84 * max, 0, 1);
-      const layer: OrbLayer = max > 0.60 ? "filament" : max > 0.38 ? "mistA" : max > 0.16 ? "mistB" : "mistC";
-      // Mutate the shared cell in place — no per-cell object allocation.
-      const target = cells[index]!;
-      target.coverage = 1;
-      target.density = max;
-      target.filament = max > 0.5 ? max : 0;
-      target.shade = shade;
-      target.layer = layer;
-      target.glyph = BRAILLE_GLYPHS[mask]!;
-    }
-  }
-  return raster;
-}
-
-/** Convert the accumulated intensity field into themed glyph cells. */
-function fieldToRaster(raster: OrbRaster, field: Float32Array): OrbRaster {
-  const { width, height, cells } = raster;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const v = field[y * width + x]!;
-      if (v <= 0.02) continue;
-      const index = y * width + x;
-      const shade = clamp(0.16 + 0.84 * v, 0, 1);
-      const layer: OrbLayer = v > 0.60 ? "filament" : v > 0.38 ? "mistA" : v > 0.16 ? "mistB" : "mistC";
-      // Mutate the shared cell in place — no per-cell object allocation.
-      const target = cells[index]!;
-      target.coverage = 1;
-      target.density = v;
-      target.filament = v > 0.5 ? v : 0;
-      target.shade = shade;
-      target.layer = layer;
-      target.glyph = pointGlyph(v, x, y);
-    }
-  }
-  return raster;
-}
-
-/** Per-cell mark: faint dot for the ghost halo, larger marks toward the core. */
 function pointGlyph(v: number, x: number, y: number): string {
   if (v < 0.22) return "·";
   if (v < 0.5) return "∙";
@@ -725,10 +934,12 @@ function resetCell(c: OrbCell): void {
   c.density = 0;
   c.glyph = "";
   c.layer = "none";
+  c.identity = 0;
 }
 function smoothstep(edge0: number, edge1: number, value: number): number {
   if (edge0 === edge1) return value < edge0 ? 0 : 1;
   const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
   return t * t * (3 - 2 * t);
 }
-function clamp(value: number, low: number, high: number): number { return Math.max(low, Math.min(high, value)); }
+function clamp(value: number, low = 0, high = 1): number { return Math.max(low, Math.min(high, value)); }
+function lerp(a: number, b: number, u: number): number { return a + (b - a) * u; }

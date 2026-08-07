@@ -1,6 +1,6 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ActivityEntry } from "./activity.js";
-import { OrbMotion, OrbRenderer, orbLayerHeat, rasterAt, type OrbFrame, type OrbLayer, type OrbMode } from "./orb.js";
+import { OrbMotion, OrbRenderer, rasterAt, type OrbCell, type OrbFrame, type OrbMode } from "./orb.js";
 import { createOrbPalette, mix, type OrbPalette, type OrbThemeColor, type Rgb, type ThemeLike } from "./theme.js";
 import type { VoiceViewState } from "./types.js";
 
@@ -68,9 +68,10 @@ export class VoiceWidget implements Component {
     this.mode=this.resolveMode(state);
   }
   /**
-   * Animation state: all modes share the same carved wave pattern — talking
-   * colors it with the bright audio envelope, Pi working with the calmer cool
-   * identity, otherwise the calm listening gradient.
+   * Animation state: all modes share the same living noise-field sphere and
+   * differ only in motion parameters and color — talking uses the audio-driven
+   * two-tone identity, Pi working the calmer look with its cognition sweep,
+   * otherwise the calm presence drift.
    */
   private resolveMode(state:VoiceViewState):OrbMode {
     if (state.source==="user" || this.frame.userEnergy>0.02) return "composing";
@@ -102,7 +103,7 @@ export class VoiceWidget implements Component {
       let line="";
       for(let x=0;x<raster.width;x++){
         const cell=rasterAt(raster,x,y);
-        line+=cell.glyph?this.colorCell(cell.glyph,cell.shade,cell.layer,x,raster.width):" ";
+        line+=cell.glyph?this.colorCell(cell):" ";
       }
       left.push(line);
     }
@@ -204,7 +205,7 @@ export class VoiceWidget implements Component {
       let line="";
       for(let x=0;x<raster.width;x++){
         const c=rasterAt(raster,x,y);
-        line+=c.glyph?this.colorCell(c.glyph,c.shade,c.layer,x,raster.width):" ";
+        line+=c.glyph?this.colorCell(c):" ";
       }
       lines.push(line);
     }
@@ -216,54 +217,51 @@ export class VoiceWidget implements Component {
     return lines;
   }
 
-  private colorCell(glyph:string,shade:number,layer:OrbLayer,x:number,width:number):string {
-    // Themed orb layers map onto the primary→secondary gradient that the
-    // palette derives from the active theme; anything outside the smoke uses
-    // the theme's neutral tokens.
-    if(layer==="none")return this.theme.fg(shade>0.5?"muted":"dim",glyph);
-    // Listening: the same themed wave as the other modes. Mic input intensifies
-    // the color — silence (or muting) keeps the calm gradient dim but alive,
-    // distinct from the bright talking envelope below.
-    if(this.mode==="smoke"){
-      const f=this.frame;
-      const base=this.palette.rampAt(orbLayerHeat(layer,shade));
-      if(f.muted)return this.palette.color(desaturate(base),glyph);
-      const activity=clamp01(f.energy*this.options.orbReactivity);
-      // Disturbance-free frames stay dim and calm; mic energy saturates toward
-      // the mid-ramp and brightens the whole sphere.
-      const c=mix(base,mix(this.palette.primary,this.palette.secondary,0.5),0.45*activity);
-      return this.palette.color(scale(c,0.6+0.4*activity),glyph);
+  /**
+   * The orb's color language, mapped from the site labs' two-energy-region
+   * field: every cell is painted by its `identity` (where it sits on the
+   * signed domain-warped field) along the theme's TWO anchors — the primary
+   * accent and the secondary violet. The boundary between the two regions is
+   * a feather around 0.5 that narrows as the sphere livens: composing keeps a
+   * crisp two-tone split, searching a soft pulse, and idle smoke a broad calm
+   * blend so the drift reads as breathing color rather than a hard seam.
+   *
+   * Brightness rides on the sphere's two-light `shade` (the far rim falls
+   * toward the theme's dimmed accents, the lit face stays saturated), and
+   * `filament` is the near-white pressure bloom the orb generates when a
+   * pulse reaches the edge or the microphone shines — speaking flares toward
+   * white, idle keeps just a faint sheen. Muted resolves the whole sphere to
+   * a neutral gray (the field spigot is dead): no regions, no bloom.
+   */
+  private colorCell(mesh: OrbCell): string {
+    const { glyph, shade, layer, identity, filament } = mesh;
+    if (layer === "none") return this.theme.fg(shade > 0.5 ? "muted" : "dim", glyph);
+    const f = this.frame;
+    if (f.muted === true) {
+      // The muted orb is a gray pied-photon: keep its shading but drop the
+      // color regions and the bloom, exactly like the quiet presence sphere.
+      const gray = desaturate(this.palette.rampAt(0.4));
+      return this.palette.color(scale(gray, 0.42 + 0.58 * shade), glyph);
     }
-    // Audio-reactive modes color each cell from the live audio envelope:
-    // mic energy biases toward the theme's primary accent, voice output toward
-    // the secondary violet, saturation grows with activity, and bright cells
-    // flare toward white on sharp transients. Muted renders a gray sphere.
-    const f=this.frame;
-    const base=this.palette.rampAt(orbLayerHeat(layer,shade));
-    if(f.muted)return this.palette.color(desaturate(base),glyph);
-    const activity=clamp01(f.energy*this.options.orbReactivity);
-    const xNorm=width<=1?0:x/(width-1);
-    const input=clamp01(f.userEnergy);
-    const output=clamp01(f.agentEnergy);
-    const inW=input*(1.05-0.35*xNorm);
-    const outW=output*(0.70+0.35*xNorm);
-    const sum=inW+outW+0.0001;
-    if(this.mode==="searching"){
-      // Working: a calmer, cooler identity — softly desaturated and dimmed so
-      // "Pi is thinking" reads as focused rather than loud, clearly distinct
-      // from the bright saturated talking sphere.
-      const cool=mix(this.palette.primary,this.palette.secondary,0.35+0.4*activity);
-      const c=scale(mix(base,cool,clamp01(0.25+0.6*activity)),0.72+0.28*activity);
-      return this.palette.color(c,glyph);
-    }
-    // Talking: the full audio envelope with white-hot transient flares.
-    const hue=mix(this.palette.primary,this.palette.secondary,outW/sum);
-    const saturation=clamp01(0.25+activity*0.9);
-    let c=mix(base,hue,saturation);
-    const transient=clamp01(f.transient??0);
-    const hot=clamp01((shade-0.68)*2.8)*activity;
-    c=mix(c,WHITE,hot*(0.35+0.45*transient));
-    return this.palette.color(c,glyph);
+    const activity = clamp01(f.energy * this.options.orbReactivity);
+
+    // The signed two-region field → position on the primary↔secondary line.
+    // A warm identity (near 1) is the violet/energy anchor, a cool one (near
+    // 0) the primary anchor; the feather around 0.5 is mode-dependent.
+    const feather = this.mode === "composing" ? 0.085 : this.mode === "searching" ? 0.16 : 0.24;
+    const u = clamp01((identity - (0.5 - feather)) / (2 * feather));
+    const w = u * u * (3 - 2 * u);
+    let color = mix(this.palette.primary, this.palette.secondary, w);
+
+    // Breathing brightness from the two-light shading; the far rim darkens.
+    color = scale(color, 0.5 + 0.5 * shade);
+
+    // The near-white pressure bloom rides on the filament channel (audio
+    // pulses, mic luminance, the thinking sweep). Talking flares toward
+    // white; idle and thinking keep just a faint sheen on the bright face.
+    const sheen = this.mode === "smoke" ? 0.16 : this.mode === "searching" ? 0.2 : 0.55 + 0.3 * activity;
+    color = mix(color, WHITE, clamp01(filament * sheen));
+    return this.palette.color(color, glyph);
   }
 
   /**

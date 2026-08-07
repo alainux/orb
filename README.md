@@ -44,7 +44,7 @@ No narrated `ls`. No routine “shall I continue?” prompts.
 
 Orb inherits Pi's active theme and renders a compact panel above Pi:
 
-- **Left:** a dense solid sphere of dots whose traveling wave pattern reacts to you and Orb — mic input widens the carved grooves and intensifies the color, while a silent or muted sphere keeps the same gentle wave flowing at minimum disturbance.
+- **Left:** a living, positive-space sphere of dots animated from real seeded noise — Perlin fBm + domain warping (ported from the new site labs) — carrying a drifting two-energy-region color field across the theme's primary↔secondary anchors. Talking (composing) reads as a crisp two-tone sphere with a white pressure bloom, working (searching) calms it with a broad cognition sweep, idle (smoke) is a quiet presence that keeps flowing while muted renders it gray. Sharp audio onsets birth center-to-edge pressure pulses that swell the body and bloom a sparse particle halo.
 - **Right:** a chronological script of `YOU`, `ORB`, and Orb's own tool/control actions.
 - **Below:** the normal Pi screen and prompt editor remain untouched.
 
@@ -295,7 +295,7 @@ src/controller.ts  voice/Pi orchestration
 src/pi-control.ts  permission-gated Pi cancellation/model/thinking/tools/shell
 src/pi-log.ts      visible Pi observation used internally
 src/scratchpad.ts  ephemeral collaborative document
-src/orb.ts         negative-space surface orb (listening/speaking/thinking)
+src/orb.ts         positive-space noise-field orb (listening/speaking/thinking)
 src/widget.ts      Pi-themed UI
 prompts/           configurable voice-agent prompt
 config/            example configuration

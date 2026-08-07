@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Orb Presence Lab</title>
+<style>
+:root{
+  --bg:#080a10; --bg2:#0d1018; --panel:#111622; --panel2:#0b0e16;
+  --line:#273044; --fg:#dce5ff; --muted:#697797;
+  --cyan:#7ddcff; --violet:#b69cff; --amber:#ffd27d; --rose:#ff91b2; --green:#9be59b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:radial-gradient(circle at 50% 8%,#11182a 0,#080a10 42rem);color:var(--fg)}
+body{font-family:"CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono","SFMono-Regular",Consolas,monospace}
+.app{max-width:1180px;margin:22px auto;padding:0 14px}
+.shell{overflow:hidden;border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,rgba(17,22,34,.97),rgba(9,12,20,.98));box-shadow:0 24px 80px rgba(0,0,0,.38)}
+.bar,.footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;background:rgba(6,8,13,.48);color:var(--muted);font-size:11px}
+.bar{border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.06em}.footer{border-top:1px solid var(--line)}
+.bar strong,.footer strong{color:var(--fg);font-weight:500}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 330px}
+.stage{position:relative;min-width:0;padding:18px 18px 14px}
+.controls{border-left:1px solid var(--line);background:rgba(8,11,18,.52);padding:14px}
+.prompt{font-size:12px;line-height:1.55;color:var(--muted)}.prompt b{color:var(--cyan);font-weight:500}.prompt .ok{color:var(--green)}
+.orb-wrap{position:relative;display:flex;align-items:center;justify-content:center;min-height:510px;overflow:hidden}
+.aura{position:absolute;left:50%;top:49%;width:min(68vw,500px);aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;filter:blur(38px);opacity:.24;background:radial-gradient(circle,rgba(255,255,255,.04),rgba(125,220,255,.10) 28%,rgba(182,156,255,.07) 44%,transparent 72%);pointer-events:none}
+#frame{position:relative;z-index:1;margin:0;white-space:pre;font:21px/1 "CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono",monospace;letter-spacing:0;user-select:none;text-shadow:0 0 6px currentColor,0 0 16px color-mix(in srgb,currentColor 28%,transparent)}
+#probe{position:absolute;visibility:hidden;pointer-events:none;white-space:pre;font:21px/1 "CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono",monospace}
+.lab-copy{text-align:center;min-height:52px}.lab-copy strong{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:500}.lab-copy span{display:block;margin-top:6px;color:var(--muted);font-size:10px;line-height:1.55}
+.section{margin-top:16px}.section:first-child{margin-top:0}.section-title{font-size:10px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:7px}
+.preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+button,select,input{font:inherit}
+button,select{border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--fg);font-size:10px;padding:8px 9px;cursor:pointer}
+button:hover,select:hover{border-color:color-mix(in srgb,var(--cyan) 45%,var(--line))}
+button.active{border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 15px rgba(125,220,255,.08)}
+button.warm.active{border-color:var(--amber);color:var(--amber)}
+select{width:100%}.row{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.ctrl{margin-top:11px}.ctrl label{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:var(--muted);margin-bottom:5px}.ctrl output{color:var(--cyan)}
+input[type=range]{width:100%;accent-color:var(--cyan)}
+.readout{border-left:2px solid var(--line);padding:9px 10px;background:rgba(14,18,29,.62);font-size:10px;line-height:1.55;color:var(--muted)}.readout b{color:var(--fg);font-weight:500}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chip{border:1px solid var(--line);border-radius:999px;padding:3px 7px;font-size:9px;color:var(--muted)}
+@media(max-width:900px){.main{grid-template-columns:1fr}.controls{border-left:0;border-top:1px solid var(--line)}.orb-wrap{min-height:420px}}
+@media(max-width:620px){.app{margin:10px auto;padding:0 8px}.stage{padding:14px 8px}.orb-wrap{min-height:350px}#frame,#probe{font-size:17px}.preset-grid{grid-template-columns:1fr 1fr}.bar{font-size:9px}.footer{font-size:9px;flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="shell">
+    <span id="probe">0000000000</span>
+    <div class="bar"><span>ORB / presence laboratory</span><strong id="labState">PRESENCE</strong></div>
+    <div class="main">
+      <main class="stage">
+        <div class="prompt"><span class="ok">●</span> renderer online · <b>Braille 2×4 subcells</b> · experimenting with forms of machine presence</div>
+        <div class="orb-wrap"><div class="aura" id="aura"></div><pre id="frame" aria-label="Animated terminal AI presence experiment"></pre></div>
+        <div class="lab-copy"><strong id="name">Presence</strong><span id="desc">A baseline living presence: low entropy, slow respiration, coherent interior currents.</span></div>
+      </main>
+      <aside class="controls">
+        <div class="section">
+          <div class="section-title">Experiments</div>
+          <div class="preset-grid" id="presetGrid">
+            <button data-preset="presence" class="active">presence</button>
+            <button data-preset="attention">attention</button>
+            <button data-preset="memory">memory</button>
+            <button data-preset="insight">insight</button>
+            <button data-preset="debate">debate</button>
+            <button data-preset="selfmodel">self model</button>
+            <button data-preset="language">language</button>
+            <button data-preset="dream">dream</button>
+            <button data-preset="tools">tool use</button>
+            <button data-preset="emergence">emergence</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Field</div>
+          <div class="row">
+            <select id="topology" aria-label="Field topology">
+              <option value="fluid">fluid field</option>
+              <option value="cells">cellular domains</option>
+              <option value="ribbons">ribbons</option>
+              <option value="lattice">neural lattice</option>
+              <option value="contours">contours</option>
+            </select>
+            <select id="palette" aria-label="Palette">
+              <option value="soul">soul</option>
+              <option value="mono">monochrome</option>
+              <option value="warm">warm cognition</option>
+              <option value="ice">cold logic</option>
+            </select>
+          </div>
+          <div class="ctrl"><label>entropy <output id="entropyV">42</output></label><input id="entropy" type="range" min="0" max="100" value="42"></div>
+          <div class="ctrl"><label>coherence <output id="coherenceV">76</output></label><input id="coherence" type="range" min="0" max="100" value="76"></div>
+          <div class="ctrl"><label>depth <output id="depthV">68</output></label><input id="depth" type="range" min="0" max="100" value="68"></div>
+          <div class="ctrl"><label>energy <output id="energyV">48</output></label><input id="energy" type="range" min="0" max="100" value="48"></div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Events</div>
+          <div class="row"><button id="pulseBtn">pulse</button><button id="insightBtn" class="warm">insight</button></div>
+          <div class="row" style="margin-top:7px"><button id="surpriseBtn">surprise</button><button id="resetBtn">reset field</button></div>
+        </div>
+
+        <div class="section readout" id="readout"><b>Presence</b><br>Quiet coherence. This is the control condition for every other experiment.</div>
+        <div class="section chips"><span class="chip">surface deformation</span><span class="chip">fBm domain warp</span><span class="chip">event waves</span><span class="chip">ghost memory</span><span class="chip">Braille raster</span></div>
+      </aside>
+    </div>
+    <div class="footer"><span><strong>Idea:</strong> treat animation as cognition vocabulary, not decoration.</span><span id="status">60 fps target · 30×15 cells</span></div>
+  </div>
+</div>
+<script>
+(()=>{
+const COLS=30,ROWS=15,W=COLS*2,H=ROWS*4,FPS=60;
+const BITS=[[1,8],[2,16],[4,32],[64,128]];
+const BAYER8=[[0,48,12,60,3,51,15,63],[32,16,44,28,35,19,47,31],[8,56,4,52,11,59,7,55],[40,24,36,20,43,27,39,23],[2,50,14,62,1,49,13,61],[34,18,46,30,33,17,45,29],[10,58,6,54,9,57,5,53],[42,26,38,22,41,25,37,21]];
+const el=id=>document.getElementById(id),frame=el('frame'),probe=el('probe'),aura=el('aura'),labState=el('labState'),nameEl=el('name'),descEl=el('desc'),readout=el('readout');
+const entropyEl=el('entropy'),coherenceEl=el('coherence'),depthEl=el('depth'),energyEl=el('energy'),topologyEl=el('topology'),paletteEl=el('palette');
+let t=0,last=0,cellW=10,lineH=21,preset='presence',seedShift=0,entropy=.42,coherence=.76,depth=.68,energy=.48;
+const waves=[],echoes=[],insights=[];
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v)),lerp=(a,b,u)=>a+(b-a)*u,mix=(a,b,u)=>a.map((v,i)=>Math.round(lerp(v,b[i],u))),css=c=>`rgb(${c[0]},${c[1]},${c[2]})`,braille=m=>String.fromCodePoint(0x2800+m);
+const normalize=(x,y,z)=>{const m=Math.hypot(x,y,z)||1;return[x/m,y/m,z/m]},dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],smoothstep=(a,b,x)=>{const u=clamp((x-a)/(b-a||1));return u*u*(3-2*u)};
+const PALETTES={
+ soul:[[121,219,255],[182,156,255],[255,210,125],[246,249,255],[8,12,24]],
+ mono:[[104,116,138],[198,208,224],[245,247,250],[255,255,255],[10,12,16]],
+ warm:[[255,132,106],[255,205,108],[255,151,183],[255,247,225],[25,14,14]],
+ ice:[[93,176,255],[130,231,255],[146,163,255],[245,252,255],[7,14,27]]
+};
+const PRESETS={
+ presence:{desc:'A baseline living presence: low entropy, slow respiration, coherent interior currents.',note:'Quiet coherence. This is the control condition for every other experiment.',topology:'fluid',entropy:42,coherence:76,depth:68,energy:48},
+ attention:{desc:'The whole field biases toward a moving locus, as if attention can physically gather.',note:'Attention is not a brighter dot. The surrounding field bends toward what matters.',topology:'contours',entropy:32,coherence:90,depth:72,energy:62},
+ memory:{desc:'Past internal configurations persist as dim shells and slowly decay into the current state.',note:'Memory leaves residue. Recent states are visible as ghost surfaces rather than a literal timeline.',topology:'fluid',entropy:48,coherence:64,depth:82,energy:44},
+ insight:{desc:'A sparse idea lattice suddenly synchronizes and releases a radial cognition bloom.',note:'Insight is modeled as local structure abruptly becoming globally coherent.',topology:'lattice',entropy:28,coherence:94,depth:78,energy:72},
+ debate:{desc:'Two incompatible internal fields occupy the same mind and negotiate a moving boundary.',note:'Instead of many colors, two opposed fields push, yield, and sometimes briefly stabilize.',topology:'cells',entropy:58,coherence:52,depth:65,energy:62},
+ selfmodel:{desc:'An inner model and outer shell exchange pulses, creating the sense of recursive self-observation.',note:'The small interior sphere is not an eye; it is a model of the model, periodically compared with the surface.',topology:'contours',entropy:30,coherence:84,depth:96,energy:52},
+ language:{desc:'Semantic ribbons wrap the surface, merge, split, and resolve into cleaner bands.',note:'Language is visualized as structured flow: several candidate phrasings collapsing toward one path.',topology:'ribbons',entropy:44,coherence:78,depth:62,energy:64},
+ dream:{desc:'Identity loosens: the silhouette breathes, tears, and rejoins while internal color logic drifts.',note:'Dream mode deliberately reduces geometric certainty while preserving a recognizable center of self.',topology:'fluid',entropy:88,coherence:32,depth:74,energy:45},
+ tools:{desc:'External satellites orbit the core and connect only when the internal field reaches toward them.',note:'Tool use should feel like extending cognition outward, not decorating the orb with icons.',topology:'lattice',entropy:38,coherence:80,depth:76,energy:58},
+ emergence:{desc:'Sparse particles assemble into temporary structures that were never explicitly drawn.',note:'Emergence explores the boundary between noise and intention: local rules create readable global form.',topology:'cells',entropy:72,coherence:58,depth:70,energy:70}
+};
+const PERM=(()=>{const base=Array.from({length:256},(_,i)=>i);let s=0x9e3779b9;const rnd=()=>{s^=s<<13;s^=s>>>17;s^=s<<5;return(s>>>0)/4294967296};for(let i=255;i>0;i--){const j=Math.floor(rnd()*(i+1));[base[i],base[j]]=[base[j],base[i]]}return[...base,...base]})();
+const fade=n=>n*n*n*(n*(n*6-15)+10);function grad(h,x,y,z){h&=15;const u=h<8?x:y,v=h<4?y:(h===12||h===14?x:z);return((h&1)?-u:u)+((h&2)?-v:v)}
+function noise(x,y,z){const X=Math.floor(x)&255,Y=Math.floor(y)&255,Z=Math.floor(z)&255;x-=Math.floor(x);y-=Math.floor(y);z-=Math.floor(z);const u=fade(x),v=fade(y),w=fade(z),A=PERM[X]+Y,AA=PERM[A]+Z,AB=PERM[A+1]+Z,B=PERM[X+1]+Y,BA=PERM[B]+Z,BB=PERM[B+1]+Z;const x1=lerp(grad(PERM[AA],x,y,z),grad(PERM[BA],x-1,y,z),u),x2=lerp(grad(PERM[AB],x,y-1,z),grad(PERM[BB],x-1,y-1,z),u),y1=lerp(x1,x2,v),x3=lerp(grad(PERM[AA+1],x,y,z-1),grad(PERM[BA+1],x-1,y,z-1),u),x4=lerp(grad(PERM[AB+1],x,y-1,z-1),grad(PERM[BB+1],x-1,y-1,z-1),u);return lerp(y1,lerp(x3,x4,v),w)}
+function fbm(x,y,z,o=4){let v=0,a=.55,f=1,n=0;for(let i=0;i<o;i++){v+=noise(x*f,y*f,z*f)*a;n+=a;a*=.5;f*=2.03}return v/(n||1)}
+function measure(){const r=probe.getBoundingClientRect();cellW=r.width/10||10;lineH=parseFloat(getComputedStyle(frame).lineHeight)||21}
+function coord(gx,gy){const dw=cellW/2,dh=lineH/4,tw=W*dw,th=H*dh,R=Math.min(tw,th)*.39;return{x:((gx+.5)*dw-tw/2)/R,y:((gy+.5)*dh-th/2)/R}}
+function addWave(amp=.7){waves.push({born:t,amp,speed:.54+Math.random()*.18,width:.09+Math.random()*.05});if(waves.length>10)waves.shift()}
+function addInsight(){insights.push({born:t,x:(Math.random()-.5)*.65,y:(Math.random()-.5)*.65,amp:.8+Math.random()*.2});if(insights.length>6)insights.shift()}
+function waveAt(r){let shell=0,edge=0,core=0;for(const w of waves){const age=t-w.born,rr=-.05+age*w.speed,life=Math.exp(-Math.max(0,age-1.2)*2.4),b=Math.exp(-Math.pow((r-rr)/w.width,2))*w.amp*life;shell+=b;core+=w.amp*Math.exp(-age*5.2)*Math.exp(-r*r/.055);edge+=w.amp*Math.exp(-Math.pow((rr-1)/.13,2))*life}return{shell:clamp(shell),edge:clamp(edge),core:clamp(core)}}
+function insightAt(x,y){let v=0;for(const q of insights){const age=t-q.born;if(age<0)continue;const d=Math.hypot(x-q.x,y-q.y),ring=Math.exp(-Math.pow((d-age*.52)/.075,2))*Math.exp(-age*.9);v+=ring*q.amp}return clamp(v)}
+function sphereSample(gx,gy){const p=coord(gx,gy),r=Math.hypot(p.x,p.y),ang=Math.atan2(p.y,p.x);const dream=preset==='dream'?1:0,em=preset==='emergence'?1:0;const deform=(.025+entropy*.07)*fbm(p.x*1.25+seedShift,p.y*1.25-seedShift,t*.12,3)+dream*.05*Math.sin(ang*3+t*.7)+em*.025*Math.cos(ang*5-t*.9);const breath=1+.018*Math.sin(t*.7)+deform;const outer=breath;if(r>outer+.28)return null;const d=r/(outer||1);if(d>1)return{outside:true,x:p.x,y:p.y,d};const x=p.x/outer,y=p.y/outer,z=Math.sqrt(Math.max(0,1-x*x-y*y)),n=normalize(x,y,z),lon=Math.atan2(n[0],Math.max(.001,n[2])),lat=Math.asin(clamp(n[1],-1,1));return{outside:false,x,y,z,d,n,lon,lat}}
+function topologyValue(s){const time=t*(.05+.16*entropy)+seedShift*.1,qx=fbm(s.x*.9+2.1,s.y*.9-3.7,time,3),qy=fbm(s.x*.9-4.4,s.y*.9+2.8,time+6.4,3);if(topologyEl.value==='fluid')return fbm(s.x*1.2+qx*.8,s.y*1.2+qy*.8,time+2.2,4);if(topologyEl.value==='cells')return Math.tanh(2.6*(fbm(s.x*1.35+qx*.7,s.y*1.35+qy*.7,time,4)+.22*Math.sin(s.lon*2.2-t*.25)));if(topologyEl.value==='ribbons')return Math.sin(s.lon*3.2+s.lat*1.3+t*.48+qx*.9)*.78+.2*qy;if(topologyEl.value==='lattice'){const a=Math.exp(-Math.pow(Math.sin(s.lon*5.2+t*.34+qx),2)/.045),b=Math.exp(-Math.pow(Math.sin(s.lat*4.6-t*.28+qy),2)/.05);return(a+b)-.75}return Math.sin((s.z*.9+s.x*.36)*10+t*.38+qx*.8)*.62+.24*qy}
+function paletteColor(v,s){const P=PALETTES[paletteEl.value],u=smoothstep(-.42,.42,v);let c=mix(P[0],P[1],u);if(topologyEl.value==='lattice'&&v>.35)c=mix(c,P[2],clamp((v-.35)*.8));return c}
+function sample(gx,gy){const s=sphereSample(gx,gy);if(!s)return null;const P=PALETTES[paletteEl.value];if(s.outside){const halo=clamp(1-(s.d-1)/.28),w=waveAt(Math.min(s.d,1.25)),cloud=.5+.5*fbm(s.x*8+t*.06,s.y*8-t*.05,t*.3,3),threshold=.94-(energy*.08+w.edge*.26+(preset==='tools'?.09:0)+(preset==='emergence'?.12:0));if(cloud<threshold)return null;let c=mix(P[0],P[1],cloud);c=mix(c,P[3],w.edge*.38);return{intensity:(.16+.42*energy+.42*w.edge)*halo,color:c}}
+let v=topologyValue(s),color=paletteColor(v,s),intensity=.20,key=normalize(-.72,-.54,1),fill=normalize(.32,.12,.72),kd=Math.max(0,dot(s.n,key)),fd=Math.max(0,dot(s.n,fill)),rim=Math.pow(1-Math.max(0,s.n[2]),1.55),spec=Math.pow(Math.max(0,dot(s.n,normalize(-.25,-.18,1))),22);intensity+=.38*kd+.13*fd+.18*s.z+.10*energy+spec*.16;color=mix(color,P[3],clamp(.06*s.z+.18*spec,0,.30));
+const w=waveAt(s.d);intensity+=w.shell*.48+w.core*.26;color=mix(color,P[3],clamp(w.shell*.40+w.core*.28,0,.58));
+if(preset==='attention'){const focusX=.55*Math.sin(t*.37),focusY=.34*Math.cos(t*.29),d=Math.hypot(s.x-focusX,s.y-focusY),a=Math.exp(-d*d/.13);intensity+=a*.24;color=mix(color,P[3],a*.22);v+=a*.25}
+if(preset==='memory'){for(let i=0;i<echoes.length;i++){const e=echoes[i],age=t-e.born,rr=.72+.07*i+.025*Math.sin(t*.5+i);const ring=Math.exp(-Math.pow((s.d-rr)/.035,2))*Math.exp(-age*.12);intensity+=ring*.10;color=mix(color,P[1],ring*.12)}}
+if(preset==='insight'){const q=insightAt(s.x,s.y);intensity+=q*.52;color=mix(color,P[3],q*.54);color=mix(color,P[2],q*.16)}
+if(preset==='debate'){const boundary=Math.tanh((s.x+.24*fbm(s.x*1.4,s.y*1.4,t*.13,3))*5.2),side=(boundary+1)/2;color=mix(P[0],P[2],side);const seam=Math.exp(-Math.pow(boundary/.23,2));intensity+=seam*.13;color=mix(color,P[3],seam*.12)}
+if(preset==='selfmodel'){const inner=Math.abs(s.d-.43),ring=Math.exp(-Math.pow(inner/.035,2));intensity+=ring*.22;color=mix(color,P[3],ring*.25);const spoke=Math.exp(-Math.pow(Math.sin(s.lon*3+t*.35),2)/.035)*Math.exp(-Math.pow((s.d-.62)/.22,2));intensity+=spoke*.08}
+if(preset==='language'){const band=Math.exp(-Math.pow(Math.sin(s.lon*2.5+s.lat*.8-t*.75),2)/.055);intensity+=band*.16;color=mix(color,P[3],band*.16)}
+if(preset==='dream'){const tear=Math.exp(-Math.pow(Math.sin(s.lon*2.4+s.lat*1.9+t*.22+v),2)/.025);if(tear>.82&&s.d>.42)return null;color=mix(color,P[2],clamp((v+.4)*.10))}
+if(preset==='tools'){const sats=[[-.78,-.12],[.74,-.34],[.18,.86],[-.22,-.88]];for(const [sx,sy] of sats){const d=Math.hypot(s.x-sx*.72,s.y-sy*.72),beam=Math.exp(-Math.pow(d/.055,2));intensity+=beam*.08}}
+if(preset==='emergence'){const cluster=Math.pow(.5+.5*fbm(s.x*5.2,s.y*5.2,t*.22,3),2.4);intensity+=cluster*.18;color=mix(color,P[3],cluster*.12)}
+color=mix(color,P[4],clamp((s.d-.66)/.46)*(.18+.18*(1-depth)));color=mix(color,P[0],rim*.05);return{intensity:clamp(intensity),color}}
+function threshold(gx,gy){return(BAYER8[gy&7][gx&7]+.5)/64}
+function render(){let html='';for(let cy=0;cy<ROWS;cy++){for(let cx=0;cx<COLS;cx++){let mask=0,count=0,sr=0,sg=0,sb=0;for(let dy=0;dy<4;dy++)for(let dx=0;dx<2;dx++){const gx=cx*2+dx,gy=cy*4+dy,q=sample(gx,gy);if(!q)continue;const shaped=clamp((q.intensity-.34)*1.44+.5);if(shaped>threshold(gx,gy))mask|=BITS[dy][dx];sr+=q.color[0];sg+=q.color[1];sb+=q.color[2];count++}if(!count)html+=braille(0);else html+=`<span style="color:${css([Math.round(sr/count),Math.round(sg/count),Math.round(sb/count)])}">${braille(mask)}</span>`}if(cy<ROWS-1)html+='\n'}frame.innerHTML=html;const edge=waveAt(1).edge;aura.style.transform=`translate(-50%,-50%) scale(${1+edge*.08+energy*.025})`;aura.style.opacity=(.16+.14*energy+.16*edge).toFixed(2)}
+function setPreset(key){preset=key;const p=PRESETS[key];document.querySelectorAll('[data-preset]').forEach(b=>b.classList.toggle('active',b.dataset.preset===key));labState.textContent=key.toUpperCase();nameEl.textContent=key==='selfmodel'?'Self Model':key[0].toUpperCase()+key.slice(1);descEl.textContent=p.desc;readout.innerHTML=`<b>${nameEl.textContent}</b><br>${p.note}`;topologyEl.value=p.topology;entropyEl.value=p.entropy;coherenceEl.value=p.coherence;depthEl.value=p.depth;energyEl.value=p.energy;syncControls();if(key==='memory'){echoes.length=0;for(let i=0;i<5;i++)echoes.push({born:t-i*1.6})}if(key==='insight')addInsight();if(key==='emergence')seedShift+=3.7}
+function syncControls(){entropy=+entropyEl.value/100;coherence=+coherenceEl.value/100;depth=+depthEl.value/100;energy=+energyEl.value/100;el('entropyV').textContent=entropyEl.value;el('coherenceV').textContent=coherenceEl.value;el('depthV').textContent=depthEl.value;el('energyV').textContent=energyEl.value}
+document.querySelectorAll('[data-preset]').forEach(b=>b.addEventListener('click',()=>setPreset(b.dataset.preset)));[entropyEl,coherenceEl,depthEl,energyEl].forEach(x=>x.addEventListener('input',syncControls));topologyEl.addEventListener('change',render);paletteEl.addEventListener('change',render);el('pulseBtn').addEventListener('click',()=>addWave(.8));el('insightBtn').addEventListener('click',()=>{addInsight();if(preset!=='insight')setPreset('insight')});el('surpriseBtn').addEventListener('click',()=>{const keys=Object.keys(PRESETS),k=keys[Math.floor(Math.random()*keys.length)];setPreset(k);seedShift+=1.7+Math.random()*5;addWave(.45+Math.random()*.45)});el('resetBtn').addEventListener('click',()=>{seedShift=0;waves.length=0;insights.length=0;echoes.length=0;setPreset(preset)});
+measure();setPreset('presence');addWave(.22);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(measure);window.addEventListener('resize',measure,{passive:true});function loop(ts){requestAnimationFrame(loop);if(ts-last<1000/FPS)return;const dt=Math.min((ts-last)/1000,.05)||1/FPS;last=ts;t+=dt;if(preset==='memory'&&echoes.length<7&&Math.floor(t)%4===0&&Math.floor((t-dt))%4!==0)echoes.push({born:t});for(let i=waves.length-1;i>=0;i--)if(t-waves[i].born>2.7)waves.splice(i,1);for(let i=insights.length-1;i>=0;i--)if(t-insights[i].born>3)insights.splice(i,1);render()}requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Terminal AI Orb — Soul Signature</title>
+<style>
+:root{
+  --bg:#070911;
+  --bg2:#0c1020;
+  --panel:#10162a;
+  --line:#24304e;
+  --fg:#dfe8ff;
+  --muted:#7986a8;
+  --accent:#79dbff;
+  --accent2:#ab90ff;
+  --warm:#ffd88a;
+  --aura-opacity:.26;
+  --aura-scale:1;
+  --aura-core:12%;
+  --aura-edge:7%;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  min-height:100vh;
+  color:var(--fg);
+  font-family:"CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono","SFMono-Regular",Consolas,monospace;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(121,219,255,.09), transparent 28rem),
+    radial-gradient(circle at 62% 26%, rgba(171,144,255,.08), transparent 22rem),
+    linear-gradient(180deg,var(--bg2),var(--bg));
+}
+.app{max-width:940px;margin:24px auto;padding:0 16px}
+.shell{
+  position:relative;
+  overflow:hidden;
+  border-radius:20px;
+  border:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(16,22,42,.96),rgba(10,14,26,.96));
+  box-shadow:0 24px 80px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.03);
+}
+.shell::before{
+  content:"";
+  position:absolute;
+  inset:-35% 8% auto;
+  height:360px;
+  pointer-events:none;
+  filter:blur(34px);
+  background:radial-gradient(ellipse, rgba(121,219,255,.12), transparent 58%);
+}
+.bar, .footer{
+  position:relative;
+  z-index:2;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:12px 15px;
+  font-size:11px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--muted);
+  background:rgba(5,8,15,.35);
+}
+.bar{border-bottom:1px solid rgba(36,48,78,.65)}
+.footer{border-top:1px solid rgba(36,48,78,.65);font-size:10px;text-transform:none;letter-spacing:.02em}
+.bar strong,.footer strong{color:var(--fg);font-weight:500;letter-spacing:.03em}
+.stage{
+  position:relative;
+  min-height:590px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:34px 20px 26px;
+}
+.orb-aura{
+  position:absolute;
+  left:50%;
+  top:45%;
+  width:min(62vw,470px);
+  aspect-ratio:1;
+  transform:translate(-50%,-50%) scale(var(--aura-scale));
+  pointer-events:none;
+  border-radius:50%;
+  opacity:var(--aura-opacity);
+  filter:blur(36px);
+  background:
+    radial-gradient(circle,
+      rgba(255,255,255,.06) 0%,
+      color-mix(in srgb,var(--accent2) var(--aura-core),transparent) 20%,
+      color-mix(in srgb,var(--accent) var(--aura-edge),transparent) 42%,
+      transparent 74%);
+}
+.orb-wrap{
+  position:relative;
+  z-index:1;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:420px;
+  width:100%;
+}
+#orb{
+  margin:0;
+  white-space:pre;
+  letter-spacing:0;
+  user-select:none;
+  font:24px/1 "CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono",monospace;
+  text-shadow:0 0 8px currentColor, 0 0 22px color-mix(in srgb,currentColor 36%,transparent);
+  filter:saturate(1.04);
+}
+#probe{
+  position:absolute;
+  visibility:hidden;
+  pointer-events:none;
+  white-space:pre;
+  font:24px/1 "CaskaydiaCove Nerd Font","JetBrainsMono Nerd Font","JetBrains Mono",monospace;
+}
+.copy{
+  position:relative;
+  z-index:2;
+  max-width:680px;
+  text-align:center;
+  margin-top:4px;
+}
+.copy strong{
+  display:block;
+  color:var(--fg);
+  font-size:12px;
+  font-weight:500;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.copy span{
+  display:block;
+  margin-top:7px;
+  color:var(--muted);
+  font-size:10px;
+  line-height:1.6;
+}
+.controls{
+  position:relative;
+  z-index:2;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:14px;
+  background:rgba(7,10,18,.42);
+  border-top:1px solid rgba(36,48,78,.65);
+}
+.group{display:flex;align-items:center;gap:7px}
+button{
+  min-width:102px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  padding:9px 13px;
+  background:rgba(16,22,42,.84);
+  color:color-mix(in srgb,var(--fg) 66%,var(--muted));
+  font:inherit;
+  font-size:11px;
+  cursor:pointer;
+  transition:border-color .22s ease,background .22s ease,color .22s ease,box-shadow .22s ease,transform .18s ease;
+}
+button:hover{
+  color:var(--fg);
+  border-color:color-mix(in srgb,var(--accent) 40%,var(--line));
+  background:rgba(21,30,57,.92);
+}
+button:active{transform:scale(.985)}
+button.active{
+  color:var(--fg);
+  border-color:color-mix(in srgb,var(--accent) 52%,var(--line));
+  background:linear-gradient(180deg, rgba(121,219,255,.13), rgba(16,22,42,.92));
+  box-shadow:0 0 18px rgba(121,219,255,.10), inset 0 1px 0 rgba(255,255,255,.05);
+}
+button.warm{border-color:color-mix(in srgb,var(--warm) 38%,var(--line)); color:var(--fg)}
+button.warm.active,button.warm:hover{box-shadow:0 0 20px rgba(255,216,138,.14)}
+.note{font-size:10px;color:var(--muted)}
+@media(max-width:760px){
+  .app{margin:12px auto;padding:0 10px}
+  .stage{min-height:520px;padding:24px 10px 20px}
+  .orb-wrap{min-height:360px}
+  #orb,#probe{font-size:19px}
+  .controls{flex-direction:column;align-items:stretch}
+  .group{width:100%}
+  .group button{flex:1;min-width:0}
+  .footer,.bar{font-size:9px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="shell">
+    <span id="probe">0000000000</span>
+
+    <div class="bar">
+      <span>ORB / terminal intelligence presence</span>
+      <strong id="stateLabel">PRESENCE</strong>
+    </div>
+
+    <main class="stage">
+      <div class="orb-aura" aria-hidden="true"></div>
+      <div class="orb-wrap">
+        <pre id="orb" aria-label="Animated terminal AI orb"></pre>
+      </div>
+      <div class="copy" aria-live="polite">
+        <strong id="stateName">Presence</strong>
+        <span id="stateDescription">Quiet, awake, and inwardly luminous. Less a gadget, more a mind choosing to be gentle.</span>
+      </div>
+    </main>
+
+    <nav class="controls" aria-label="Orb controls">
+      <div class="group">
+        <button id="presenceBtn" class="active" type="button">presence</button>
+        <button id="listeningBtn" type="button">listening</button>
+        <button id="thinkingBtn" type="button">thinking</button>
+        <button id="speakingBtn" type="button">speaking</button>
+      </div>
+      <div class="group">
+        <button id="inspireBtn" class="warm" type="button">inspire</button>
+      </div>
+    </nav>
+
+    <div class="footer">
+      <span><strong>Palette:</strong> cyan + violet with rare amber insight and white cognition bloom</span>
+      <span class="note">APIs: setOrbState · setOrbAudioLevel · setOrbAnalyser · exciteOrb</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(()=>{
+  const COLS=30, ROWS=15, W=COLS*2, H=ROWS*4, FPS=60;
+  const BITS=[[1,8],[2,16],[4,32],[64,128]];
+  const BAYER8=[
+    [0,48,12,60,3,51,15,63],[32,16,44,28,35,19,47,31],
+    [8,56,4,52,11,59,7,55],[40,24,36,20,43,27,39,23],
+    [2,50,14,62,1,49,13,61],[34,18,46,30,33,17,45,29],
+    [10,58,6,54,9,57,5,53],[42,26,38,22,41,25,37,21]
+  ];
+
+  const C={
+    deep:[9,13,24],
+    cyan:[121,219,255],
+    violet:[171,144,255],
+    amber:[255,216,138],
+    white:[246,249,255],
+    rim:[150,232,255],
+    uiMuted:[121,134,168]
+  };
+
+  const STATES={
+    presence:{
+      label:'Presence',
+      description:'Quiet, awake, and inwardly luminous. Less a gadget, more a mind choosing to be gentle.',
+      speed:.12,morph:.024,glow:.42,flow:.34,particles:.10,insight:.18,audio:.00,breath:.022,open:.18,thought:.18
+    },
+    listening:{
+      label:'Listening',
+      description:'Attention gathers. Sound brightens the core, then travels outward through a living field.',
+      speed:.28,morph:.085,glow:.92,flow:1.0,particles:.30,insight:.22,audio:1.00,breath:.040,open:.28,thought:.20
+    },
+    thinking:{
+      label:'Thinking',
+      description:'Ideas braid and recirculate. Patterns sharpen, dissolve, and return in luminous veils.',
+      speed:.22,morph:.060,glow:.78,flow:.58,particles:.16,insight:.54,audio:.10,breath:.028,open:.22,thought:1.00
+    },
+    speaking:{
+      label:'Speaking',
+      description:'Meaning resolves into form. The orb opens and releases measured energy with clarity.',
+      speed:.33,morph:.070,glow:1.0,flow:.66,particles:.24,insight:.30,audio:.55,breath:.034,open:.38,thought:.34
+    }
+  };
+
+  const orbEl=document.querySelector('#orb');
+  const probe=document.querySelector('#probe');
+  const stateLabel=document.querySelector('#stateLabel');
+  const stateName=document.querySelector('#stateName');
+  const stateDescription=document.querySelector('#stateDescription');
+  const inspireBtn=document.querySelector('#inspireBtn');
+  const buttons={
+    presence:document.querySelector('#presenceBtn'),
+    listening:document.querySelector('#listeningBtn'),
+    thinking:document.querySelector('#thinkingBtn'),
+    speaking:document.querySelector('#speakingBtn')
+  };
+
+  let state='presence';
+  let cellW=12,lineH=24;
+  let t=0,last=0;
+  let signal=.06, rawLevel=.06, previousRaw=.06, externalLevel=null;
+  let externalAnalyser=null, analyserData=null;
+  const motion={...STATES[state]};
+  const pulses=[];
+
+  const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+  const lerp=(a,b,u)=>a+(b-a)*u;
+  const mix=(a,b,u)=>a.map((v,i)=>Math.round(lerp(v,b[i],u)));
+  const css=c=>`rgb(${c[0]},${c[1]},${c[2]})`;
+  const braille=mask=>String.fromCodePoint(0x2800+mask);
+  const smoothstep=(a,b,x)=>{
+    const u=clamp((x-a)/(b-a||1));
+    return u*u*(3-2*u);
+  };
+  const normalize3=(x,y,z)=>{
+    const m=Math.hypot(x,y,z)||1;
+    return [x/m,y/m,z/m];
+  };
+  const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+
+  const PERM=(()=>{
+    const base=Array.from({length:256},(_,i)=>i);
+    let seed=0x9e3779b9;
+    const rand=()=>{
+      seed^=seed<<13; seed^=seed>>>17; seed^=seed<<5;
+      return (seed>>>0)/4294967296;
+    };
+    for(let i=255;i>0;i--){
+      const j=Math.floor(rand()*(i+1));
+      [base[i],base[j]]=[base[j],base[i]];
+    }
+    return [...base,...base];
+  })();
+  const fade=n=>n*n*n*(n*(n*6-15)+10);
+  const grad=(hash,x,y,z)=>{
+    const h=hash&15;
+    const u=h<8?x:y;
+    const v=h<4?y:(h===12||h===14?x:z);
+    return ((h&1)?-u:u)+((h&2)?-v:v);
+  };
+  function perlin3(x,y,z){
+    const X=Math.floor(x)&255,Y=Math.floor(y)&255,Z=Math.floor(z)&255;
+    x-=Math.floor(x); y-=Math.floor(y); z-=Math.floor(z);
+    const u=fade(x),v=fade(y),w=fade(z);
+    const A=PERM[X]+Y, AA=PERM[A]+Z, AB=PERM[A+1]+Z;
+    const B=PERM[X+1]+Y, BA=PERM[B]+Z, BB=PERM[B+1]+Z;
+    const x1=lerp(grad(PERM[AA],x,y,z),grad(PERM[BA],x-1,y,z),u);
+    const x2=lerp(grad(PERM[AB],x,y-1,z),grad(PERM[BB],x-1,y-1,z),u);
+    const y1=lerp(x1,x2,v);
+    const x3=lerp(grad(PERM[AA+1],x,y,z-1),grad(PERM[BA+1],x-1,y,z-1),u);
+    const x4=lerp(grad(PERM[AB+1],x,y-1,z-1),grad(PERM[BB+1],x-1,y-1,z-1),u);
+    return lerp(y1,lerp(x3,x4,v),w);
+  }
+  function fbm3(x,y,z,oct=4){
+    let val=0,amp=.56,freq=1,norm=0;
+    for(let i=0;i<oct;i++){
+      val+=perlin3(x*freq,y*freq,z*freq)*amp;
+      norm+=amp;
+      amp*=.5; freq*=2.03;
+    }
+    return val/(norm||1);
+  }
+
+  function measure(){
+    const r=probe.getBoundingClientRect();
+    cellW=r.width/10||12;
+    lineH=parseFloat(getComputedStyle(orbEl).lineHeight)||24;
+  }
+
+  function screenCoord(gx,gy){
+    const dotW=cellW/2, dotH=lineH/4;
+    const totalW=W*dotW, totalH=H*dotH;
+    const radius=Math.min(totalW,totalH)*.39;
+    const px=(gx+.5)*dotW, py=(gy+.5)*dotH;
+    return {x:(px-totalW/2)/radius, y:(py-totalH/2)/radius};
+  }
+
+  function smoothMotion(dt){
+    const target=STATES[state];
+    const k=1-Math.exp(-dt*2.8);
+    for(const key of Object.keys(target)){
+      if(key==='label' || key==='description') continue;
+      motion[key]=lerp(motion[key],target[key],k);
+    }
+  }
+
+  function triggerExcitation(amount=.72,synthetic=false){
+    const amp=clamp(amount,.12,1);
+    pulses.push({
+      born:t,
+      amp,
+      speed:.54+Math.random()*.16,
+      width:.09+Math.random()*.05,
+      drift:(Math.random()-.5)*.18,
+      seed:Math.random()*30
+    });
+    if(pulses.length>12) pulses.splice(0,pulses.length-12);
+    if(synthetic){
+      signal=Math.max(signal,.18+amp*.7);
+      inspireBtn.classList.remove('active');
+      void inspireBtn.offsetWidth;
+      inspireBtn.classList.add('active');
+      setTimeout(()=>inspireBtn.classList.remove('active'),220);
+    }
+  }
+
+  function pulseInfo(r){
+    let shell=0,core=0,edge=0;
+    for(const pulse of pulses){
+      const age=t-pulse.born;
+      if(age<0) continue;
+      const radius=-.08+age*pulse.speed;
+      const life=Math.exp(-Math.max(0,age-1.22)*2.4);
+      const localR=r+pulse.drift*Math.sin(r*5.7+pulse.seed+age*.8)*(1-r)*.28;
+      const band=Math.exp(-Math.pow((localR-radius)/pulse.width,2))*pulse.amp*life;
+      shell+=band;
+      core+=pulse.amp*Math.exp(-age*5.5)*Math.exp(-r*r/.05);
+      edge+=pulse.amp*Math.exp(-Math.pow((radius-1)/.13,2))*life;
+    }
+    return {shell:clamp(shell),core:clamp(core),edge:clamp(edge)};
+  }
+
+  function prunePulses(){
+    for(let i=pulses.length-1;i>=0;i--){
+      if(t-pulses[i].born>2.6) pulses.splice(i,1);
+    }
+  }
+
+  function readAnalyserLevel(){
+    if(!externalAnalyser) return null;
+    if(!analyserData || analyserData.length!==externalAnalyser.fftSize){
+      analyserData=new Uint8Array(externalAnalyser.fftSize);
+    }
+    externalAnalyser.getByteTimeDomainData(analyserData);
+    let sum=0;
+    for(let i=0;i<analyserData.length;i++){
+      const v=(analyserData[i]-128)/128;
+      sum+=v*v;
+    }
+    return clamp(Math.sqrt(sum/analyserData.length)*4.1);
+  }
+
+  function updateSignal(dt){
+    let target;
+    const analyserLevel=readAnalyserLevel();
+    if(analyserLevel!==null && (state==='listening' || state==='speaking')){
+      target=analyserLevel;
+    }else if(externalLevel!==null && (state==='listening' || state==='speaking')){
+      target=clamp(externalLevel);
+    }else if(state==='presence'){
+      target=.022+.014*(.5+.5*Math.sin(t*.38+.5*Math.sin(t*.13)));
+    }else if(state==='thinking'){
+      target=.075+.055*(.5+.5*Math.sin(t*.92+.35*Math.sin(t*.29)));
+    }else if(state==='speaking'){
+      const phrase=.5+.5*Math.sin(t*1.15+.30*Math.sin(t*.16));
+      const cadence=Math.max(0,Math.sin(t*4.7+.3))**5;
+      target=.11+.11*phrase+.16*cadence;
+    }else{
+      const phrase=.5+.5*Math.sin(t*.72+.4*Math.sin(t*.2));
+      const syllable=.5+.5*Math.sin(t*2.6+1.2+.2*Math.sin(t*.34));
+      const accent=Math.max(0,Math.sin(t*5.2+.55))**7;
+      target=.09+.14*phrase+.07*syllable+.18*accent;
+    }
+
+    rawLevel=lerp(rawLevel,target,1-Math.exp(-dt*8.8));
+    signal=lerp(signal,clamp(rawLevel),1-Math.exp(-dt*9.8));
+
+    const delta=rawLevel-previousRaw;
+    previousRaw=rawLevel;
+    if((state==='listening' || state==='speaking') && rawLevel>.18 && delta>.045){
+      triggerExcitation(clamp(.35+rawLevel*.9));
+    }
+
+    if(state==='thinking' && Math.sin(t*.78-dt)<0 && Math.sin(t*.78)>=0){
+      triggerExcitation(.26);
+    }
+    if(state==='speaking' && Math.sin(t*1.12-dt)<0 && Math.sin(t*1.12)>=0){
+      triggerExcitation(.36);
+    }
+
+    if(state==='presence' && pulses.length===0 && t>1.2){
+      triggerExcitation(.18);
+    }
+
+    prunePulses();
+  }
+
+  function shapeAt(gx,gy){
+    const p=screenCoord(gx,gy);
+    const driftX=.05*Math.sin(t*.18)+.02*Math.sin(t*.47+1.1);
+    const driftY=.035*Math.cos(t*.15+.6)+.015*Math.sin(t*.36);
+    const x=p.x-driftX;
+    const y=p.y-driftY;
+    const r=Math.hypot(x,y);
+    const ang=Math.atan2(y,x);
+    const breathing=1+motion.breath*Math.sin(t*.72+.4*Math.sin(t*.21));
+    const contourNoise=.12*fbm3(x*1.35+2.4,y*1.35-1.8,t*.15+4.2,3)
+      +.05*fbm3(x*3.2-4.6,y*3.2+2.3,t*.28+7.7,2);
+    const asym=.03*Math.cos(ang*2-t*.36)+motion.open*.03*Math.sin(ang-t*.44+.8);
+    const contour=breathing*(1+motion.morph*(contourNoise+asym));
+    if(r>contour+.28) return null;
+    const outside=r>contour;
+    const nx=x/(contour||1), ny=y/(contour||1);
+    const d=Math.hypot(nx,ny);
+    const inside=d<=1;
+    if(!inside && !outside) return null;
+    if(!inside){
+      return {outside:true,x,y,d};
+    }
+    const z=Math.sqrt(Math.max(0,1-d*d));
+    const normal=normalize3(nx,ny,z);
+    const lon=Math.atan2(normal[0],Math.max(.001,normal[2]));
+    const lat=Math.asin(clamp(normal[1],-1,1));
+    const swirl=.18*fbm3(normal[0]*1.4+1.7,normal[1]*1.4-2.2,t*.14+3.1,3)*motion.flow;
+    const wx=normal[0]*1.25+swirl, wy=normal[1]*1.25-swirl*.6;
+    return {outside:false,x:nx,y:ny,z,d,normal,lon,lat,wx,wy};
+  }
+
+  function baseSoulColor(s){
+    const time=t*(.07+motion.speed*.2);
+    const qx=fbm3(s.wx*.9+1.7,s.wy*.9-3.1,time,3);
+    const qy=fbm3(s.wx*.9-4.6,s.wy*.9+2.7,time+7.2,3);
+    const tide=fbm3(s.wx*1.12+qx*.8,s.wy*1.12+qy*.8,time*1.07+2.3,4);
+    const current=.35*Math.sin(s.lon*1.7+time*1.15+.5*Math.sin(t*.2))
+      +.22*Math.cos(s.lat*2.8-time*.85)
+      +.15*Math.sin((s.lon+s.lat)*2.2+time*.7);
+    const selector=.5+.5*(tide*.85+current*.45);
+    let color=mix(C.cyan,C.violet,smoothstep(.14,.86,selector));
+
+    const filamentA=Math.exp(-Math.pow(Math.sin(s.lon*5.2+time*.9+qx*.8),2)/.030);
+    const filamentB=Math.exp(-Math.pow(Math.sin(s.lat*4.5-time*.7+qy*.7),2)/.040);
+    const lattice=(filamentA*.58+filamentB*.42)*motion.insight;
+    color=mix(color,C.white,clamp(lattice*.09,0,.16));
+    color=mix(color,C.amber,clamp(lattice*(state==='thinking'?.20:.10),0,.18));
+    return {color,lattice,selector};
+  }
+
+  function thoughtVeil(s){
+    const center=Math.sin(t*1.34)*.86;
+    const d=s.lon*.9+s.lat*.55-center;
+    const band=Math.exp(-Math.pow(d/.26,2));
+    const aura=Math.exp(-Math.pow(d/.48,2));
+    return {band:clamp(band),aura:clamp(aura)};
+  }
+
+  function speechOpening(s){
+    const gate=Math.exp(-Math.pow((s.normal[1]+.06)/.42,2));
+    const arc=Math.exp(-Math.pow(Math.sin(s.lon*1.1-t*1.45),2)/.12);
+    return clamp(gate*.45+arc*.55);
+  }
+
+  function sampleAt(gx,gy){
+    const s=shapeAt(gx,gy);
+    if(!s) return null;
+
+    if(s.outside){
+      const halo=clamp(1-(s.d-1)/.28);
+      const pulse=pulseInfo(Math.min(s.d,1.25));
+      const activity=.02+motion.particles*.16+signal*.10+pulse.edge*.34;
+      const drift=fbm3(s.x*7.6+t*.08,s.y*7.6-t*.06,t*.32+2.8,3);
+      const grain=.5+.5*fbm3(s.x*14.5-2.2,s.y*14.5+5.1,t*.46,2);
+      const particle=.6*(.5+.5*drift)+.4*grain;
+      const threshold=.93-activity*.32;
+      if(particle<threshold) return null;
+      const sparkle=clamp((particle-threshold)/(1-threshold+.0001));
+      let color=mix(C.cyan,C.violet,.5+.5*drift);
+      color=mix(color,C.white,.18+pulse.edge*.40);
+      const intensity=(.10+.55*activity)*halo*(.35+.65*sparkle);
+      return {intensity:clamp(intensity),color};
+    }
+
+    const pulse=pulseInfo(Math.min(s.d,1.1));
+    const key=normalize3(-.74,-.52,1);
+    const fill=normalize3(.32,.12,.74);
+    const kd=Math.max(0,dot(s.normal,key));
+    const fd=Math.max(0,dot(s.normal,fill));
+    const rim=Math.pow(1-Math.max(0,s.normal[2]),1.5);
+    const spec=Math.pow(Math.max(0,dot(s.normal,normalize3(-.25,-.2,1))),22);
+    const soul=baseSoulColor(s);
+    let color=soul.color;
+
+    const core=Math.pow(clamp(s.z),4.0)*(.08+.18*motion.glow);
+    const light=.22+.39*kd+.12*fd+.18*s.z+.10*motion.glow+spec*.18;
+    const innerBloom=core+Math.pow(soul.lattice,.92)*.08+spec*(.08+.22*motion.glow);
+    color=mix(color,C.white,clamp(innerBloom,0,.42));
+    color=mix(color,C.rim,rim*.08);
+
+    let intensity=light;
+
+    if(state==='presence'){
+      intensity*=.92;
+      color=mix(color,C.deep,.10);
+    }
+
+    if(state==='thinking'){
+      const veil=thoughtVeil(s);
+      intensity+=veil.band*.28+veil.aura*.06;
+      color=mix(color,C.white,clamp(veil.band*.24+veil.aura*.05,0,.32));
+      color=mix(color,C.amber,clamp(veil.band*.12,0,.16));
+    }
+
+    if(state==='listening'){
+      const audioLift=signal*(.05+.16*Math.pow(clamp(s.z),2.8))
+        +Math.pow(pulse.shell,.72)*.55
+        +Math.pow(pulse.core,.76)*.44;
+      intensity+=audioLift;
+      color=mix(color,C.white,clamp(audioLift*.72,0,.62));
+    }
+
+    if(state==='speaking'){
+      const open=speechOpening(s);
+      intensity+=open*(.12+.18*signal)+Math.pow(pulse.shell,.7)*.46;
+      color=mix(color,C.white,clamp(open*.24+Math.pow(pulse.shell,.7)*.36,0,.56));
+      color=mix(color,C.amber,clamp(open*.10,0,.14));
+    }
+
+    const edgeShade=clamp((s.d-.64)/.43);
+    color=mix(color,C.deep,edgeShade*.28);
+
+    return {intensity:clamp(intensity),color};
+  }
+
+  function thresholdAt(gx,gy){return (BAYER8[gy&7][gx&7]+.5)/64}
+
+  function render(){
+    let html='';
+    for(let cy=0;cy<ROWS;cy++){
+      for(let cx=0;cx<COLS;cx++){
+        let mask=0,count=0,sr=0,sg=0,sb=0;
+        for(let dy=0;dy<4;dy++){
+          for(let dx=0;dx<2;dx++){
+            const gx=cx*2+dx, gy=cy*4+dy;
+            const sample=sampleAt(gx,gy);
+            if(!sample) continue;
+            const shaped=clamp((sample.intensity-.34)*1.45+.5);
+            if(shaped>thresholdAt(gx,gy)) mask|=BITS[dy][dx];
+            sr+=sample.color[0]; sg+=sample.color[1]; sb+=sample.color[2]; count++;
+          }
+        }
+        if(!count){
+          html+=braille(0);
+        }else{
+          const color=[Math.round(sr/count),Math.round(sg/count),Math.round(sb/count)];
+          html+=`<span style="color:${css(color)}">${braille(mask)}</span>`;
+        }
+      }
+      if(cy<ROWS-1) html+='\n';
+    }
+    orbEl.innerHTML=html;
+  }
+
+  function updateCssAura(){
+    const edge=pulseInfo(1).edge;
+    const root=document.documentElement;
+    root.style.setProperty('--aura-scale', (1+edge*.10).toFixed(3));
+    root.style.setProperty('--aura-opacity', (.18+motion.glow*.08+signal*.10+edge*.16).toFixed(3));
+    root.style.setProperty('--aura-core', `${(10+signal*8+motion.glow*5).toFixed(2)}%`);
+    root.style.setProperty('--aura-edge', `${(5+edge*12+motion.glow*4).toFixed(2)}%`);
+  }
+
+  function setState(next){
+    if(!STATES[next]) return;
+    state=next;
+    for(const [name,button] of Object.entries(buttons)){
+      button.classList.toggle('active',name===state);
+    }
+    stateLabel.textContent=STATES[state].label.toUpperCase();
+    stateName.textContent=STATES[state].label;
+    stateDescription.textContent=STATES[state].description;
+  }
+
+  Object.entries(buttons).forEach(([name,button])=>{
+    button.addEventListener('click',()=>setState(name));
+  });
+  inspireBtn.addEventListener('click',()=>{
+    const amp=state==='presence'?.48:state==='thinking'?.58:.78;
+    triggerExcitation(amp+Math.random()*.16,true);
+  });
+
+  window.setOrbState=setState;
+  window.setOrbAudioLevel=value=>{
+    externalLevel=(value===null||value===undefined)?null:clamp(Number(value)||0);
+  };
+  window.setOrbAnalyser=analyser=>{
+    externalAnalyser=analyser||null;
+    analyserData=externalAnalyser?new Uint8Array(externalAnalyser.fftSize):null;
+  };
+  window.exciteOrb=amount=>triggerExcitation(amount===undefined?.82:Number(amount)||.18,true);
+
+  measure();
+  setState(state);
+  triggerExcitation(.24);
+
+  function loop(ts){
+    requestAnimationFrame(loop);
+    if(ts-last<1000/FPS) return;
+    const dt=Math.min((ts-last)/1000,.05)||1/FPS;
+    last=ts;
+    t+=dt;
+    smoothMotion(dt);
+    updateSignal(dt);
+    updateCssAura();
+    render();
+  }
+
+  window.addEventListener('resize',measure,{passive:true});
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
