@@ -43,15 +43,18 @@ export class VoiceWidget implements Component {
     this.stepFrame(nowMs);
     const f=this.frame;
     const p=this.lastPainted;
-    // The wave animation is driven by the continuous clock, so the frame must
-    // be repainted as t advances; the smoke field only repaints when
-    // energy/phase actually moved. A mode switch itself always repaints
-    // immediately, and a crossfade between two modes needs frames for its
-    // whole duration, not just the first one.
-    const animated=this.mode!=="smoke";
+    // The wave animation and the drifting light both run on the continuous
+    // clock, so the frame must be repainted as t advances in every mode. The
+    // old smoke-only throttle existed for the pre-lighting renderer, where a
+    // 20Hz unconditional repaint cost ~15ms of event-loop stall (audible
+    // audio drops); the surface renderer is ~1ms at panel sizes now, so the
+    // clock gate is cheap and the living sphere actually stays alive on
+    // screen in silence. A mode switch repaints immediately, and a crossfade
+    // between two modes needs frames for its whole duration, not just the
+    // first one.
     if (!this.renderer.fading && this.mode===p.mode && Math.abs(f.userEnergy-p.userEnergy)<0.01 && Math.abs(f.agentEnergy-p.agentEnergy)<0.01
         && Math.abs(f.phaseA-p.phaseA)<0.035 && Math.abs(f.phaseB-p.phaseB)<0.035
-        && (!animated || Math.abs((f.t??0)-p.t)<0.04)) return;
+        && Math.abs((f.t??0)-p.t)<0.04) return;
     p.userEnergy=f.userEnergy; p.agentEnergy=f.agentEnergy; p.phaseA=f.phaseA; p.phaseB=f.phaseB; p.t=f.t??0; p.mode=this.mode;
     this.tui.requestRender();
   }

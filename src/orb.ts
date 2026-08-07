@@ -139,6 +139,8 @@ export class OrbMotion {
 
 export class OrbRenderer {
   private cells: OrbCell[] = [];
+  private scratchA: OrbCell[] = [];
+  private scratchB: OrbCell[] = [];
   private lastMode: OrbMode = "smoke";
   private fadeFrom: OrbMode | null = null;
   private fadeT = 1;
@@ -190,8 +192,8 @@ export class OrbRenderer {
       } else {
         const w = smoothstep(0, 1, this.fadeT);
         const from = this.fadeFrom;
-        const fromRaster = this.scratchRaster(raster);
-        const toRaster = this.scratchRaster(raster);
+        const fromRaster = this.scratchRaster(raster, this.scratchA);
+        const toRaster = this.scratchRaster(raster, this.scratchB);
         this.renderMode(fromRaster, frame, from);
         this.renderMode(toRaster, frame, mode);
         this.dissolve(fromRaster, toRaster, w);
@@ -229,18 +231,31 @@ export class OrbRenderer {
     raster.cellAspect = cellAspect;
 
     const required = width * height;
-    if (this.cells.length !== required) this.cells = Array.from({ length: required }, () => ({ ...EMPTY_CELL }));
-    else for (let i = 0; i < required; i++) this.cells[i] = { ...EMPTY_CELL };
+    if (this.cells.length !== required) this.cells = this.growCells(required);
+    else for (let i = 0; i < required; i++) resetCell(this.cells[i]!);
     raster.cells = this.cells;
     return raster;
   }
 
-  /** A copy of the raster geometry with a fresh, empty cell buffer. */
-  private scratchRaster(template: OrbRaster): OrbRaster {
-    return {
-      ...template,
-      cells: Array.from({ length: template.width * template.height }, () => ({ ...EMPTY_CELL })),
-    };
+  /** Grow-or-fill a fresh cell buffer (only on size changes). */
+  private growCells(n: number): OrbCell[] {
+    return Array.from({ length: n }, () => ({ ...EMPTY_CELL }));
+  }
+
+  /**
+   * A copy of the raster geometry backed by a REUSED cell buffer (grow-or-
+   * fill, reset in place), so a mode crossfade — which renders two extra
+   * rasters every tick — stops allocating two full cell arrays per frame.
+   */
+  private scratchRaster(template: OrbRaster, buffer: OrbCell[]): OrbRaster {
+    const required = template.width * template.height;
+    if (buffer.length !== required) {
+      buffer.length = 0;
+      for (let i = 0; i < required; i++) buffer.push({ ...EMPTY_CELL });
+    } else {
+      for (let i = 0; i < required; i++) resetCell(buffer[i]!);
+    }
+    return { ...template, cells: buffer };
   }
 
   /**
@@ -257,19 +272,36 @@ export class OrbRenderer {
       const ca = from.cells[i];
       const cb = to.cells[i];
       if (!ca || !cb) continue;
+      // Mutate the shared cell in place (no per-cell allocation per fade tick).
       if (ca.glyph && cb.glyph) {
         const x = i % width;
         const y = Math.floor(i / width);
         const flipAt = 0.35 + 0.3 * hash01(x, y, 0x51e17);
         const glyph = w < flipAt ? ca.glyph : cb.glyph;
-        this.cells[i] = {
-          ...(glyph === ca.glyph ? ca : cb),
-          shade: clamp(ca.shade * fromW + cb.shade * w, 0, 1),
-        };
+        const src = glyph === ca.glyph ? ca : cb;
+        const target = this.cells[i]!;
+        target.coverage = src.coverage;
+        target.shade = clamp(ca.shade * fromW + cb.shade * w, 0, 1);
+        target.filament = src.filament;
+        target.density = src.density;
+        target.glyph = src.glyph;
+        target.layer = src.layer;
       } else if (ca.glyph) {
-        this.cells[i] = { ...ca, shade: ca.shade * fromW };
+        const target = this.cells[i]!;
+        target.coverage = ca.coverage;
+        target.shade = ca.shade * fromW;
+        target.filament = ca.filament;
+        target.density = ca.density;
+        target.glyph = ca.glyph;
+        target.layer = ca.layer;
       } else if (cb.glyph) {
-        this.cells[i] = { ...cb, shade: cb.shade * w };
+        const target = this.cells[i]!;
+        target.coverage = cb.coverage;
+        target.shade = cb.shade * w;
+        target.filament = cb.filament;
+        target.density = cb.density;
+        target.glyph = cb.glyph;
+        target.layer = cb.layer;
       }
     }
   }
@@ -345,6 +377,10 @@ export class OrbRenderer {
     const edgeMax2 = edgeMax * edgeMax;
     const outer = 1 + disturb * 0.55;
     const outer2 = outer * outer;
+    // The explode is a rim effect: displacement for interior points is
+    // imperceptible, so they stay on the quiet path (and the breakup ramps in
+    // smoothly from r≈0.5), keeping loud renders near the cost of quiet ones.
+    const disturbInner2 = 0.25;
     // Material texture for braille: coarse object-space grain evaluated once
     // per terminal cell (the 2×4 subpixels of one cell sit too close together
     // to matter for a texture this large), so braille keeps ~all its speed.
@@ -356,74 +392,79 @@ export class OrbRenderer {
       for (let fx = 0; fx < fw; fx++) {
         const nx = (fx - cx) / radiusX;
         const r2 = nx * nx + ny * ny;
-        if (disturb <= 0.001) {
-          // Quiet path: no displacement, keep the loop as cheap as possible.
-          if (r2 >= edgeMax2) continue;
-          let coverage = 1;
-          if (r2 > edgeMin2) {
-            coverage = 1 - smoothstep(edgeMin, edgeMax, Math.sqrt(r2));
-            if (coverage <= 0.02) continue;
+        if (disturb > 0.001 && r2 >= disturbInner2) {
+          // Disturbance: loud audio physically breaks the surface apart.
+          // Edge points explode outward along their normal and scatter
+          // tangentially (noise-shaped, so the breakup is irregular, not a
+          // ring), and points that blow past the silhouette survive as
+          // fringe particles beyond the circle — the orb's rim visually
+          // fragments on audio peaks.
+          if (r2 >= outer2) continue;
+          const r = Math.sqrt(r2);
+          const edgeF = smoothstep(0.12, 1, r);
+          // Ramp the breakup in smoothly toward the interior so the disturbed
+          // region blends into the untouched center without a seam.
+          const ramp = smoothstep(0.5, 0.7, r);
+          const noise =
+            0.58 * (0.5 + 0.5 * Math.sin(nx * 10.5 - ny * 7.4 + t * 10.8)) +
+            0.42 * (0.5 + 0.5 * Math.sin(nx * 17 + ny * 9 - t * 13.2));
+          const radial = disturb * ramp * (0.02 + 0.22 * edgeF) * (0.45 + 0.55 * noise);
+          const tangent = disturb * ramp * 0.1 * (0.25 + 0.75 * edgeF) * Math.sin(nx * 9 + ny * 6.5 + t * 15);
+          const wobble = disturb * ramp * 0.035 * Math.sin((nx - ny) * 11 - t * 9);
+          const inv = r > 1e-5 ? 1 / r : 1;
+          const ux = nx * inv;
+          const uy = ny * inv;
+          const tx = -uy;
+          const ty = ux;
+          const xs = nx + ux * radial + tx * tangent;
+          const ys = ny + uy * (radial * 0.95 + wobble) + ty * (tangent * 0.35);
+          const rs2 = xs * xs + ys * ys;
+          if (rs2 <= 1) {
+            let coverage = 1;
+            if (rs2 > edgeMin2) {
+              coverage = 1 - smoothstep(edgeMin, edgeMax, Math.sqrt(rs2));
+              if (coverage <= 0.02) continue;
+            }
+            const z = Math.sqrt(Math.max(0, 1 - rs2));
+            const lat = Math.asin(clamp(ys, -1, 1));
+            const lon = Math.atan2(xs, z);
+            if (isCarved(lat, lon, audio, transient, t, widthScale)) continue;
+            const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat, lon);
+            field[row + fx] = clamp(coverage * orbLighting(xs, ys, z, lights, mat, audio, transient, t), 0.05, 1);
+          } else if (rs2 <= outer2) {
+            // Fringe particle: this point blew past the silhouette. Clamp it
+            // back onto the sphere and keep it as a bright rim fragment whose
+            // strength fades with how far it escaped.
+            const rs = Math.sqrt(rs2);
+            const band = 1 - (rs - 1) / (outer - 1);
+            const chance = band * (0.52 + 0.48 * noise) + disturb * 0.22;
+            if (chance > 0.46) {
+              const c = 0.985 / Math.max(1e-5, rs);
+              const px = xs * c;
+              const py = ys * c;
+              const pz = Math.sqrt(Math.max(0, 1 - px * px - py * py));
+              const lat = Math.asin(clamp(py, -1, 1));
+              const lon = Math.atan2(px, pz);
+              const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat, lon);
+              const lit = orbLighting(px, py, pz, lights, mat, audio, transient, t);
+              field[row + fx] = clamp(band * (0.55 + 0.45 * band) * lit + 0.04, 0.05, 1);
+            }
           }
-          const z = Math.sqrt(Math.max(0, 1 - r2));
-          const lon = Math.atan2(nx, z);
-          if (isCarved(lat0, lon, audio, transient, t, widthScale)) continue;
-          const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat0, lon);
-          field[row + fx] = clamp(coverage * orbLighting(nx, ny, z, lights, mat, audio, transient, t), 0.08, 1);
           continue;
         }
-        // Disturbance: loud audio physically breaks the surface apart. Edge
-        // points explode outward along their normal and scatter tangentially
-        // (noise-shaped, so the breakup is irregular, not a ring), and points
-        // that blow past the silhouette survive as fringe particles beyond
-        // the circle — the orb's rim visually fragments on audio peaks.
-        if (r2 >= outer2) continue;
-        const r = Math.sqrt(r2);
-        const edgeF = smoothstep(0.12, 1, r);
-        const noise =
-          0.58 * (0.5 + 0.5 * Math.sin(nx * 10.5 - ny * 7.4 + t * 10.8)) +
-          0.42 * (0.5 + 0.5 * Math.sin(nx * 17 + ny * 9 - t * 13.2));
-        const radial = disturb * (0.02 + 0.22 * edgeF) * (0.45 + 0.55 * noise);
-        const tangent = disturb * 0.1 * (0.25 + 0.75 * edgeF) * Math.sin(nx * 9 + ny * 6.5 + t * 15);
-        const wobble = disturb * 0.035 * Math.sin((nx - ny) * 11 - t * 9);
-        const inv = r > 1e-5 ? 1 / r : 1;
-        const ux = nx * inv;
-        const uy = ny * inv;
-        const tx = -uy;
-        const ty = ux;
-        const xs = nx + ux * radial + tx * tangent;
-        const ys = ny + uy * (radial * 0.95 + wobble) + ty * (tangent * 0.35);
-        const rs2 = xs * xs + ys * ys;
-        if (rs2 <= 1) {
-          let coverage = 1;
-          if (rs2 > edgeMin2) {
-            coverage = 1 - smoothstep(edgeMin, edgeMax, Math.sqrt(rs2));
-            if (coverage <= 0.02) continue;
-          }
-          const z = Math.sqrt(Math.max(0, 1 - rs2));
-          const lat = Math.asin(clamp(ys, -1, 1));
-          const lon = Math.atan2(xs, z);
-          if (isCarved(lat, lon, audio, transient, t, widthScale)) continue;
-          const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat, lon);
-          field[row + fx] = clamp(coverage * orbLighting(xs, ys, z, lights, mat, audio, transient, t), 0.08, 1);
-        } else if (rs2 <= outer2) {
-          // Fringe particle: this point blew past the silhouette. Clamp it
-          // back onto the sphere and keep it as a bright rim fragment whose
-          // strength fades with how far it escaped.
-          const rs = Math.sqrt(rs2);
-          const band = 1 - (rs - 1) / (outer - 1);
-          const chance = band * (0.52 + 0.48 * noise) + disturb * 0.22;
-          if (chance > 0.46) {
-            const c = 0.985 / Math.max(1e-5, rs);
-            const px = xs * c;
-            const py = ys * c;
-            const pz = Math.sqrt(Math.max(0, 1 - px * px - py * py));
-            const lat = Math.asin(clamp(py, -1, 1));
-            const lon = Math.atan2(px, pz);
-            const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat, lon);
-            const lit = orbLighting(px, py, pz, lights, mat, audio, transient, t);
-            field[row + fx] = clamp(band * (0.55 + 0.45 * band) * lit + 0.04, 0.08, 1);
-          }
+        // Quiet path: silent frames, or the undisturbed interior of a loud
+        // frame — no displacement, keep it as cheap as possible.
+        if (r2 >= edgeMax2) continue;
+        let coverage = 1;
+        if (r2 > edgeMin2) {
+          coverage = 1 - smoothstep(edgeMin, edgeMax, Math.sqrt(r2));
+          if (coverage <= 0.02) continue;
         }
+        const z = Math.sqrt(Math.max(0, 1 - r2));
+        const lon = Math.atan2(nx, z);
+        if (isCarved(lat0, lon, audio, transient, t, widthScale)) continue;
+        const mat = material ? material[(fy >> 2) * raster.width + (fx >> 1)]! : materialOf(lat0, lon);
+        field[row + fx] = clamp(coverage * orbLighting(nx, ny, z, lights, mat, audio, transient, t), 0.05, 1);
       }
     }
     if (sub) return packBraille(raster, field, fw, fh);
@@ -525,22 +566,38 @@ function carveWave(lat: number, lon: number, audio: number, transient: number, t
  * elevation) so the sphere's shadows and Phong highlight travel with it —
  * the orb feels lit by a live source, not a static icon — while the fixed
  * fill light from the front-low opposite side keeps the dark side readable.
- * Only the light moves; the sphere itself never rotates.
+ * Only the light moves; the sphere itself never rotates. The result is
+ * written into a module-level object (single-threaded) so a render allocates
+ * no per-frame light object.
  */
+const ORB_LIGHTS: { kx: number; ky: number; kz: number; fx: number; fy: number; fz: number } = { kx: 0, ky: 0, kz: 0, fx: 0, fy: 0, fz: 0 };
 function orbLights(t: number): { kx: number; ky: number; kz: number; fx: number; fy: number; fz: number } {
-  const lx = -0.55 + 0.16 * Math.cos(t * 0.31);
-  const ly = -0.34 + 0.12 * Math.sin(t * 0.23);
-  const lz = 0.82;
+  // A deliberately lateral key: the z component stays high enough to light the
+  // front of the sphere, but the strong leftward bias puts the right side into
+  // a real terminator shadow, so the disk reads as a lit ball rather than a
+  // uniformly bright circle. The drift sways the shadow and highlight.
+  const lx = -0.68 + 0.14 * Math.cos(t * 0.31);
+  const ly = -0.3 + 0.12 * Math.sin(t * 0.23);
+  const lz = 0.66;
   const lk = Math.hypot(lx, ly, lz);
   const fl = Math.hypot(0.32, 0.12, 0.94);
-  return { kx: lx / lk, ky: ly / lk, kz: lz / lk, fx: 0.32 / fl, fy: 0.12 / fl, fz: 0.94 / fl };
+  ORB_LIGHTS.kx = lx / lk;
+  ORB_LIGHTS.ky = ly / lk;
+  ORB_LIGHTS.kz = lz / lk;
+  ORB_LIGHTS.fx = 0.32 / fl;
+  ORB_LIGHTS.fy = 0.12 / fl;
+  ORB_LIGHTS.fz = 0.94 / fl;
+  return ORB_LIGHTS;
 }
 
 /**
  * Two-light shading of a unit surface point: key diffuse + terminator
  * darkening (the shadow side), fill diffuse, a tight Phong highlight from
  * the reflected key ray, fresnel rim light along the silhouette, and the
- * object-space material grain. Audio brightens the whole surface and
+ * object-space material grain. The coefficients are deliberately high-
+ * contrast: a strong key, a weak fill, and a deep terminator put a clearly
+ * lit side against a clearly dark side, so the sphere reads as a solid ball
+ * even at 2×4 subpixel resolution. Audio brightens the whole surface and
  * transients add a sharp shimmer.
  */
 function orbLighting(nx: number, ny: number, z: number, l: { kx: number; ky: number; kz: number; fx: number; fy: number; fz: number }, material: number, audio: number, transient: number, t: number): number {
@@ -549,18 +606,25 @@ function orbLighting(nx: number, ny: number, z: number, l: { kx: number; ky: num
   const fillDiff = Math.max(0, nx * l.fx + ny * l.fy + z * l.fz);
   const terminator = Math.max(0, -kd);
   // Phong highlight: the reflected key ray dotted with the view (0,0,1), i.e.
-  // the z component of reflect(-key, n). Power 22 = x^16·x^4·x^2, kept as
+  // the z component of reflect(-key, n). Power 40 = x^32·x^8, kept as
   // multiplies so the hot spot costs less than a Math.pow call.
   const d = -l.kx * nx - l.ky * ny - l.kz * z;
   const rz = -l.kz - 2 * d * z;
   const s = Math.max(0, rz);
   const s2 = s * s;
   const s4 = s2 * s2;
-  const specular = s4 * s4 * s4 * s4 * s4 * s2;
-  const rim = Math.pow(1 - Math.max(0, z), 1.6);
+  const s8 = s4 * s4;
+  const s16 = s8 * s8;
+  const s32 = s16 * s16;
+  const specular = s32 * s8;
+  // Fresnel rim ≈ (1-z)^1.6 via three multiplies (a slightly lifted square):
+  // u^1.6 sits between u and u^2, so u²·(1.25 − 0.25u) lands within a few
+  // percent across [0,1] and avoids a Math.pow per sample.
+  const u = 1 - Math.max(0, z);
+  const rim = u * u * (1.25 - 0.25 * u);
   const shimmer = 0.05 * Math.sin(nx * 11 + ny * 7 + t * 2.6);
   const flare = 0.09 * transient * Math.sin(nx * 17 - t * 29);
-  return 0.1 + 0.55 * keyDiff + 0.13 * fillDiff - 0.1 * terminator + 0.18 * specular + 0.1 * rim + 0.15 * material + 0.14 * audio + shimmer + flare;
+  return 0.05 + 0.72 * keyDiff + 0.09 * fillDiff - 0.2 * terminator + 0.3 * specular + 0.16 * rim + 0.18 * material + 0.16 * audio + shimmer + flare;
 }
 
 /** Coarse object-space surface grain (the demo's material field, trimmed). */
@@ -579,6 +643,9 @@ const BRAILLE_BITS = [
   [4, 32],
   [64, 128],
 ] as const;
+
+/** All 256 braille glyphs precomputed — no per-cell string allocation. */
+const BRAILLE_GLYPHS: string[] = Array.from({ length: 256 }, (_, mask) => String.fromCharCode(0x2800 + mask));
 
 /**
  * Pack a 2×4 subpixel intensity field into one Braille glyph per terminal
@@ -604,10 +671,14 @@ function packBraille(raster: OrbRaster, field: Float32Array, subW: number, subH:
       const index = y * width + x;
       const shade = clamp(0.16 + 0.84 * max, 0, 1);
       const layer: OrbLayer = max > 0.60 ? "filament" : max > 0.38 ? "mistA" : max > 0.16 ? "mistB" : "mistC";
-      cells[index] = {
-        ...EMPTY_CELL, coverage: 1, density: max, filament: max > 0.5 ? max : 0, shade, layer,
-        glyph: String.fromCharCode(0x2800 + mask),
-      };
+      // Mutate the shared cell in place — no per-cell object allocation.
+      const target = cells[index]!;
+      target.coverage = 1;
+      target.density = max;
+      target.filament = max > 0.5 ? max : 0;
+      target.shade = shade;
+      target.layer = layer;
+      target.glyph = BRAILLE_GLYPHS[mask]!;
     }
   }
   return raster;
@@ -623,10 +694,14 @@ function fieldToRaster(raster: OrbRaster, field: Float32Array): OrbRaster {
       const index = y * width + x;
       const shade = clamp(0.16 + 0.84 * v, 0, 1);
       const layer: OrbLayer = v > 0.60 ? "filament" : v > 0.38 ? "mistA" : v > 0.16 ? "mistB" : "mistC";
-      cells[index] = {
-        ...EMPTY_CELL, coverage: 1, density: v, filament: v > 0.5 ? v : 0, shade, layer,
-        glyph: pointGlyph(v, x, y),
-      };
+      // Mutate the shared cell in place — no per-cell object allocation.
+      const target = cells[index]!;
+      target.coverage = 1;
+      target.density = v;
+      target.filament = v > 0.5 ? v : 0;
+      target.shade = shade;
+      target.layer = layer;
+      target.glyph = pointGlyph(v, x, y);
     }
   }
   return raster;
@@ -653,6 +728,15 @@ function envelope(current: number, target: number, dt: number, attack: number, r
   const tau = target > current ? attack : release;
   const alpha = 1 - Math.exp(-dt / tau);
   return current + (target - current) * alpha;
+}
+/** Reset a cell in place (no allocation) — keeps the per-frame cell churn at zero. */
+function resetCell(c: OrbCell): void {
+  c.coverage = 0;
+  c.shade = 0;
+  c.filament = 0;
+  c.density = 0;
+  c.glyph = "";
+  c.layer = "none";
 }
 function smoothstep(edge0: number, edge1: number, value: number): number {
   if (edge0 === edge1) return value < edge0 ? 0 : 1;

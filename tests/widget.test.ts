@@ -126,12 +126,14 @@ test("orb animation mode follows voice state: composing while talking, searching
   now += 16; widget.tickAnimation(now);
   assert.ok(requests.length > 0, "working state must animate the searching orb");
 
-  // Back to idle: the smoke orb stays still while nothing moves.
+  // Back to idle: the smoke orb keeps animating — the wave and the drifting
+  // light run on the continuous clock, so the living sphere repaints as t
+  // advances even in total silence.
   state.piAgentStatus = "idle";
   widget.tickAnimation(now += 16); // mode switch repaints once
   requests.length = 0;
   for (let i = 0; i < 5; i++) { now += 16; widget.tickAnimation(now); }
-  assert.equal(requests.length, 0, "idle smoke orb must not repaint while static");
+  assert.ok(requests.length > 0, "idle smoke orb must keep repainting as the clock advances");
 
   // Talking → composing mode keeps animating even with a steady mic level.
   state.source = "user";
@@ -139,7 +141,7 @@ test("orb animation mode follows voice state: composing while talking, searching
   widget.tickAnimation(now += 16); // mode switch repaints once
   requests.length = 0;
   for (let i = 0; i < 5; i++) { now += 16; widget.tickAnimation(now); }
-  assert.ok(requests.length > 0, "talking state must keep the composing sash animating");
+  assert.ok(requests.length > 0, "talking state must keep the composing wave animating");
 });
 
 test("secondary accent nudge keeps a fixed identity regardless of render timing", () => {
@@ -339,9 +341,11 @@ test("mode switch dissolves keep repainting until the crossfade ends", () => {
   requests.length = 0;
   for (let i = 0; i < 12; i++) { now += 16; widget.tickAnimation(now); widget.render(80); }
   assert.ok(requests.length > 0, "the mode dissolve must keep requesting repaints");
-  // Once the fade completes, a static idle orb stops repainting.
+  // Once the fade completes the orb keeps repainting — the living sphere's
+  // wave and drifting light run on the continuous clock, so only the dissolve
+  // itself is a time-boxed burst, not the animation.
   for (let i = 0; i < 40; i++) { now += 16; widget.tickAnimation(now); widget.render(80); }
   requests.length = 0;
   for (let i = 0; i < 5; i++) { now += 16; widget.tickAnimation(now); widget.render(80); }
-  assert.equal(requests.length, 0, "idle smoke orb must not repaint while static");
+  assert.ok(requests.length > 0, "the living sphere keeps repainting after the fade ends");
 });
