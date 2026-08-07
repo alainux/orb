@@ -1,5 +1,5 @@
 declare module "@earendil-works/pi-coding-agent" {
-  import type { Component, TUI, Theme } from "@earendil-works/pi-tui";
+  import type { Component, TUI, Theme, OverlayOptions, OverlayHandle } from "@earendil-works/pi-tui";
 
   export interface ExtensionUI {
     confirm(title: string, message: string): Promise<boolean>;
@@ -10,6 +10,11 @@ declare module "@earendil-works/pi-coding-agent" {
     setWidget(id: string, widget: string[] | undefined | ((tui: TUI, theme: Theme) => Component), options?: { placement?: "aboveEditor" | "belowEditor" }): void;
     setEditorText(text: string): void;
     getEditorText(): string;
+    custom<T>(factory: (tui: TUI, theme: Theme, keybindings?: unknown, done?: (result: T) => void) => Component & { dispose?(): void } | Promise<Component & { dispose?(): void }>, options?: {
+        overlay?: boolean;
+        overlayOptions?: OverlayOptions | (() => OverlayOptions);
+        onHandle?: (handle: OverlayHandle) => void;
+    }): Promise<T>;
     readonly theme: Theme;
   }
 

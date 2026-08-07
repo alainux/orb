@@ -9,6 +9,7 @@ import { PiControl } from "./pi-control.js";
 import { PiLogMirror } from "./pi-log.js";
 import { createProvider } from "./providers/index.js";
 import { Scratchpad } from "./scratchpad.js";
+import { ScratchpadViewer } from "./scratchpad-view.js";
 import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderName, VoiceViewState } from "./types.js";
 import { VoiceWidget } from "./widget.js";
 
@@ -160,11 +161,12 @@ export class VoiceController {
     if (ctx) this.ctx = this.ctx ?? ctx;
   }
 
-  async scratchpadCommand(action: "open" | "close" | "edit" | "load" | "save" | "dispatch", argument: string, ctx: ExtensionCommandContext): Promise<void> {
+  async scratchpadCommand(action: "open" | "close" | "view" | "edit" | "load" | "save" | "dispatch", argument: string, ctx: ExtensionCommandContext): Promise<void> {
     if (!this.config || !this.scratchpad) { ctx.ui.notify("Start Orb voice before using its scratchpad.", "warning"); return; }
     switch (action) {
       case "open": this.scratchpad.open(argument || undefined); break;
       case "close": this.scratchpad.close(); break;
+      case "view": this.showScratchpadViewer(ctx); return;
       case "edit": {
         const editor = ctx.ui.editor;
         if (!editor) { ctx.ui.notify("This Pi UI does not expose the extension editor dialog.", "warning"); return; }
@@ -187,6 +189,48 @@ export class VoiceController {
       }
     }
     this.syncScratchpad();
+  }
+
+  /** Open the scrollable, markdown-styled scratchpad viewer as a focusable overlay. */
+  private showScratchpadViewer(ctx: ExtensionCommandContext): void {
+    if (!ctx.hasUI || ctx.mode !== "tui") { ctx.ui.notify("Orb's scratchpad viewer requires Pi's interactive TUI mode.", "warning"); return; }
+    const pad = this.scratchpad;
+    if (!pad) { ctx.ui.notify("Start Orb voice before using its scratchpad.", "warning"); return; }
+    let dismiss: (() => void) | undefined;
+    void ctx.ui.custom(
+      (tui, theme) => {
+        const viewer = new ScratchpadViewer(tui, theme, {
+          content: () => pad.snapshot().content,
+          title: () => pad.snapshot().title,
+          onDismiss: () => dismiss?.(),
+        });
+        const ui = viewer.ui();
+        return {
+          render: ui.render,
+          handleInput: (data: string) => {
+            ui.handleInput(data);
+            tui.requestRender();
+          },
+          invalidate: ui.invalidate,
+          dispose: () => viewer.dispose(),
+        };
+      },
+      {
+        overlay: true,
+        overlayOptions: {
+          anchor: "right-center",
+          width: "44%",
+          minWidth: 42,
+          maxWidth: 88,
+          maxHeight: "94%",
+          visible: (termWidth, termHeight) => termWidth >= 60 && termHeight >= 14,
+        },
+        onHandle: (handle) => {
+          handle.focus();
+          dismiss = () => handle.hide();
+        },
+      },
+    );
   }
 
   private createProviderSink() {

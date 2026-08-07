@@ -1,6 +1,6 @@
 import type { VoiceProviderName } from "./types.js";
 
-export type ScratchpadCommandAction = "open" | "close" | "edit" | "load" | "save" | "dispatch";
+export type ScratchpadCommandAction = "open" | "close" | "view" | "edit" | "load" | "save" | "dispatch";
 export type VoiceCommand =
   | { action: "start"; provider?: VoiceProviderName }
   | { action: "stop" | "status" | "log" | "help" }
@@ -28,7 +28,7 @@ export function parseVoiceCommand(raw: string): VoiceCommand {
     case "scratchpad":
     case "pad": {
       const sub = (argument ?? "open") as ScratchpadCommandAction;
-      if (!["open", "close", "edit", "load", "save", "dispatch"].includes(sub)) throw new Error("Usage: /voice scratchpad [open|edit|load <path>|save [path]|dispatch|close]");
+      if (!["open", "close", "view", "edit", "load", "save", "dispatch"].includes(sub)) throw new Error("Usage: /voice scratchpad [open|view|edit|load <path>|save [path]|dispatch|close]");
       return { action: "scratchpad", scratchpadAction: sub, argument: rest.slice(1).join(" ") };
     }
     default: throw new Error(`Unknown /voice action: ${action}`);

@@ -121,6 +121,7 @@ Commands:
 /voice mute on
 /voice mute off
 /voice scratchpad
+/voice scratchpad view
 /voice scratchpad edit
 /voice scratchpad load TODO.md
 /voice scratchpad save notes/plan.md
@@ -182,6 +183,8 @@ Examples:
 ```
 
 It supports open/read/replace/append/load/save/dispatch/close. Dispatch can send the whole document or a selected subset. File reads/writes are project-scoped by default.
+
+`/voice scratchpad view` opens the document in a focusable, scrollable overlay that renders it as Markdown using Pi's active theme. It follows the live tail while the agent appends (so new lines arrive at the bottom), and you can scroll with `↑/↓`, `PgUp/PgDn`, Ctrl+U/D, Home/End; `r` re-reads the latest content and `Esc`/`q` closes it. Without a command, the inline widget panel shows a live window of the same document during a session.
 
 ## Audio reliability
 

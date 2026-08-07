@@ -13,6 +13,7 @@ test("voice command parser supports session and scratchpad controls", () => {
   assert.deepEqual(parseVoiceCommand("mute off"), { action: "mute", muted: false });
   assert.throws(() => parseVoiceCommand("mute sideways"), /Usage: \/voice mute/);
   assert.deepEqual(parseVoiceCommand("scratchpad"),{action:"scratchpad",scratchpadAction:"open",argument:""});
+  assert.deepEqual(parseVoiceCommand("pad view"),{action:"scratchpad",scratchpadAction:"view",argument:""});
   assert.deepEqual(parseVoiceCommand("pad load TODO.md"),{action:"scratchpad",scratchpadAction:"load",argument:"TODO.md"});
   assert.deepEqual(parseVoiceCommand("scratchpad save notes/plan.md"),{action:"scratchpad",scratchpadAction:"save",argument:"notes/plan.md"});
   assert.throws(() => parseVoiceCommand("send"), /Unknown/);

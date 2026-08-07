@@ -35,6 +35,7 @@ Go audio sidecar → adaptive playout buffer → operating-system audio callback
 - `src/pi-control.ts` — permission-gated Pi controls.
 - `src/pi-log.ts` — visible Pi state mirror used by the voice model.
 - `src/scratchpad.ts` — ephemeral long-form working document.
+- `src/scratchpad-view.ts` — focusable, scrollable Markdown viewer for the scratchpad (`/voice scratchpad view`). It renders the document inside a Pi `ScrollView` (scrollbar in the last column) and inherits the active theme's Markdown tokens (`mdHeading`, `mdCode`, …), following the live tail by default and pinning when you scroll up. PI's overlay compositor renders plain lines at a fixed box, so it windows the `ScrollView`'s content itself and answers to the standard scroll keys (`↑/↓`, `PgUp/PgDn`, Ctrl+U/D, Home/End), `r` to re-read, `Esc`/`q` to close.
 - `src/providers/` — realtime provider adapters.
 - `src/audio/` — TypeScript ↔ Go framing/bridge.
 - `audio-helper/` — hardware-timed capture/playback and adaptive playout buffer.
