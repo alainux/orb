@@ -117,6 +117,9 @@ Commands:
 /voice provider gemini
 /voice status
 /voice log
+/voice mute
+/voice mute on
+/voice mute off
 /voice scratchpad
 /voice scratchpad edit
 /voice scratchpad load TODO.md
@@ -126,7 +129,7 @@ Commands:
 /voice stop
 ```
 
-`Ctrl+Alt+V` toggles voice mode.
+`Ctrl+Alt+V` toggles voice mode; `Ctrl+Alt+M` mutes or unmutes your microphone while voice is active.
 
 ## Pi control
 

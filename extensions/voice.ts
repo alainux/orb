@@ -21,6 +21,10 @@ export default function orbVoiceExtension(pi: ExtensionAPI): void {
     description: "Start or stop Orb voice",
     handler: async (ctx) => { if (controller.active) await controller.stop(ctx); else await controller.start(ctx); },
   });
+  pi.registerShortcut("ctrl+alt+m", {
+    description: "Mute or unmute Orb's microphone",
+    handler: async (ctx) => { if (!controller.active) { ctx.ui.notify("Start Orb voice before muting the microphone.", "warning"); return; } controller.setMuted(ctx); },
+  });
 
   const forward = (eventName: string) => (event: unknown, ctx: ExtensionContext) => controller.recordPiEvent(eventName, event, ctx);
   for (const eventName of ["agent_start", "agent_end", "message_update", "message_end", "tool_execution_start", "tool_execution_end", "model_select"]) pi.on(eventName, forward(eventName));
@@ -46,7 +50,8 @@ export async function handleVoiceCommand(controller: VoiceController, rawArgs: s
     case "status": controller.status(ctx); break;
     case "log": controller.showDiagnostics(ctx); break;
     case "provider": controller.setProvider(command.provider, ctx); break;
+    case "mute": controller.setMuted(ctx, command.muted); break;
     case "scratchpad": await controller.scratchpadCommand(command.scratchpadAction, command.argument, ctx); break;
-    case "help": ctx.ui.notify("/voice [start [gemini|openai]] · /voice status · /voice log · /voice provider <name> · /voice scratchpad [open|edit|load|save|dispatch|close] · /voice stop", "info"); break;
+    case "help": ctx.ui.notify("/voice [start [gemini|openai]] · /voice status · /voice log · /voice provider <name> · /voice mute [on|off] · /voice scratchpad [open|edit|load|save|dispatch|close] · /voice stop", "info"); break;
   }
 }

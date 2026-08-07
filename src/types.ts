@@ -97,6 +97,7 @@ export interface VoiceViewState {
   active: boolean;
   status: string;
   source: VoiceSource;
+  muted: boolean;
   inputTranscript: string;
   outputTranscript: string;
   inputRms: number;

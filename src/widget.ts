@@ -1,21 +1,58 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ActivityEntry } from "./activity.js";
-import { OrbMotion, OrbRenderer, rasterAt, type OrbFrame } from "./orb.js";
+import { OrbMotion, OrbRenderer, orbLayerHeat, rasterAt, type OrbFrame, type OrbLayer } from "./orb.js";
+import { createOrbPalette, type OrbPalette, type OrbThemeColor, type ThemeLike } from "./theme.js";
 import type { VoiceViewState } from "./types.js";
 
-type ThemeLike = { fg(name:"toolTitle"|"accent"|"success"|"error"|"warning"|"muted"|"dim", text:string):string };
 interface WidgetOptions { orbAspect:number; orbDensity:number; panelHeight:number; activityLines:number; scratchpadPanelHeight:number }
 
 export class VoiceWidget implements Component {
   private readonly motion = new OrbMotion();
   private readonly renderer: OrbRenderer;
+  private palette: OrbPalette;
   private frame: OrbFrame = { userEnergy:0, agentEnergy:0, energy:0, peak:0, phaseA:0, phaseB:0, source:"idle" };
+  /** Last frame that was actually sent to the TUI, used to skip imperceptible animation frames. */
+  private lastPainted = { userEnergy:-1, agentEnergy:-1, phaseA:-1, phaseB:-1 };
+  /** Scratchpad wrap cache: content is immutable, so reference+width equality is a safe key. */
+  private wrapKey: string | undefined;
+  private wrapWidth = 0;
+  private wrapLines: string[] = [];
 
   constructor(private readonly tui:TUI, private readonly theme:ThemeLike, private readonly getState:()=>VoiceViewState, private readonly options:WidgetOptions) {
     this.renderer = new OrbRenderer(options.orbDensity);
+    // Every color in this widget comes from Pi's active theme. The palette
+    // resolves the theme's primary accent and secondary (violet) tokens and
+    // builds the orb gradient from them; Tokyo Night values are only a last
+    // resort when a theme token cannot be resolved.
+    this.palette = createOrbPalette(theme);
   }
-  tick(nowMs=Date.now()):void { const state=this.getState(); this.frame=this.motion.step(nowMs,state.inputRms,state.outputRms,state.outputRms>0.015); this.tui.requestRender(); }
-  invalidate():void { this.tui.requestRender(); }
+  tick(nowMs=Date.now()):void { this.stepFrame(nowMs); this.tui.requestRender(); }
+
+  /**
+   * Animation loop entry point. Steps the motion clock on every timer tick but
+   * only paints when the rendered frame actually changed perceptibly. The orb
+   * drifts at ~0.2-0.4 rad/s, so a 20Hz unconditional repaint is wasted work on
+   * the same thread that must deliver provider audio to the Go sidecar; any
+   * stall it causes drains the hardware jitter buffer into audible gaps.
+   */
+  tickAnimation(nowMs=Date.now()):void {
+    this.stepFrame(nowMs);
+    const f=this.frame;
+    const p=this.lastPainted;
+    if (Math.abs(f.userEnergy-p.userEnergy)<0.01 && Math.abs(f.agentEnergy-p.agentEnergy)<0.01
+        && Math.abs(f.phaseA-p.phaseA)<0.035 && Math.abs(f.phaseB-p.phaseB)<0.035) return;
+    p.userEnergy=f.userEnergy; p.agentEnergy=f.agentEnergy; p.phaseA=f.phaseA; p.phaseB=f.phaseB;
+    this.tui.requestRender();
+  }
+  private stepFrame(nowMs:number):void { const state=this.getState(); this.frame=this.motion.step(nowMs,state.inputRms,state.outputRms,state.outputRms>0.015,state.muted); }
+  invalidate():void {
+    // Pi calls invalidate() when the active theme changes in settings. The
+    // palette bakes precomputed ANSI codes (secondaryText violet, orb glyph
+    // gradient), so rebuild it here; otherwise the status text and the orb
+    // would keep the colors of the theme that was active at construction.
+    this.palette = createOrbPalette(this.theme);
+    this.tui.requestRender();
+  }
   render(width:number):string[] { try { return this.renderFrame(width); } catch(error) { return [this.theme.fg("error",` Orb render error: ${error instanceof Error?error.message:String(error)}`)]; } }
 
   private renderFrame(width:number):string[] {
@@ -40,7 +77,12 @@ export class VoiceWidget implements Component {
     const rightLines=state.scratchpad.open
       ? this.renderScratchpad(state,rightWidth,bodyHeight)
       : this.renderActivity(state.activity,rightWidth,Math.min(bodyHeight,this.options.activityLines));
-    const title=this.theme.fg("accent"," ORB ")+this.theme.fg("dim",`· ${state.status} · Pi ${state.piAgentStatus}`);
+    // Title bar: "ORB" in the theme's primary accent, the live status
+    // indicator (listening / thinking / waiting for Pi…) in the secondary
+    // violet accent, and the Pi agent indicator in a theme-blue token.
+    const title=this.theme.fg("accent"," ORB ")
+      +this.palette.secondaryText(`· ${statusForDisplay(state.status,state.muted)}`)
+      +this.theme.fg("mdLink",` · Pi ${state.piAgentStatus}`);
     const lines=[title+this.theme.fg("dim","─".repeat(Math.max(0,width-stripAnsi(title).length)))];
     const body=Math.max(left.length,rightLines.length);
     for(let i=0;i<body;i++)lines.push(`${padVisible(left[i]??"",leftWidth)}${" ".repeat(gap)}${rightLines[i]??""}`);
@@ -54,12 +96,23 @@ export class VoiceWidget implements Component {
   private renderScratchpad(state:VoiceViewState,width:number,height:number):string[] {
     const lines:string[]=[];
     const dirty=state.scratchpad.dirty?" · modified":"";
+    // Scratchpad title in the theme's primary accent.
     lines.push(this.theme.fg("accent",truncatePlain(`SCRATCHPAD · ${state.scratchpad.title}${dirty}`,width)));
     const logBudget=Math.min(4,Math.max(2,Math.floor(height*0.28)));
     const contentBudget=Math.max(2,height-logBudget-2);
-    const contentLines=wrapPreservingLines(state.scratchpad.content,width);
+    const content=state.scratchpad.content;
+    // Re-wrap only when the content or width actually changed; the full
+    // document can be hundreds of KB and re-wrapping it on every animation
+    // frame is pure main-thread stall on the audio delivery path.
+    if (this.wrapKey!==content || this.wrapWidth!==width) {
+      this.wrapLines=wrapPreservingLines(content,width);
+      this.wrapKey=content;
+      this.wrapWidth=width;
+    }
+    const contentLines=this.wrapLines;
+    // Scratchpad items in the secondary (violet) accent.
     if(!contentLines.length) lines.push(this.theme.fg("dim","(empty — keep talking, load a file, or edit with /voice scratchpad edit)"));
-    else for(const line of contentLines.slice(-contentBudget)) lines.push(this.theme.fg("muted",line));
+    else for(const line of contentLines.slice(-contentBudget)) lines.push(this.palette.secondaryText(line));
     while(lines.length<contentBudget+1)lines.push("");
     lines.push(this.theme.fg("dim","─".repeat(Math.max(1,width))));
     const activity=this.renderActivity(state.activity,width,logBudget);
@@ -74,24 +127,41 @@ export class VoiceWidget implements Component {
       const {label,color}=styleFor(entry.kind);
       const prefix=`${label} `;
       const chunks=wrap(entry.text,Math.max(8,width-prefix.length));
-      chunks.forEach((chunk,index)=>rendered.push(index===0
-        ? this.theme.fg(color,prefix)+this.theme.fg(entry.kind==="error"?"error":"muted",chunk)
-        : this.theme.fg("dim"," ".repeat(prefix.length))+this.theme.fg("muted",chunk)));
+      chunks.forEach((chunk,index)=>{
+        const text=this.colorActivityText(entry.kind,chunk);
+        rendered.push(index===0
+          ? this.theme.fg(color,prefix)+text
+          : this.theme.fg("dim"," ".repeat(prefix.length))+text);
+      });
       if(entryIndex<recent.length-1) rendered.push("");
     });
     if(!rendered.length)rendered.push(this.theme.fg("dim","Listening…"));
     return rendered.slice(-maxLines);
   }
 
+  /**
+   * Color an activity text chunk with the active theme. Tool rows (Pi's
+   * output) use Pi's tool-output token so they match how Pi itself renders
+   * tools, and leading ✓/✗ outcome marks get the theme's success/error colors.
+   */
+  private colorActivityText(kind:ActivityEntry["kind"],text:string):string {
+    const bodyColor:OrbThemeColor=kind==="voice-tool"?"toolOutput":kind==="error"?"error":"muted";
+    const mark=text.match(/^([✓✗])\s*(.*)$/);
+    if(mark&&mark[1]){
+      return this.theme.fg(mark[1]==="✓"?"success":"error",mark[1])+this.theme.fg(bodyColor,mark[2]??"");
+    }
+    return this.theme.fg(bodyColor,text);
+  }
+
   private renderCompact(width:number,state:VoiceViewState):string[] {
     if(state.scratchpad.open){
       const lines=[this.theme.fg("accent",truncatePlain(`ORB · SCRATCHPAD · ${state.scratchpad.title}`,width))];
-      for(const line of wrapPreservingLines(state.scratchpad.content,width).slice(-Math.max(3,this.options.panelHeight-2))) lines.push(this.theme.fg("muted",line));
+      for(const line of wrapPreservingLines(state.scratchpad.content,width).slice(-Math.max(3,this.options.panelHeight-2))) lines.push(this.palette.secondaryText(line));
       return lines;
     }
     const h=Math.max(4,Math.min(6,this.options.panelHeight-3));
     const raster=this.renderer.render(width,h,this.options.orbAspect,this.frame);
-    const lines=[this.theme.fg("accent",`ORB · ${state.status}`)];
+    const lines=[this.theme.fg("accent",`ORB · `)+this.palette.secondaryText(statusForDisplay(state.status,state.muted))];
     for(let y=0;y<raster.height;y++){
       let line="";
       for(let x=0;x<raster.width;x++){
@@ -101,25 +171,39 @@ export class VoiceWidget implements Component {
       lines.push(line);
     }
     const last=state.activity.at(-1);
-    if(last)lines.push(this.theme.fg(styleFor(last.kind).color,truncatePlain(`${styleFor(last.kind).label} ${last.text}`,width)));
+    if(last){
+      const {label,color}=styleFor(last.kind);
+      lines.push(this.theme.fg(color,label+" ")+this.colorActivityText(last.kind,truncatePlain(last.text,Math.max(8,width-label.length-1))));
+    }
     return lines;
   }
 
-  private colorCell(glyph:string,shade:number,layer:string):string {
-    if(layer==="filament")return this.theme.fg(shade>0.5?"toolTitle":"accent",glyph);
-    if(layer==="mistA")return this.theme.fg(shade>0.48?"toolTitle":"muted",glyph);
-    if(layer==="mistB")return this.theme.fg(shade>0.44?"accent":"muted",glyph);
-    if(layer==="mistC")return this.theme.fg(shade>0.5?"success":shade>0.3?"muted":"dim",glyph);
-    return this.theme.fg(shade>0.5?"muted":"dim",glyph);
+  private colorCell(glyph:string,shade:number,layer:OrbLayer):string {
+    // Themed orb layers map onto the primary→secondary gradient that the
+    // palette derives from the active theme; anything outside the smoke uses
+    // the theme's neutral tokens.
+    if(layer==="none")return this.theme.fg(shade>0.5?"muted":"dim",glyph);
+    return this.palette.orbGlyph(orbLayerHeat(layer,shade),glyph);
   }
 }
 
-function styleFor(kind:ActivityEntry["kind"]):{label:string;color:"toolTitle"|"accent"|"success"|"error"|"warning"|"muted"|"dim"}{
+/**
+ * Status line shown in the widget title. While the microphone is muted the
+ * status keeps its context ("live", "Pi working", …) but the word
+ * "listening" becomes "muted" in the same position, so the mute state is
+ * communicated by the status text itself instead of a separate indicator.
+ */
+export function statusForDisplay(status: string, muted: boolean): string {
+  return muted ? status.replace(/\blistening\b/g, "muted") : status;
+}
+
+function styleFor(kind:ActivityEntry["kind"]):{label:string;color:OrbThemeColor}{
   switch(kind){
-    case"you":return{label:"YOU",color:"accent"};
-    case"voice":return{label:"ORB",color:"toolTitle"};
-    case"voice-tool":return{label:"ORB›",color:"warning"};
+    case"you":return{label:"YOU",color:"accent"};               // user speech → primary accent
+    case"voice":return{label:"ORB",color:"customMessageLabel"}; // orb speech → secondary violet
+    case"voice-tool":return{label:"ORB›",color:"toolTitle"};    // Pi tool output → theme tool title
     case"error":return{label:"ERR",color:"error"};
+    case"system":return{label:"·",color:"thinkingText"};
     default:return{label:"·",color:"dim"};
   }
 }

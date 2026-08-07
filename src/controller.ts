@@ -16,7 +16,7 @@ export class VoiceController {
   private readonly feed = new ActivityFeed();
   private readonly piLog = new PiLogMirror();
   private state: VoiceViewState = {
-    active: false, status: "off", source: "idle", inputTranscript: "", outputTranscript: "",
+    active: false, status: "off", source: "idle", muted: false, inputTranscript: "", outputTranscript: "",
     inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0,
     piAgentStatus: "idle", activity: [], scratchpad: { open: false, title: "Scratchpad", content: "", dirty: false }, error: undefined,
   };
@@ -58,7 +58,7 @@ export class VoiceController {
       this.inputSuppressedUntil = 0;
       this.lastAudioRecoveries = 0;
       this.state = {
-        ...this.state, active: true, status: `starting · ${this.config.provider}`, source: "idle", inputTranscript: "", outputTranscript: "",
+        ...this.state, active: true, status: `starting · ${this.config.provider}`, source: "idle", muted: false, inputTranscript: "", outputTranscript: "",
         inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0,
         piAgentStatus: this.piLog.agentStatus, scratchpad: this.scratchpad.snapshot(), error: undefined, activity: [],
       };
@@ -113,6 +113,26 @@ export class VoiceController {
   setProvider(provider: VoiceProviderName, ctx: ExtensionContext): void {
     this.providerOverride = provider;
     ctx.ui.notify(`Orb provider set to ${provider} for the next voice session.`, "info");
+  }
+
+  /**
+   * Mute or unmute the microphone at the Go audio sidecar. The sidecar stops
+   * forwarding capture frames while muted but keeps measuring input RMS, so
+   * the orb keeps breathing with the user's voice even when it cannot hear
+   * them. With no explicit target, the current state toggles.
+   */
+  setMuted(ctx: ExtensionContext, muted?: boolean): void {
+    if (!this.state.active || !this.audio) {
+      ctx.ui.notify("Start Orb voice before muting the microphone.", "warning");
+      return;
+    }
+    const target = muted ?? !this.state.muted;
+    this.audio.setMuted(target);
+    this.state.muted = target;
+    this.feed.add("system", target ? "Microphone muted" : "Microphone unmuted");
+    ctx.ui.notify(target ? "Orb microphone muted." : "Orb microphone unmuted.", "info");
+    void this.log?.info("microphone mute changed", { muted: target });
+    this.widget?.tick();
   }
 
   recordPiEvent(eventName: string, event: unknown, ctx?: ExtensionContext): void {
@@ -340,14 +360,18 @@ export class VoiceController {
 
   private startAnimation(): void {
     this.animationTimer = setInterval(() => {
-      try { this.widget?.tick(); }
+      try { this.widget?.tickAnimation(); }
       catch (error) { this.reportError(asError(error), "widget animation"); }
     }, 50);
     this.animationTimer.unref?.();
   }
 
   private updateLevels(levels: AudioLevels): void {
-    this.state.inputRms = levels.inputRms;
+    // While muted the sidecar keeps measuring the mic for level telemetry, but
+    // the viewer must not see live input: clamp RMS to zero so the meters and
+    // the orb cannot be mistaken for a live microphone.
+    const inputRms = this.state.muted ? 0 : levels.inputRms;
+    this.state.inputRms = inputRms;
     this.state.outputRms = levels.outputRms;
     this.state.audioCaptureDrops = levels.captureDrops;
     this.state.audioQueuedMs = Math.round(levels.queuedBytes / (24_000 * 2) * 1000);
@@ -356,7 +380,7 @@ export class VoiceController {
       void this.log?.info("audio playout recovered from underrun", { recoveries: levels.recoveries, queuedMs: this.state.audioQueuedMs });
       this.lastAudioRecoveries = levels.recoveries;
     }
-    this.state.source = levels.outputRms > levels.inputRms && levels.outputRms > 0.01 ? "agent" : levels.inputRms > 0.01 ? "user" : "idle";
+    this.state.source = levels.outputRms > inputRms && levels.outputRms > 0.01 ? "agent" : inputRms > 0.01 ? "user" : "idle";
   }
 
   private reportError(error: Error, area: string): void {
@@ -384,7 +408,7 @@ export class VoiceController {
     this.provider = undefined;
     this.audio = undefined;
     await Promise.allSettled([provider?.close(), audio?.close()]);
-    this.state = { ...this.state, active: false, status: options.keepError ? "stopped after error" : "off", source: "idle", inputTranscript: "", outputTranscript: "", inputRms: 0, outputRms: 0, error: options.keepError };
+    this.state = { ...this.state, active: false, status: options.keepError ? "stopped after error" : "off", source: "idle", muted: false, inputTranscript: "", outputTranscript: "", inputRms: 0, outputRms: 0, error: options.keepError };
     ctx?.ui.setStatus("orb-voice", undefined);
     ctx?.ui.setWidget("orb-voice", undefined);
     this.widget = undefined;

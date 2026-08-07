@@ -70,3 +70,25 @@ test("motion attacks and releases smoothly", () => {
   }
   assert.ok(prior > 0 && prior < peak);
 });
+
+test("muted motion freezes the orb: user energy decays to zero and ambient drift stops", () => {
+  const motion = new OrbMotion();
+  let now = 1_000;
+  // Live input builds user energy and advances the drift.
+  for (let index = 0; index < 12; index++) { now += 16; motion.step(now, 0.13, 0, false); }
+  const live = motion.step(now, 0.13, 0, false);
+  assert.ok(live.userEnergy > 0.9, `user energy before mute ${live.userEnergy}`);
+  const mutedA = motion.step(now + 16, 0.13, 0, false, true);
+  assert.ok(mutedA.userEnergy < live.userEnergy, "user energy starts decaying on mute");
+  // Even with loud input, while muted the field must come to rest.
+  for (let index = 0; index < 200; index++) { now += 16; motion.step(now, 0.13, 0, false, true); }
+  const mutedB = motion.step(now, 0.13, 0, false, true);
+  assert.ok(mutedB.userEnergy < 0.001, `user energy after decay ${mutedB.userEnergy}`);
+  assert.equal(mutedB.phaseA, mutedA.phaseA, "phaseA must not drift while muted");
+  assert.equal(mutedB.phaseB, mutedA.phaseB, "phaseB must not drift while muted");
+  assert.equal(mutedB.source, "idle", "muted source must not read as user");
+  // Unmuting resumes both the drift and the user response.
+  const resumed = motion.step(now + 16, 0.13, 0, false);
+  assert.notEqual(resumed.phaseA, mutedB.phaseA, "drift resumes after unmute");
+  assert.ok(resumed.userEnergy > mutedB.userEnergy, "user energy rebuilds after unmute");
+});

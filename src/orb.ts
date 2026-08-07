@@ -34,6 +34,31 @@ export interface OrbRaster {
 
 const EMPTY_CELL: OrbCell = Object.freeze({ coverage: 0, shade: 0, filament: 0, density: 0, glyph: "", layer: "none" });
 
+/**
+ * Where each rendered layer sits on the Orb's theme gradient. The gradient is
+ * built from the active Pi theme's primary accent → secondary accent tokens
+ * (see src/theme.ts), so every visual state adapts to the current theme
+ * (e.g. Tokyo Night) instead of being hardcoded. `base` is the gradient
+ * position of a dim cell and `spread` scales with the per-cell `shade` toward
+ * the brighter (secondary) end of the gradient.
+ */
+export const ORB_LAYER_GRADIENT: Record<OrbLayer, { base: number; spread: number }> = {
+  filament: { base: 0.66, spread: 0.34 }, // bright energy strands → violet highlight
+  mistA: { base: 0.4, spread: 0.34 }, // mid mist → violet-tinged
+  mistB: { base: 0.16, spread: 0.34 }, // flow mist → primary accent
+  mistC: { base: 0.03, spread: 0.24 }, // background mist → deep primary
+  none: { base: 0, spread: 0 },
+};
+
+/**
+ * Map a rendered cell's layer + shade to a position in [0,1] on the theme
+ * gradient (0 = deep primary, 1 = bright secondary highlight).
+ */
+export function orbLayerHeat(layer: OrbLayer, shade: number): number {
+  const cfg = ORB_LAYER_GRADIENT[layer] ?? ORB_LAYER_GRADIENT.none;
+  return clamp(cfg.base + cfg.spread * shade, 0, 1);
+}
+
 export class OrbMotion {
   private lastMs = 0;
   private userEnergy = 0;
@@ -42,12 +67,15 @@ export class OrbMotion {
   private phaseA = 0;
   private phaseB = 0;
 
-  step(nowMs: number, inputRms: number, outputRms: number, agentSpeaking: boolean): OrbFrame {
+  step(nowMs: number, inputRms: number, outputRms: number, agentSpeaking: boolean, muted = false): OrbFrame {
     if (this.lastMs === 0) this.lastMs = nowMs;
     const dt = clamp((nowMs - this.lastMs) / 1000, 1 / 240, 0.075);
     this.lastMs = nowMs;
 
-    const userTarget = clamp((inputRms - 0.006) / 0.12, 0, 1);
+    // While muted the mic is dead: the user cannot drive the field, and the
+    // constant ambient swirl is frozen too so the orb reads as dormant instead
+    // of looking like it is still listening. Agent playback keeps animating.
+    const userTarget = muted ? 0 : clamp((inputRms - 0.006) / 0.12, 0, 1);
     let agentTarget = clamp((outputRms - 0.0035) / 0.17, 0, 1);
     if (agentSpeaking && agentTarget < 0.1) agentTarget = 0.1;
     if (!agentSpeaking && agentTarget < 0.018) agentTarget = 0;
@@ -60,9 +88,11 @@ export class OrbMotion {
     else this.peak *= Math.exp(-dt / 0.78);
 
     // Calm constant rotation, with speech increasing flow rather than changing orientation abruptly.
-    const voiceDrive = 0.55 * this.userEnergy + 0.45 * this.agentEnergy;
-    this.phaseA = mod(this.phaseA + dt * (0.23 + 0.18 * voiceDrive), Math.PI * 2);
-    this.phaseB = mod(this.phaseB + dt * (0.11 + 0.11 * voiceDrive), Math.PI * 2);
+    if (!muted) {
+      const voiceDrive = 0.55 * this.userEnergy + 0.45 * this.agentEnergy;
+      this.phaseA = mod(this.phaseA + dt * (0.23 + 0.18 * voiceDrive), Math.PI * 2);
+      this.phaseB = mod(this.phaseB + dt * (0.11 + 0.11 * voiceDrive), Math.PI * 2);
+    }
 
     let source: VoiceSource = "idle";
     if (this.agentEnergy > 0.035 && this.agentEnergy >= this.userEnergy * 0.9) source = "agent";

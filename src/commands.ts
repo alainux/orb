@@ -5,6 +5,7 @@ export type VoiceCommand =
   | { action: "start"; provider?: VoiceProviderName }
   | { action: "stop" | "status" | "log" | "help" }
   | { action: "provider"; provider: VoiceProviderName }
+  | { action: "mute"; muted: boolean | undefined }
   | { action: "scratchpad"; scratchpadAction: ScratchpadCommandAction; argument: string };
 
 export function parseVoiceCommand(raw: string): VoiceCommand {
@@ -22,6 +23,8 @@ export function parseVoiceCommand(raw: string): VoiceCommand {
     case "provider":
       if (!argument) throw new Error("Usage: /voice provider gemini|openai");
       return { action: "provider", provider: parseProvider(argument) };
+    case "mute":
+      return { action: "mute", muted: argument === undefined ? undefined : parseMute(argument) };
     case "scratchpad":
     case "pad": {
       const sub = (argument ?? "open") as ScratchpadCommandAction;
@@ -34,4 +37,12 @@ export function parseVoiceCommand(raw: string): VoiceCommand {
 function parseProvider(value: string): VoiceProviderName {
   if (value === "gemini" || value === "openai") return value;
   throw new Error("Provider must be gemini or openai.");
+}
+
+function parseMute(value: string): boolean {
+  switch (value) {
+    case "on": case "true": case "yes": case "1": return true;
+    case "off": case "false": case "no": case "0": return false;
+    default: throw new Error("Usage: /voice mute [on|off]");
+  }
 }

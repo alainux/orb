@@ -10,22 +10,58 @@ export class ActivityFeed {
     const clean = text.trim();
     if (!clean && !final) return;
 
-    // A transcript from the other speaker is a hard turn boundary. Commit the
-    // previous live entry before starting the next one so late provider-final
-    // events can never merge multiple conversational turns into one paragraph.
-    this.finalizeOther(kind);
-
     const existing = this.liveIds.get(kind);
     if (existing) {
       const entry = this.entries.find((item) => item.id === existing);
       if (entry) { entry.text = compact(clean || entry.text); entry.final = final; entry.at = Date.now(); }
       if (final) this.liveIds.delete(kind);
       this.trim();
+      // A fragment from the other speaker is a hard turn boundary for the
+      // still-live entry of this speaker; commit it before the next turn.
+      this.finalizeOther(kind);
       return;
     }
     if (!clean) return;
+    // Replay detection must run before finalizeOther: committing the other
+    // speaker's live entry here is exactly the barge-in boundary the replay is
+    // a duplicate of, so the check has to see that entry as still live.
+    if (final && this.isReplayedFinal(kind, clean)) return;
+    // A transcript from the other speaker is a hard turn boundary. Commit the
+    // previous live entry before starting the next one so late provider-final
+    // events can never merge multiple conversational turns into one paragraph.
+    this.finalizeOther(kind);
     const entry = this.push(kind, clean, final);
     if (!final) this.liveIds.set(kind, entry.id);
+  }
+
+  /**
+   * Providers can deliver the same finalized transcript twice: a turn flushed
+   * on barge-in (speech_started / interrupted) is often re-sent by the late
+   * "done"/boundary event, and a session reconnect can replay the last
+   * transcription. When no live entry remains for this speaker and the most
+   * recent finalized entry of the same speaker already carries the exact same
+   * text — with no finalized turn from the other speaker in between — the
+   * incoming final is a replay of that message, not a new turn. Dropping it
+   * keeps exactly one feed row per message.
+   */
+  private isReplayedFinal(kind: "you" | "voice", clean: string): boolean {
+    let twin: ActivityEntry | undefined;
+    for (let i = this.entries.length - 1; i >= 0; i--) {
+      const entry = this.entries[i]!;
+      if (entry.kind !== kind) continue;
+      twin = entry;
+      break;
+    }
+    if (!twin || !twin.final || twin.text !== compact(clean)) return false;
+    // The conversation must not have moved on: any finalized turn from the
+    // other speaker after the twin means the repeated text is a genuine new
+    // utterance (e.g. "yes" ... "yes"), not a replay.
+    const otherKind = kind === "you" ? "voice" : "you";
+    for (const entry of this.entries) {
+      if (entry.id <= twin.id) continue;
+      if (entry.kind === otherKind && entry.final) return false;
+    }
+    return true;
   }
 
   add(kind: Exclude<ActivityKind, "you" | "voice">, text: string): ActivityEntry {
