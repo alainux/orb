@@ -23,7 +23,12 @@ export default function orbVoiceExtension(pi: ExtensionAPI): void {
   });
 
   const forward = (eventName: string) => (event: unknown, ctx: ExtensionContext) => controller.recordPiEvent(eventName, event, ctx);
-  for (const eventName of ["agent_start", "agent_end", "message_update", "message_end", "tool_execution_start", "tool_execution_end"]) pi.on(eventName, forward(eventName));
+  for (const eventName of ["agent_start", "agent_end", "message_update", "message_end", "tool_execution_start", "tool_execution_end", "model_select"]) pi.on(eventName, forward(eventName));
+
+  // Current Pi exposes user_bash for ! / !! commands. Recording the command
+  // gives Orb a more complete observable project history without intercepting
+  // or altering Pi's normal shell execution path.
+  pi.on("user_bash", (event: unknown, ctx: ExtensionContext) => { controller.recordUserBash(event, ctx); return undefined; });
 
   pi.on("session_start", async (_event, ctx) => {
     if (process.env.ORB_AUTO_START === "1" || process.env.ORB_AUTO_START === "true") {
@@ -41,6 +46,7 @@ export async function handleVoiceCommand(controller: VoiceController, rawArgs: s
     case "status": controller.status(ctx); break;
     case "log": controller.showDiagnostics(ctx); break;
     case "provider": controller.setProvider(command.provider, ctx); break;
-    case "help": ctx.ui.notify("/voice [start [gemini|openai]] · /voice status · /voice log · /voice provider <name> · /voice stop", "info"); break;
+    case "scratchpad": await controller.scratchpadCommand(command.scratchpadAction, command.argument, ctx); break;
+    case "help": ctx.ui.notify("/voice [start [gemini|openai]] · /voice status · /voice log · /voice provider <name> · /voice scratchpad [open|edit|load|save|dispatch|close] · /voice stop", "info"); break;
   }
 }

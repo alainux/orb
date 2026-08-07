@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.0 — Pi control, scratchpad, turn logs and adaptive audio recovery
+
+- Added permission-gated Pi management for cancelling active work, switching models, changing thinking level, and direct shell/`!`-style commands.
+- Voice direction changes can now cancel the current Pi run and immediately delegate a replacement task.
+- Added a collaborative ephemeral scratchpad with load/edit/save/dispatch support, including selective dispatch and project-scoped file permissions.
+- Reworked voice transcripts into chronological human/Orb turns with tool calls as hard boundaries, preventing long merged transcript paragraphs.
+- Added hardware-side adaptive jitter buffering to the Go audio helper: mid-response starvation now pauses, rebuilds a lead, and resumes without skipping or time-compressing PCM.
+- Added explicit natural-response end framing so clean response tails are not mistaken for underruns.
+- Added interruption-storm detection/resynchronization for recurring barge-in/echo loops and surfaced recovery counters in the UI.
+- Recorded direct Pi `!`/`!!` commands and model selections in Orb's internal visible context without duplicating Pi's log in the Orb panel.
+- Automated Go module resolution with `go build -mod=mod`; contributors no longer need a separate manual `go get`.
+- Increased default orb density slightly and added a dedicated scratchpad layout.
+- Updated website layout and application artwork to match the current interface.
+- Expanded tests for Pi control permissions, scratchpad filesystem boundaries, chronological transcript turns, audio response boundaries, config, and build provisioning.
+
 ## 0.5.3 — Gemini Developer API session resumption fix
 
 - Removed the Enterprise-only `SessionResumptionConfig.transparent` flag from Gemini Developer API Live sessions.

@@ -13,8 +13,9 @@ npm run pack:check
 Update `package.json` and `CHANGELOG.md`, then tag the same version:
 
 ```bash
-git tag v0.5.3
-git push origin v0.5.3
+VERSION=$(node -p "require('./package.json').version")
+git tag "v$VERSION"
+git push origin "v$VERSION"
 ```
 
 ## What the release workflow does

@@ -12,6 +12,7 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
   private ready = false;
   private readonly functionNames = new Map<string, string>();
   private readonly handledCalls = new Set<string>();
+  private discardInterruptedAudio = false;
 
   constructor(private readonly config: VoiceConfig, private readonly log: RunLog) {
     super();
@@ -104,6 +105,28 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
               },
             },
           },
+          {
+            type: "function",
+            name: "control_pi",
+            description: "Control the Pi harness directly: cancel an active run, list/set the model, change thinking level, or run a shell command when permissions allow it. Cancel immediately when the human changes direction.",
+            parameters: {
+              type: "object", additionalProperties: false,
+              properties: {
+                action: { type: "string", enum: ["cancel", "list_models", "set_model", "set_thinking", "list_tools", "set_tools", "shell"] },
+                model: { type: "string" }, level: { type: "string" }, tools: { type: "array", items: { type: "string" } }, command: { type: "string" }, timeout_ms: { type: "number" },
+              }, required: ["action"],
+            },
+          },
+          {
+            type: "function",
+            name: "scratchpad",
+            description: "Manage Orb's ephemeral collaborative scratchpad. Open/read/edit/load/save it, or dispatch selected/all scratchpad content to Pi.",
+            parameters: {
+              type: "object", additionalProperties: false,
+              properties: { action: { type: "string", enum: ["open", "read", "replace", "append", "load", "save", "dispatch", "close"] }, title: { type: "string" }, content: { type: "string" }, path: { type: "string" }, summary: { type: "string" } },
+              required: ["action"],
+            },
+          },
         ],
         tool_choice: "auto",
       },
@@ -147,7 +170,12 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           this.sink?.onStatus("live · listening");
           break;
         case "input_audio_buffer.speech_started":
+          this.discardInterruptedAudio = true;
+          if (this.outputTranscript.trim()) { this.sink?.onOutputTranscript(this.outputTranscript, true); this.outputTranscript = ""; }
           this.sink?.onInterruption("server barge-in");
+          break;
+        case "response.created":
+          this.discardInterruptedAudio = false;
           break;
         case "conversation.item.input_audio_transcription.delta":
           this.inputTranscript = mergeTranscript(this.inputTranscript, String(event.delta ?? ""));
@@ -159,7 +187,7 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           break;
         case "response.output_audio.delta":
         case "response.audio.delta":
-          if (typeof event.delta === "string") this.sink?.onAudio(Buffer.from(event.delta, "base64"));
+          if (!this.discardInterruptedAudio && typeof event.delta === "string") this.sink?.onAudio(Buffer.from(event.delta, "base64"));
           break;
         case "response.output_audio_transcript.delta":
         case "response.audio_transcript.delta":
@@ -184,6 +212,7 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           });
           break;
         case "response.done":
+          if (this.outputTranscript.trim()) { this.sink?.onOutputTranscript(this.outputTranscript, true); this.outputTranscript = ""; }
           this.sink?.onAudioEnd();
           for (const item of event.response?.output ?? []) {
             if (item?.type !== "function_call") continue;

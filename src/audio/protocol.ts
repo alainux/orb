@@ -3,6 +3,7 @@ export const AudioMessage = {
   ClearPlayback: 0x02,
   SetMuted: 0x03,
   Shutdown: 0x04,
+  PlaybackEnd: 0x05,
   Capture: 0x10,
   Levels: 0x11,
   Ready: 0x12,

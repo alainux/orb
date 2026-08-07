@@ -13,3 +13,4 @@ release-assets/
 SHA256SUMS
 .DS_Store
 *.log
+.pi/tasks

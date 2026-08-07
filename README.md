@@ -16,9 +16,9 @@
 
 <p align="center"><img src="docs/assets/orb-banner.png" alt="Orb for Pi" width="100%"></p>
 
-Orb adds a calm full-duplex voice layer to [Pi](https://pi.dev). Speak naturally about the project; Orb turns that intent into useful engineering work, delegates it directly to Pi, waits while Pi works, and gives you concise high-level updates. You can keep typing into Pi normally at any time.
+Orb adds a full-duplex voice layer to [Pi](https://pi.dev). Talk about the project at a high level; Orb turns your intent into useful engineering work, drives Pi while it works, interrupts or redirects it when needed, and comes back with the outcome rather than narrating every command.
 
-It is intentionally **not** a second coding agent. Pi remains the tool-using project agent. Orb is the conversational layer that drives it.
+You can keep using Pi normally at the same time. Your keyboard, Pi's editor, Pi's own output, and direct `!` commands remain visible and independent.
 
 ## What it feels like
 
@@ -26,35 +26,46 @@ It is intentionally **not** a second coding agent. Pi remains the tool-using pro
 >
 > **Orb:** Sure — one sec.
 >
-> *Orb delegates a complete repository exploration to Pi, waits for it to inspect structure/docs/scripts and run relevant build/tests.*
+> *Orb delegates a complete repository exploration, including the relevant build/tests, and waits while Pi works.*
 >
-> **Orb:** It's a small TypeScript Pi package with a Go audio sidecar. The test/build path is healthy; the provider and UI layers are already separated cleanly. The main thing I'd look at next is the release packaging.
+> **Orb:** It’s a TypeScript Pi package with a native audio sidecar. The build is healthy; the release path is the main area I’d tighten.
 
-No narrated `ls`. No "shall I open README?". The full Pi screen is already there when you want detail.
+Change direction at any point:
+
+> **You:** Wait, never mind. Use Sonnet and focus on the failing tests.
+>
+> *Orb cancels the current Pi turn, switches the Pi model, and delegates the new task.*
+>
+> **Orb:** Got it.
+
+No narrated `ls`. No routine “shall I continue?” prompts.
 
 ## Interface
 
-Orb inherits Pi's active theme and renders a compact panel above the native editor:
+Orb inherits Pi's active theme and renders a compact panel above Pi:
 
-- **Left:** a dense spherical particle-wave field that reacts to both you and Orb.
-- **Right:** only the voice conversation and Orb's own tool activity (`YOU`, `ORB`, `ORB›`).
-- **Below:** Pi remains Pi. Its messages, tools, editor, commands, and manual workflow stay untouched.
+- **Left:** a dense rotating particle-wave orb reacting to you and Orb.
+- **Right:** a chronological script of `YOU`, `ORB`, and Orb's own tool/control actions.
+- **Below:** the normal Pi screen and prompt editor remain untouched.
+
+When the scratchpad is open, the right side becomes the working document with a small recent-turn strip below it.
 
 ## Install
 
-### Option A — install as a Pi extension
+### Pi package
 
 ```bash
 pi install https://github.com/alainux/orb
+pi
 ```
 
-Then start Pi and enable voice:
+Then:
 
 ```text
 /voice
 ```
 
-### Option B — convenience installer + `orb` launcher
+### Convenience launcher
 
 macOS / Linux:
 
@@ -70,16 +81,16 @@ iwr https://raw.githubusercontent.com/alainux/orb/main/scripts/install.ps1 -UseB
 orb
 ```
 
-The launcher starts Pi with Orb voice enabled immediately. You can still use plain `pi` and `/voice` whenever you prefer. The Pi package points at the TypeScript extension source directly, so Git installs do not depend on a prebuilt `dist/` directory.
+The launcher simply starts Pi with Orb auto-enabled. Plain `pi` + `/voice` remains fully supported.
 
-### Option C — npm package
+### npm
 
 ```bash
 npm install -g @alainux/orb
 orb
 ```
 
-The npm launcher loads Orb explicitly with Pi, so it also works without a separate `pi install`. Release automation targets Linux, macOS, and Windows on x64 and arm64 where GitHub-hosted builders are available; when a matching helper is unavailable, Orb falls back to building the small Go audio sidecar locally.
+Published releases ship platform audio binaries. Go is kept as the audio-helper implementation language and developer fallback; normal users should not need to build it.
 
 ## Provider setup
 
@@ -97,14 +108,7 @@ export ORB_PROVIDER=openai
 export OPENAI_API_KEY="your-key"
 ```
 
-Then:
-
-```bash
-orb
-# or: pi → /voice
-```
-
-Commands are deliberately small:
+Commands:
 
 ```text
 /voice
@@ -113,19 +117,114 @@ Commands are deliberately small:
 /voice provider gemini
 /voice status
 /voice log
+/voice scratchpad
+/voice scratchpad edit
+/voice scratchpad load TODO.md
+/voice scratchpad save notes/plan.md
+/voice scratchpad dispatch
+/voice scratchpad close
 /voice stop
 ```
 
 `Ctrl+Alt+V` toggles voice mode.
 
+## Pi control
+
+Orb can manage the active Pi harness through Pi's extension APIs instead of pretending slash commands are text:
+
+- cancel the active generation/tool run;
+- switch Pi models;
+- change Pi's thinking level;
+- enable/disable Pi tools;
+- run direct shell commands for `!`-style requests;
+- delegate normal coding tasks to Pi;
+- wait for visible Pi activity or completion and inspect results.
+
+This makes sequences such as **cancel → change model → retry** possible entirely by voice.
+
+Direct user `!` commands and their visible output are observed as part of Orb's internal Pi context when Pi exposes them. Pi's `!!` form stays deliberately excluded from model context. Orb does not duplicate Pi's own log in its panel because you can already see it on screen.
+
+### Permissions
+
+These capabilities are independently configurable. Defaults enable Pi control while keeping scratchpad file access inside the current project:
+
+```json
+{
+  "permissions": {
+    "cancelPi": true,
+    "setModel": true,
+    "setThinking": true,
+    "setTools": true,
+    "shell": true,
+    "scratchpadRead": true,
+    "scratchpadWrite": true,
+    "scratchpadOutsideProject": false
+  }
+}
+```
+
+Disable anything you do not want the realtime voice model to use.
+
+## Scratchpad
+
+The scratchpad is an ephemeral working document for cases where a single spoken command is not enough: long prompts, TODOs, review notes, requirements, migration plans, etc.
+
+Examples:
+
+```text
+"Open the scratchpad and load TODO.md."
+"Add an item about retry behavior."
+"Dispatch the first three items to Pi."
+"Save this as docs/release-plan.md."
+```
+
+It supports open/read/replace/append/load/save/dispatch/close. Dispatch can send the whole document or a selected subset. File reads/writes are project-scoped by default.
+
+## Audio reliability
+
+The audio device is owned by a small Go/miniaudio sidecar; Node never paces speaker samples. In v0.6 the sidecar also owns an adaptive hardware-side jitter buffer.
+
+```text
+realtime provider ⇄ TypeScript transport ⇄ Go jitter buffer ⇄ hardware callback
+```
+
+If Pi briefly stalls provider delivery while rendering or running tools, playback now pauses, rebuilds a small lead, and resumes at the hardware clock rather than getting stuck emitting tiny fragments. The buffer never skips or time-compresses PCM. A recovery counter is shown in the Orb footer and diagnostics.
+
+Barge-in still clears the old response immediately. Repeated interruption storms are detected and the input path is resynchronized to break speaker→microphone feedback loops.
+
+Audio tuning is configurable:
+
+```json
+{
+  "audio": {
+    "bufferMs": 140,
+    "maxBufferMs": 380,
+    "recoveryStepMs": 40,
+    "interruptionStormCount": 3,
+    "interruptionStormWindowMs": 1800,
+    "interruptionRecoveryMuteMs": 320
+  }
+}
+```
+
+Run:
+
+```bash
+npm run doctor
+```
+
+for the active helper/provider diagnostics.
+
 ## Configuration
 
-Most behavior is configurable without changing source. Orb merges:
+Orb merges, in order:
 
-1. `~/.config/orb/config.json` (or `%APPDATA%\\orb\\config.json` on Windows)
+1. `~/.config/orb/config.json` (`%APPDATA%\\orb\\config.json` on Windows)
 2. `<project>/.orb/config.json`
 3. `ORB_CONFIG=/some/config.json`
 4. environment overrides
+
+The complete voice-agent prompt ships at [`prompts/default.md`](prompts/default.md) and can be replaced with `voice.promptFile` or `ORB_PROMPT_FILE`.
 
 Example:
 
@@ -134,56 +233,25 @@ Example:
   "provider": "gemini",
   "voice": {
     "temperature": 0.72,
-    "greeting": true,
     "promptFile": ".orb/voice-prompt.md"
   },
   "ui": {
-    "panelHeight": 14,
-    "activityLines": 10,
-    "orbDensity": 1.10
+    "panelHeight": 12,
+    "activityLines": 8,
+    "orbDensity": 1.30
+  },
+  "scratchpad": {
+    "panelHeight": 18,
+    "maxBytes": 524288
   }
 }
 ```
 
-The complete default voice prompt ships at [`prompts/default.md`](prompts/default.md), so the interaction style is just as configurable as the model and UI.
-
-See [Configuration](docs/CONFIGURATION.md) for every option.
+See [Configuration](docs/CONFIGURATION.md).
 
 ## Long-running sessions
 
-Orb is designed to stay open during coding sessions.
-
-For Gemini Live, it enables **context-window compression** and **session resumption** by default. Gemini periodically rotates Live WebSocket connections; Orb stores the latest resumption handle and reconnects when the server sends `GoAway`. If a connection cannot be safely resumed, voice mode closes with a friendly notification and can be reopened with `/voice` instead of surfacing the normal provider rollover as a crash.
-
-## Audio architecture
-
-The versions that paced PCM on Node's event loop were unreliable under a busy coding TUI. Orb does not do that anymore.
-
-```text
-realtime provider  ⇄  TypeScript transport  ⇄  Go audio sidecar  ⇄  hardware callback
-```
-
-The Go helper owns microphone capture and speaker playback at the device clock. Pi rendering and tool activity cannot change playback cadence.
-
-Release packages ship prebuilt helpers for common platforms. Source installs first try the latest GitHub release binary, then fall back to a local Go+C compiler build.
-
-Run diagnostics:
-
-```bash
-npm run doctor
-```
-
-## Pi orchestration
-
-The realtime voice model has only three project-facing tools:
-
-- `run_pi_task` — submit a complete engineering task directly to Pi.
-- `observe_pi` — wait for Pi activity/completion.
-- `read_pi_log` — inspect recent **visible** Pi messages/tool results when needed for factual context.
-
-It has no shell, filesystem, or arbitrary execution tool of its own. Hidden Pi reasoning is never mirrored into Orb.
-
-The native Pi editor is not watched or modified. If you type and submit something manually, it is simply normal Pi usage.
+Gemini Live periodically rotates connections. Orb enables context-window compression and Developer-API session resumption, stores the current resumption handle, closes expiring sockets promptly on `GoAway`, and reconnects. If it cannot safely resume, voice closes with a friendly message and can be reopened with `/voice`; Pi itself stays alive.
 
 ## Development
 
@@ -196,8 +264,7 @@ npm run build:audio
 pi -e ./extensions/voice.ts
 ```
 
-Published installs do **not** require Go. Release packages ship platform audio helpers, and Git installs can provision the matching helper from GitHub Releases. `npm run build:audio` is only for contributors or unreleased source checkouts. On macOS Orb also finds Homebrew Go at `/opt/homebrew/bin/go` even when Pi was launched with a reduced `PATH`.
-
+`npm run build:audio` uses `go build -mod=mod`, so dependencies from `audio-helper/go.mod` are resolved automatically. There is no manual `go get` step.
 
 Useful targets:
 
@@ -210,7 +277,7 @@ npm run smoke
 npm run pack:check
 ```
 
-Read [Architecture](docs/ARCHITECTURE.md), [Configuration](docs/CONFIGURATION.md), [Releasing](docs/RELEASING.md), and [Contributing](CONTRIBUTING.md) before changing public behavior.
+Read [Architecture](docs/ARCHITECTURE.md), [Configuration](docs/CONFIGURATION.md), [Releasing](docs/RELEASING.md), and [Contributing](CONTRIBUTING.md).
 
 ## Project layout
 
@@ -218,12 +285,14 @@ Read [Architecture](docs/ARCHITECTURE.md), [Configuration](docs/CONFIGURATION.md
 extensions/        Pi package entry point
 src/providers/     Gemini / OpenAI realtime adapters
 src/audio/         Node ↔ Go audio transport
-audio-helper/      hardware-timed Go audio engine
+audio-helper/      hardware-clocked audio + adaptive playout buffer
 src/controller.ts  voice/Pi orchestration
-src/pi-log.ts      internal visible Pi observation
+src/pi-control.ts  permission-gated Pi cancellation/model/thinking/tools/shell
+src/pi-log.ts      visible Pi observation used internally
+src/scratchpad.ts  ephemeral collaborative document
 src/orb.ts         particle-wave visualizer
 src/widget.ts      Pi-themed UI
-prompts/           configurable default voice prompt
+prompts/           configurable voice-agent prompt
 config/            example configuration
 site/              static project website
 ```
@@ -231,8 +300,3 @@ site/              static project website
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-
-### `spawn go ENOENT` / missing audio helper
-
-Orb 0.5.2+ does not require Go for normal released installs. It first uses a bundled helper or downloads the matching binary from the GitHub release. For an unreleased source checkout, run `make build` (complete build) or `npm run build:audio`; this source-build path requires Go 1.23+ and a C compiler. Use `npm run doctor` to see exactly which helper and Go executable Orb can resolve.

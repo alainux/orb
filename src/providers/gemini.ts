@@ -124,26 +124,51 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
       }
 
       const server = message?.serverContent;
-      if (server?.interrupted) this.sink?.onInterruption("server barge-in");
-      if (server?.turnComplete || server?.generationComplete) this.sink?.onAudioEnd();
+      const interrupted = Boolean(server?.interrupted);
+      const boundary = Boolean(server?.turnComplete || server?.generationComplete);
+      if (interrupted) {
+        // Commit the interrupted spoken turn before clearing playback. This
+        // keeps the activity transcript as one chronological Orb turn instead
+        // of creating a duplicate late-final row after the interruption.
+        if (this.outputTranscript.trim()) {
+          this.sink?.onOutputTranscript(this.outputTranscript, true);
+          this.outputTranscript = "";
+        }
+        this.sink?.onInterruption("server barge-in");
+      }
 
       const inputText = server?.inputTranscription?.text;
       if (typeof inputText === "string") {
-        const final = Boolean(server?.turnComplete);
         const merged = mergeTranscript(this.inputTranscript, inputText);
-        this.sink?.onInputTranscript(merged, final);
-        this.inputTranscript = final ? "" : merged;
+        this.sink?.onInputTranscript(merged, boundary);
+        this.inputTranscript = boundary ? "" : merged;
       }
       const outputText = server?.outputTranscription?.text;
       if (typeof outputText === "string") {
-        const final = Boolean(server?.turnComplete || server?.generationComplete);
         const merged = mergeTranscript(this.outputTranscript, outputText);
-        this.sink?.onOutputTranscript(merged, final);
-        this.outputTranscript = final ? "" : merged;
+        this.sink?.onOutputTranscript(merged, boundary);
+        this.outputTranscript = boundary ? "" : merged;
       }
-      for (const part of server?.modelTurn?.parts ?? []) {
-        const data = part?.inlineData?.data;
-        if (typeof data === "string" && data.length > 0) this.sink?.onAudio(Buffer.from(data, "base64"));
+
+      // An interrupted server turn is cancelled. Do not enqueue any PCM that
+      // happens to share the interruption message; it belongs to the response
+      // we just cleared from the hardware queue.
+      if (!interrupted) {
+        for (const part of server?.modelTurn?.parts ?? []) {
+          const data = part?.inlineData?.data;
+          if (typeof data === "string" && data.length > 0) this.sink?.onAudio(Buffer.from(data, "base64"));
+        }
+      }
+
+      // Gemini can send turnComplete in a separate message from the final
+      // transcription fragment. Flush both transcript accumulators here so a
+      // later human/Orb turn can never be appended to the previous paragraph.
+      if (boundary) {
+        if (this.inputTranscript.trim()) this.sink?.onInputTranscript(this.inputTranscript, true);
+        if (this.outputTranscript.trim()) this.sink?.onOutputTranscript(this.outputTranscript, true);
+        this.inputTranscript = "";
+        this.outputTranscript = "";
+        this.sink?.onAudioEnd();
       }
 
       const calls = message?.toolCall?.functionCalls ?? [];
@@ -171,11 +196,21 @@ function geminiTools(): Record<string, unknown>[] {
   return [
     {
       name: "run_pi_task",
-      description: "Delegate a complete coding task directly to Pi. Use this proactively for project exploration, implementation, debugging, tests, refactoring, documentation, specs, and other engineering work. Pi has its own read/edit/write/bash tools.",
+      description: "Delegate a complete coding task directly to Pi. Use proactively for project exploration, implementation, debugging, tests, refactoring, documentation, specs, and other engineering work.",
       parameters: { type: "OBJECT", properties: { instruction: { type: "STRING", description: "Complete, autonomous engineering instruction for Pi." }, summary: { type: "STRING", description: "Optional short human-readable label for the delegated task." } }, required: ["instruction"] },
     },
     { name: "read_pi_log", description: "Read recent visible Pi conversation and tool results when factual project state is needed. Hidden reasoning is excluded.", parameters: { type: "OBJECT", properties: { max_entries: { type: "NUMBER" } } } },
     { name: "observe_pi", description: "Wait for Pi activity or until Pi settles. Use after delegating work instead of asking the human to tell you when it is done.", parameters: { type: "OBJECT", properties: { after_revision: { type: "NUMBER" }, until: { type: "STRING" }, timeout_ms: { type: "NUMBER" }, max_entries: { type: "NUMBER" } } } },
+    {
+      name: "control_pi",
+      description: "Control the Pi harness directly. Actions: cancel an active run, list/set the Pi model, change thinking level, or run a shell command when permissions allow it. Use cancel immediately when the human changes direction.",
+      parameters: { type: "OBJECT", properties: { action: { type: "STRING", description: "cancel | list_models | set_model | set_thinking | list_tools | set_tools | shell" }, model: { type: "STRING" }, level: { type: "STRING" }, tools: { type: "ARRAY", items: { type: "STRING" } }, command: { type: "STRING" }, timeout_ms: { type: "NUMBER" } }, required: ["action"] },
+    },
+    {
+      name: "scratchpad",
+      description: "Manage Orb's ephemeral collaborative scratchpad. Actions: open, read, replace, append, load, save, dispatch, close. Dispatch sends either provided content or the whole scratchpad to Pi as a task.",
+      parameters: { type: "OBJECT", properties: { action: { type: "STRING" }, title: { type: "STRING" }, content: { type: "STRING" }, path: { type: "STRING" }, summary: { type: "STRING" } }, required: ["action"] },
+    },
   ];
 }
 

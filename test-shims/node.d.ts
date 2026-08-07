@@ -48,12 +48,15 @@ declare module "node:fs/promises" {
   export function rm(path: string, options?: any): Promise<void>;
   export function chmod(path: string, mode: number): Promise<void>;
   export function rename(oldPath: string, newPath: string): Promise<void>;
+  export function stat(path: string): Promise<{ isFile(): boolean; size: number }>;
 }
 declare module "node:path" {
   export function join(...parts: string[]): string;
   export function resolve(...parts: string[]): string;
   export function dirname(path: string): string;
   export function basename(path: string): string;
+  export function isAbsolute(path: string): boolean;
+  export function relative(from: string, to: string): string;
 }
 declare module "node:os" {
   export function homedir(): string;

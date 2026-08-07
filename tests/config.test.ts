@@ -30,4 +30,17 @@ test("Gemini long-session protections are enabled by default",async()=>withEnv({
   const config=await loadVoiceConfig("gemini",tmpdir());assert.equal(config.geminiSessionResumption,true);assert.equal(config.geminiContextCompression,true);
 }));
 
+
+test("Pi controls, audio recovery and scratchpad are configurable",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"orb-config-control-"));
+  const configFile=join(root,"config.json");
+  await writeFile(configFile,JSON.stringify({permissions:{shell:false,cancelPi:true,setModel:false,setTools:false},audio:{bufferMs:180,maxBufferMs:520,recoveryStepMs:60,interruptionStormCount:4},scratchpad:{panelHeight:20,maxBytes:131072}}),"utf8");
+  await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:configFile},async()=>{
+    const config=await loadVoiceConfig("gemini",root);
+    assert.equal(config.permissions.shell,false);assert.equal(config.permissions.cancelPi,true);assert.equal(config.permissions.setModel,false);assert.equal(config.permissions.setTools,false);
+    assert.equal(config.audio.bufferMs,180);assert.equal(config.audio.maxBufferMs,520);assert.equal(config.audio.recoveryStepMs,60);assert.equal(config.audio.interruptionStormCount,4);
+    assert.equal(config.scratchpad.panelHeight,20);assert.equal(config.scratchpad.maxBytes,131072);
+  });
+});
+
 test("missing selected provider key is rejected",async()=>withEnv({GEMINI_API_KEY:undefined,GOOGLE_API_KEY:undefined,ORB_CONFIG:undefined},async()=>{await assert.rejects(()=>loadVoiceConfig("gemini",tmpdir()),/GEMINI_API_KEY/);}));

@@ -55,6 +55,9 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
   const uiConfig = isObject(merged.ui) ? merged.ui : {};
   const sessionConfig = isObject(merged.session) ? merged.session : {};
   const loggingConfig = isObject(merged.logging) ? merged.logging : {};
+  const permissionConfig = isObject(merged.permissions) ? merged.permissions : {};
+  const audioConfig = isObject(merged.audio) ? merged.audio : {};
+  const scratchpadConfig = isObject(merged.scratchpad) ? merged.scratchpad : {};
 
   const apiKey = provider === "gemini"
     ? (envFirst("GEMINI_API_KEY", "GOOGLE_API_KEY") ?? "")
@@ -93,15 +96,37 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
     systemPrompt,
     greetingEnabled: boolValue(envFirst("ORB_GREETING", "PI_VOICE_GREETING") ?? voiceConfig.greeting, true, "voice.greeting"),
     orbAspect: numberValue(envFirst("ORB_ASPECT", "PI_VOICE_ORB_ASPECT") ?? uiConfig.orbAspect, 2, 0.45, 3, "ui.orbAspect"),
-    orbDensity: numberValue(envFirst("ORB_DENSITY", "PI_VOICE_ORB_DENSITY") ?? uiConfig.orbDensity, 1.10, 0.7, 1.6, "ui.orbDensity"),
-    panelHeight: Math.round(numberValue(envFirst("ORB_PANEL_HEIGHT", "PI_VOICE_PANEL_HEIGHT") ?? uiConfig.panelHeight, 14, 9, 24, "ui.panelHeight")),
-    activityLines: Math.round(numberValue(envFirst("ORB_ACTIVITY_LINES", "PI_VOICE_ACTIVITY_LINES") ?? uiConfig.activityLines, 10, 4, 30, "ui.activityLines")),
+    orbDensity: numberValue(envFirst("ORB_DENSITY", "PI_VOICE_ORB_DENSITY") ?? uiConfig.orbDensity, 1.30, 0.7, 1.8, "ui.orbDensity"),
+    panelHeight: Math.round(numberValue(envFirst("ORB_PANEL_HEIGHT", "PI_VOICE_PANEL_HEIGHT") ?? uiConfig.panelHeight, 12, 8, 24, "ui.panelHeight")),
+    activityLines: Math.round(numberValue(envFirst("ORB_ACTIVITY_LINES", "PI_VOICE_ACTIVITY_LINES") ?? uiConfig.activityLines, 8, 3, 30, "ui.activityLines")),
     logDir: expandPath(String(logDirRaw ?? defaultLogDir), cwd),
     configFiles: loadedFiles,
     geminiSessionResumption: boolValue(envFirst("ORB_GEMINI_SESSION_RESUMPTION") ?? sessionConfig.geminiSessionResumption, true, "session.geminiSessionResumption"),
     geminiContextCompression: boolValue(envFirst("ORB_GEMINI_CONTEXT_COMPRESSION") ?? sessionConfig.geminiContextCompression, true, "session.geminiContextCompression"),
     geminiCompressionTriggerTokens: Math.round(numberValue(envFirst("ORB_GEMINI_COMPRESSION_TRIGGER_TOKENS") ?? sessionConfig.geminiCompressionTriggerTokens, 18000, 4000, 128000, "session.geminiCompressionTriggerTokens")),
     geminiCompressionTargetTokens: Math.round(numberValue(envFirst("ORB_GEMINI_COMPRESSION_TARGET_TOKENS") ?? sessionConfig.geminiCompressionTargetTokens, 9000, 2000, 64000, "session.geminiCompressionTargetTokens")),
+    permissions: {
+      cancelPi: boolValue(envFirst("ORB_ALLOW_CANCEL_PI") ?? permissionConfig.cancelPi, true, "permissions.cancelPi"),
+      setModel: boolValue(envFirst("ORB_ALLOW_SET_MODEL") ?? permissionConfig.setModel, true, "permissions.setModel"),
+      setThinking: boolValue(envFirst("ORB_ALLOW_SET_THINKING") ?? permissionConfig.setThinking, true, "permissions.setThinking"),
+      setTools: boolValue(envFirst("ORB_ALLOW_SET_TOOLS") ?? permissionConfig.setTools, true, "permissions.setTools"),
+      shell: boolValue(envFirst("ORB_ALLOW_SHELL") ?? permissionConfig.shell, true, "permissions.shell"),
+      scratchpadRead: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_READ") ?? permissionConfig.scratchpadRead, true, "permissions.scratchpadRead"),
+      scratchpadWrite: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_WRITE") ?? permissionConfig.scratchpadWrite, true, "permissions.scratchpadWrite"),
+      scratchpadOutsideProject: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_OUTSIDE_PROJECT") ?? permissionConfig.scratchpadOutsideProject, false, "permissions.scratchpadOutsideProject"),
+    },
+    audio: {
+      bufferMs: Math.round(numberValue(envFirst("ORB_AUDIO_BUFFER_MS") ?? audioConfig.bufferMs, 140, 40, 800, "audio.bufferMs")),
+      maxBufferMs: Math.round(numberValue(envFirst("ORB_AUDIO_MAX_BUFFER_MS") ?? audioConfig.maxBufferMs, 380, 80, 1500, "audio.maxBufferMs")),
+      recoveryStepMs: Math.round(numberValue(envFirst("ORB_AUDIO_RECOVERY_STEP_MS") ?? audioConfig.recoveryStepMs, 40, 10, 250, "audio.recoveryStepMs")),
+      interruptionStormCount: Math.round(numberValue(envFirst("ORB_INTERRUPTION_STORM_COUNT") ?? audioConfig.interruptionStormCount, 3, 2, 10, "audio.interruptionStormCount")),
+      interruptionStormWindowMs: Math.round(numberValue(envFirst("ORB_INTERRUPTION_STORM_WINDOW_MS") ?? audioConfig.interruptionStormWindowMs, 1800, 400, 10000, "audio.interruptionStormWindowMs")),
+      interruptionRecoveryMuteMs: Math.round(numberValue(envFirst("ORB_INTERRUPTION_RECOVERY_MUTE_MS") ?? audioConfig.interruptionRecoveryMuteMs, 320, 0, 2000, "audio.interruptionRecoveryMuteMs")),
+    },
+    scratchpad: {
+      panelHeight: Math.round(numberValue(envFirst("ORB_SCRATCHPAD_PANEL_HEIGHT") ?? scratchpadConfig.panelHeight, 18, 10, 32, "scratchpad.panelHeight")),
+      maxBytes: Math.round(numberValue(envFirst("ORB_SCRATCHPAD_MAX_BYTES") ?? scratchpadConfig.maxBytes, 512 * 1024, 4096, 4 * 1024 * 1024, "scratchpad.maxBytes")),
+    },
   };
 }
 

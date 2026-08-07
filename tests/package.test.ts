@@ -13,12 +13,18 @@ test("manifest is a distributable Orb Pi package",async()=>{
   assert.ok(manifest.files.includes("audio-helper"));assert.ok(manifest.files.includes("config"));assert.ok(manifest.files.includes("prompts"));
 });
 
-test("voice layer exposes no arbitrary execution tool and no editor-mirroring tool",async()=>{
-  const files=await Promise.all(["extensions/voice.ts","src/controller.ts","src/providers/gemini.ts","src/providers/openai.ts","src/delegation.ts"].map(path=>readFile(path,"utf8")));
+test("voice has permission-gated Pi control and never mirrors the native editor",async()=>{
+  const files=await Promise.all(["extensions/voice.ts","src/controller.ts","src/providers/gemini.ts","src/providers/openai.ts","src/pi-control.ts"].map(path=>readFile(path,"utf8")));
   const joined=files.join("\n");
-  assert.equal(/execFile\(|spawn\(/.test(joined),false);
-  assert.match(joined,/run_pi_task/);assert.match(joined,/sendUserMessage/);assert.match(joined,/observe_pi/);
+  assert.match(joined,/run_pi_task/);assert.match(joined,/observe_pi/);assert.match(joined,/control_pi/);assert.match(joined,/scratchpad/);
+  assert.match(joined,/permissions\.shell/);assert.match(joined,/permissions\.cancelPi/);assert.match(joined,/permissions\.setTools/);assert.match(joined,/this\.pi\.exec/);
   assert.doesNotMatch(joined,/update_pi_prompt|submit_pi_prompt|base_revision|setEditorText|getEditorText/);
+});
+
+test("developer audio build resolves module dependencies without manual go get",async()=>{
+  const script=await readFile("scripts/build-audio-helper.mjs","utf8");
+  assert.match(script,/"build", "-mod=mod"/);
+  assert.doesNotMatch(script,/spawn\(go, \["get"/);
 });
 
 test("cross-platform install surfaces and developer docs are shipped",async()=>{

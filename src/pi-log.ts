@@ -45,6 +45,17 @@ export class PiLogMirror {
       case "tool_execution_end": {
         const text = `${event?.isError ? "✗" : "✓"} ${String(event?.toolName ?? "tool")}`; this.push(event?.isError ? "tool error" : "tool", text); visible.push({ kind: "pi-tool", text }); break;
       }
+      case "user_bash": {
+        const command = String(event?.command ?? "").trim();
+        if (command) this.push(event?.excludeFromContext ? "user bash !!" : "user bash !", command);
+        break;
+      }
+      case "model_select": {
+        const model = event?.model;
+        const key = model?.provider && model?.id ? `${model.provider}/${model.id}` : String(model?.id ?? "unknown");
+        this.push("model", `Pi model changed to ${key}`);
+        break;
+      }
     }
     this.resolveWaiters();
     return visible;
@@ -90,6 +101,13 @@ function serializeBranch(entries: unknown[], maxEntries: number): string[] {
       const tools=Array.isArray(message?.content)?message.content.filter((b:any)=>b?.type==="toolCall").map((b:any)=>String(b?.name??"tool")):[];
       if(tools.length) lines.push(`[assistant tools] ${tools.join(", ")}`);
     } else if(role==="toolResult") { const text=visibleMessageText(message); const name=String(message?.toolName??"tool"); lines.push(`[${message?.isError?"tool error":"tool"} ${name}] ${text || (message?.isError?"failed":"completed")}`); }
+    else if(role==="bashExecution" && !message?.excludeFromContext) {
+      const command=String(message?.command??"").trim(); const output=String(message?.output??"").trim();
+      const status=message?.cancelled?"cancelled":message?.exitCode===0?"ok":`exit ${String(message?.exitCode??"?")}`;
+      if(command) lines.push(`[user bash] ${command}
+${output?`${output.slice(0,8000)}
+`:""}[${status}]`);
+    }
   }
   return lines.slice(-maxEntries);
 }

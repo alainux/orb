@@ -1,14 +1,17 @@
 import type { VoiceProviderName } from "./types.js";
 
+export type ScratchpadCommandAction = "open" | "close" | "edit" | "load" | "save" | "dispatch";
 export type VoiceCommand =
   | { action: "start"; provider?: VoiceProviderName }
   | { action: "stop" | "status" | "log" | "help" }
-  | { action: "provider"; provider: VoiceProviderName };
+  | { action: "provider"; provider: VoiceProviderName }
+  | { action: "scratchpad"; scratchpadAction: ScratchpadCommandAction; argument: string };
 
 export function parseVoiceCommand(raw: string): VoiceCommand {
-  const parts = raw.trim().split(/\s+/).filter(Boolean);
-  const action = (parts[0] ?? "start").toLowerCase();
-  const argument = parts[1]?.toLowerCase();
+  const trimmed = raw.trim();
+  const [head = "start", ...rest] = trimmed.split(/\s+/).filter(Boolean);
+  const action = head.toLowerCase();
+  const argument = rest[0]?.toLowerCase();
   switch (action) {
     case "start": return argument ? { action: "start", provider: parseProvider(argument) } : { action: "start" };
     case "stop":
@@ -19,6 +22,12 @@ export function parseVoiceCommand(raw: string): VoiceCommand {
     case "provider":
       if (!argument) throw new Error("Usage: /voice provider gemini|openai");
       return { action: "provider", provider: parseProvider(argument) };
+    case "scratchpad":
+    case "pad": {
+      const sub = (argument ?? "open") as ScratchpadCommandAction;
+      if (!["open", "close", "edit", "load", "save", "dispatch"].includes(sub)) throw new Error("Usage: /voice scratchpad [open|edit|load <path>|save [path]|dispatch|close]");
+      return { action: "scratchpad", scratchpadAction: sub, argument: rest.slice(1).join(" ") };
+    }
     default: throw new Error(`Unknown /voice action: ${action}`);
   }
 }

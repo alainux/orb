@@ -1,22 +1,37 @@
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { RunLog } from "../log.js";
+import type { AudioConfig } from "../types.js";
 import { AudioFrameDecoder, AudioMessage, encodeAudioFrame } from "./protocol.js";
 import { resolveAudioHelper } from "./helper-resolution.js";
 
-export interface AudioLevels { inputRms: number; outputRms: number; captureDrops: number; queuedBytes: number }
+export interface AudioLevels {
+  inputRms: number;
+  outputRms: number;
+  captureDrops: number;
+  queuedBytes: number;
+  recoveries: number;
+}
 
 export class GoAudioBridge extends EventEmitter {
   private child: ChildProcessWithoutNullStreams | undefined;
   private decoder = new AudioFrameDecoder();
   private closing = false;
 
-  constructor(private readonly log: RunLog) { super(); }
+  constructor(private readonly log: RunLog, private readonly config: AudioConfig) { super(); }
 
   async start(): Promise<void> {
     const helper = await resolveAudioHelper(this.log);
-    await this.log.info("starting Go audio helper", { helper: helper.path, source: helper.source });
-    const child = spawn(helper.path, [], { stdio: ["pipe", "pipe", "pipe"] });
+    await this.log.info("starting Go audio helper", { helper: helper.path, source: helper.source, audioBufferMs: this.config.bufferMs, audioMaxBufferMs: this.config.maxBufferMs });
+    const child = spawn(helper.path, [], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        ORB_AUDIO_BUFFER_MS: String(this.config.bufferMs),
+        ORB_AUDIO_MAX_BUFFER_MS: String(this.config.maxBufferMs),
+        ORB_AUDIO_RECOVERY_STEP_MS: String(this.config.recoveryStepMs),
+      },
+    });
     this.child = child;
     child.stdout.on("data", (chunk: Buffer) => {
       try { for (const frame of this.decoder.push(chunk)) this.handleFrame(frame.type, frame.payload); }
@@ -41,6 +56,7 @@ export class GoAudioBridge extends EventEmitter {
   }
 
   enqueueOutput(pcm24k: Buffer): void { if (pcm24k.length) this.write(AudioMessage.Playback, pcm24k); }
+  endOutput(): void { this.write(AudioMessage.PlaybackEnd); }
   clearOutput(): void { this.write(AudioMessage.ClearPlayback); }
   setMuted(muted: boolean): void { this.write(AudioMessage.SetMuted, Buffer.from([muted ? 1 : 0])); }
 
@@ -69,6 +85,7 @@ export class GoAudioBridge extends EventEmitter {
         if (payload.length >= 24) this.emit("levels", {
           inputRms: payload.readDoubleLE(0), outputRms: payload.readDoubleLE(8),
           captureDrops: payload.readUInt32LE(16), queuedBytes: payload.readUInt32LE(20),
+          recoveries: payload.length >= 28 ? payload.readUInt32LE(24) : 0,
         } satisfies AudioLevels);
         break;
       case AudioMessage.Ready: this.emit("ready"); break;

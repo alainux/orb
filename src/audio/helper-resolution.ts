@@ -65,8 +65,9 @@ export async function resolveAudioHelper(log: RunLog): Promise<HelperResolution>
     await log.info("prebuilt audio helper unavailable; building source fallback", { helperSource, cached, go });
     try {
       const buildEnv = { ...process.env, CGO_ENABLED: "1" };
-      await execFileAsync(go, ["mod", "download"], { cwd: helperSource, env: buildEnv });
-      await execFileAsync(go, ["build", "-trimpath", "-o", cached, "./cmd/pi-voice-audio"], {
+      // -mod=mod resolves the dependencies declared by audio-helper/go.mod,
+      // including a missing go.sum in fresh source installs. No manual go get.
+      await execFileAsync(go, ["build", "-mod=mod", "-trimpath", "-o", cached, "./cmd/pi-voice-audio"], {
         cwd: helperSource,
         env: buildEnv,
       });

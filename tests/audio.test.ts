@@ -6,7 +6,7 @@ import { PcmInputAdapter } from "../src/audio/input-adapter.js";
 test("audio helper framing survives arbitrary stream boundaries", () => {
   const decoder = new AudioFrameDecoder();
   const a = encodeAudioFrame(AudioMessage.Capture, Buffer.from([1,2,3]));
-  const b = encodeAudioFrame(AudioMessage.Levels, Buffer.alloc(24, 7));
+  const b = encodeAudioFrame(AudioMessage.Levels, Buffer.alloc(28, 7));
   const all = Buffer.concat([a,b]);
   assert.equal(decoder.push(all.subarray(0,4)).length,0);
   const mid = decoder.push(all.subarray(4,11));
@@ -28,4 +28,11 @@ test("24 to 16 kHz conversion is stable across arbitrary capture chunks", () => 
   const split = [...splitAdapter.push(whole.subarray(0,713)),...splitAdapter.push(whole.subarray(713,1555)),...splitAdapter.push(whole.subarray(1555))];
   assert.deepEqual(Buffer.concat(split),Buffer.concat(one));
   for(const chunk of split) assert.equal(chunk.length,640);
+});
+
+
+test("playback end has a distinct protocol frame for natural response tails",()=>{
+  const decoder=new AudioFrameDecoder();
+  const [frame]=decoder.push(encodeAudioFrame(AudioMessage.PlaybackEnd));
+  assert.equal(frame?.type,AudioMessage.PlaybackEnd);assert.equal(frame?.payload.length,0);
 });

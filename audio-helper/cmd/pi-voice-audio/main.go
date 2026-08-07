@@ -8,13 +8,14 @@ import (
 	"math"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/gen2brain/malgo"
 	"github.com/alainux/orb/audio-helper/internal/playback"
 	"github.com/alainux/orb/audio-helper/internal/protocol"
+	"github.com/gen2brain/malgo"
 )
 
 const sampleRate = 24000
@@ -28,7 +29,7 @@ type event struct {
 type engine struct {
 	context      *malgo.AllocatedContext
 	device       *malgo.Device
-	playback     playback.Queue
+	playback     *playback.Buffer
 	capture      chan []byte
 	inputRMS     atomic.Uint64
 	outputRMS    atomic.Uint64
@@ -37,7 +38,14 @@ type engine struct {
 }
 
 func newEngine() (*engine, error) {
-	e := &engine{capture: make(chan []byte, 128)}
+	baseMs := envInt("ORB_AUDIO_BUFFER_MS", 140, 40, 800)
+	maxMs := envInt("ORB_AUDIO_MAX_BUFFER_MS", 380, baseMs, 1500)
+	stepMs := envInt("ORB_AUDIO_RECOVERY_STEP_MS", 40, 10, 250)
+	bytesPerMs := sampleRate * channels * 2 / 1000
+	e := &engine{
+		capture:  make(chan []byte, 128),
+		playback: playback.NewBuffer(baseMs*bytesPerMs, maxMs*bytesPerMs, stepMs*bytesPerMs),
+	}
 	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(string) {})
 	if err != nil {
 		return nil, fmt.Errorf("audio context: %w", err)
@@ -139,7 +147,7 @@ func run() error {
 		for {
 			select {
 			case <-ticker.C:
-				payload := make([]byte, 24)
+				payload := make([]byte, 28)
 				binary.LittleEndian.PutUint64(payload[0:8], e.inputRMS.Load())
 				binary.LittleEndian.PutUint64(payload[8:16], e.outputRMS.Load())
 				binary.LittleEndian.PutUint32(payload[16:20], e.captureDrops.Load())
@@ -148,6 +156,7 @@ func run() error {
 					q = uint64(^uint32(0))
 				}
 				binary.LittleEndian.PutUint32(payload[20:24], uint32(q))
+				binary.LittleEndian.PutUint32(payload[24:28], e.playback.Recoveries())
 				select {
 				case events <- event{typ: protocol.Levels, payload: payload}:
 				case <-done:
@@ -188,6 +197,8 @@ func commandLoop(e *engine, r io.Reader) error {
 		case protocol.ClearPlayback:
 			e.playback.Clear()
 			e.outputRMS.Store(0)
+		case protocol.PlaybackEnd:
+			e.playback.End()
 		case protocol.SetMuted:
 			e.muted.Store(len(frame.Payload) > 0 && frame.Payload[0] != 0)
 		case protocol.Shutdown:
@@ -208,6 +219,18 @@ func writer(events <-chan event, done <-chan struct{}) {
 			return
 		}
 	}
+}
+
+func envInt(name string, fallback, min, max int) int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < min || value > max {
+		return fallback
+	}
+	return value
 }
 
 func pcmRMS(pcm []byte) float64 {

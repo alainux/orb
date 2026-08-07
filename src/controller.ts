@@ -1,12 +1,14 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ActivityFeed } from "./activity.js";
 import { GoAudioBridge, type AudioLevels } from "./audio/bridge.js";
 import { PcmInputAdapter } from "./audio/input-adapter.js";
 import { loadVoiceConfig } from "./config.js";
 import { DelegatedWorkTracker, sendPiTask } from "./delegation.js";
 import { RunLog } from "./log.js";
+import { PiControl } from "./pi-control.js";
 import { PiLogMirror } from "./pi-log.js";
 import { createProvider } from "./providers/index.js";
+import { Scratchpad } from "./scratchpad.js";
 import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderName, VoiceViewState } from "./types.js";
 import { VoiceWidget } from "./widget.js";
 
@@ -15,8 +17,8 @@ export class VoiceController {
   private readonly piLog = new PiLogMirror();
   private state: VoiceViewState = {
     active: false, status: "off", source: "idle", inputTranscript: "", outputTranscript: "",
-    inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0,
-    piAgentStatus: "idle", activity: [], error: undefined,
+    inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0,
+    piAgentStatus: "idle", activity: [], scratchpad: { open: false, title: "Scratchpad", content: "", dirty: false }, error: undefined,
   };
   private ctx: ExtensionContext | undefined;
   private config: VoiceConfig | undefined;
@@ -30,10 +32,15 @@ export class VoiceController {
   private providerOverride: VoiceProviderName | undefined;
   private observingPi = 0;
   private readonly delegated = new DelegatedWorkTracker();
+  private scratchpad: Scratchpad | undefined;
+  private piControl: PiControl | undefined;
+  private interruptionTimes: number[] = [];
+  private inputSuppressedUntil = 0;
+  private lastAudioRecoveries = 0;
 
   constructor(private readonly pi: ExtensionAPI) {}
   get active(): boolean { return this.state.active; }
-  get viewState(): VoiceViewState { return { ...this.state, activity: this.feed.snapshot(48) }; }
+  get viewState(): VoiceViewState { return { ...this.state, activity: this.feed.snapshot(48), scratchpad: { ...this.state.scratchpad } }; }
 
   async start(ctx: ExtensionContext, providerOverride?: VoiceProviderName): Promise<void> {
     if (!ctx.hasUI || ctx.mode !== "tui") { ctx.ui.notify("Orb voice requires Pi's interactive TUI mode.", "warning"); return; }
@@ -45,17 +52,28 @@ export class VoiceController {
       this.log = await RunLog.create(this.config.logDir);
       this.feed.clear();
       this.feed.add("system", `Orb voice · ${this.config.provider}`);
-      this.state = { ...this.state, active: true, status: `starting · ${this.config.provider}`, source: "idle", inputTranscript: "", outputTranscript: "", inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0, piAgentStatus: this.piLog.agentStatus, error: undefined, activity: [] };
+      this.scratchpad = new Scratchpad(ctx.cwd, this.config.scratchpad, this.config.permissions.scratchpadOutsideProject);
+      this.piControl = new PiControl(this.pi, this.config.permissions);
+      this.interruptionTimes = [];
+      this.inputSuppressedUntil = 0;
+      this.lastAudioRecoveries = 0;
+      this.state = {
+        ...this.state, active: true, status: `starting · ${this.config.provider}`, source: "idle", inputTranscript: "", outputTranscript: "",
+        inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0,
+        piAgentStatus: this.piLog.agentStatus, scratchpad: this.scratchpad.snapshot(), error: undefined, activity: [],
+      };
       this.mountWidget(ctx);
       ctx.ui.setStatus("orb-voice", `orb · ${this.config.provider}`);
-      await this.log.info("Orb voice starting", { provider: this.config.provider, cwd: ctx.cwd, audio: "go-sidecar", configFiles: this.config.configFiles });
+      await this.log.info("Orb voice starting", { provider: this.config.provider, cwd: ctx.cwd, audio: "go-sidecar-buffered", configFiles: this.config.configFiles });
 
       this.provider = createProvider(this.config, this.log);
       this.inputAdapter = new PcmInputAdapter(this.provider.inputSampleRate);
-      this.audio = new GoAudioBridge(this.log);
+      this.audio = new GoAudioBridge(this.log, this.config.audio);
       this.audio.on("input", (pcm24k: Buffer) => {
-        try { for (const chunk of this.inputAdapter?.push(pcm24k) ?? []) this.provider?.sendAudio(chunk); }
-        catch (error) { this.reportError(asError(error), "microphone stream"); }
+        try {
+          if (Date.now() < this.inputSuppressedUntil) return;
+          for (const chunk of this.inputAdapter?.push(pcm24k) ?? []) this.provider?.sendAudio(chunk);
+        } catch (error) { this.reportError(asError(error), "microphone stream"); }
       });
       this.audio.on("levels", (levels: AudioLevels) => this.updateLevels(levels));
       this.audio.on("error", (error: Error) => this.reportError(error, "audio"));
@@ -84,7 +102,7 @@ export class VoiceController {
     const provider = this.config?.provider ?? this.providerOverride ?? process.env.ORB_PROVIDER ?? process.env.PI_VOICE_PROVIDER ?? "gemini";
     const configs = this.config?.configFiles.length ? `\nConfig: ${this.config.configFiles.join(", ")}` : "";
     ctx.ui.notify(this.state.active
-      ? `Orb voice active · ${provider} · Go audio · Pi ${this.state.piAgentStatus} · capture drops ${this.state.audioCaptureDrops}${configs}${this.log?.path ? `\nLog: ${this.log.path}` : ""}`
+      ? `Orb voice active · ${provider} · Go audio · Pi ${this.state.piAgentStatus} · audio recoveries ${this.state.audioRecoveries} · capture drops ${this.state.audioCaptureDrops}${configs}${this.log?.path ? `\nLog: ${this.log.path}` : ""}`
       : `Orb voice off · configured provider ${provider}${configs}`, "info");
   }
 
@@ -115,13 +133,55 @@ export class VoiceController {
     this.widget?.tick();
   }
 
+  recordUserBash(event: unknown, ctx?: ExtensionContext): void {
+    this.piLog.record("user_bash", event);
+    if (ctx) this.ctx = this.ctx ?? ctx;
+  }
+
+  async scratchpadCommand(action: "open" | "close" | "edit" | "load" | "save" | "dispatch", argument: string, ctx: ExtensionCommandContext): Promise<void> {
+    if (!this.config || !this.scratchpad) { ctx.ui.notify("Start Orb voice before using its scratchpad.", "warning"); return; }
+    switch (action) {
+      case "open": this.scratchpad.open(argument || undefined); break;
+      case "close": this.scratchpad.close(); break;
+      case "edit": {
+        const editor = ctx.ui.editor;
+        if (!editor) { ctx.ui.notify("This Pi UI does not expose the extension editor dialog.", "warning"); return; }
+        const next = await editor("Orb scratchpad", this.scratchpad.snapshot().content);
+        if (next !== undefined) this.scratchpad.replace(next);
+        break;
+      }
+      case "load":
+        if (!this.config.permissions.scratchpadRead) throw new Error("Permission disabled: permissions.scratchpadRead");
+        if (!argument.trim()) throw new Error("Usage: /voice scratchpad load <path>");
+        await this.scratchpad.load(argument); break;
+      case "save":
+        if (!this.config.permissions.scratchpadWrite) throw new Error("Permission disabled: permissions.scratchpadWrite");
+        await this.scratchpad.save(argument || undefined); break;
+      case "dispatch": {
+        const content = this.scratchpad.snapshot().content.trim();
+        if (!content) throw new Error("Scratchpad is empty.");
+        await this.runPiInstruction(content, "scratchpad");
+        break;
+      }
+    }
+    this.syncScratchpad();
+  }
+
   private createProviderSink() {
     return {
       onAudio: (pcm: Buffer) => this.audio?.enqueueOutput(pcm),
-      onAudioEnd: () => {},
-      onInterruption: (reason: string) => { this.audio?.clearOutput(); this.state.outputRms = 0; void this.log?.info("playback interrupted", { reason }); },
-      onInputTranscript: (text: string, final: boolean) => { this.state.inputTranscript = final ? "" : text; this.feed.transcript("you", text, final); this.widget?.tick(); },
-      onOutputTranscript: (text: string, final: boolean) => { this.state.outputTranscript = final ? "" : text; this.feed.transcript("voice", text, final); this.widget?.tick(); },
+      onAudioEnd: () => this.audio?.endOutput(),
+      onInterruption: (reason: string) => this.handleInterruption(reason),
+      onInputTranscript: (text: string, final: boolean) => {
+        this.state.inputTranscript = final ? "" : text;
+        this.feed.transcript("you", text, final);
+        this.widget?.tick();
+      },
+      onOutputTranscript: (text: string, final: boolean) => {
+        this.state.outputTranscript = final ? "" : text;
+        this.feed.transcript("voice", text, final);
+        this.widget?.tick();
+      },
       onStatus: (status: string) => { this.state.status = status; this.widget?.tick(); },
       onError: (error: Error) => this.reportError(error, "provider"),
       onSessionEnded: (reason: string) => { void this.handleFriendlySessionEnd(reason); },
@@ -129,34 +189,69 @@ export class VoiceController {
     };
   }
 
+  private handleInterruption(reason: string): void {
+    this.audio?.clearOutput();
+    this.state.outputRms = 0;
+    this.feed.finalize("voice");
+    const now = Date.now();
+    const config = this.config?.audio;
+    if (config) {
+      this.interruptionTimes = this.interruptionTimes.filter((time) => now - time <= config.interruptionStormWindowMs);
+      this.interruptionTimes.push(now);
+      if (this.interruptionTimes.length >= config.interruptionStormCount) {
+        // Repeated server interruptions in a very small window usually mean
+        // speaker->microphone feedback. Break the loop briefly, reset the
+        // resampler, and let the next turn start from clean audio boundaries.
+        this.inputSuppressedUntil = now + config.interruptionRecoveryMuteMs;
+        this.inputAdapter?.reset();
+        this.interruptionTimes = [];
+        this.feed.add("system", "Audio overlap detected · resynchronizing");
+        void this.log?.info("interruption storm recovery", { reason, mutedInputMs: config.interruptionRecoveryMuteMs });
+      }
+    }
+    void this.log?.info("playback interrupted", { reason });
+    this.widget?.tick();
+  }
+
   private async handleToolCall(call: ToolCall): Promise<Record<string, unknown>> {
     this.feed.add("voice-tool", `→ ${toolLabel(call)}`);
     this.widget?.tick();
     let result: Record<string, unknown>;
-    if (call.name === "run_pi_task") result = await this.toolRunPiTask(call);
-    else if (call.name === "read_pi_log") {
-      const count = bounded(call.arguments.max_entries, 14, 1, 40);
-      const snapshot = this.piLog.snapshot(this.ctx, count);
-      result = { ok: true, status: snapshot.status, revision: snapshot.revision, log: snapshot.text };
-    } else if (call.name === "observe_pi") result = await this.toolObservePi(call);
-    else result = { ok: false, error: `Unknown tool ${call.name}` };
+    try {
+      if (call.name === "run_pi_task") result = await this.toolRunPiTask(call);
+      else if (call.name === "read_pi_log") {
+        const count = bounded(call.arguments.max_entries, 14, 1, 40);
+        const snapshot = this.piLog.snapshot(this.ctx, count);
+        result = { ok: true, status: snapshot.status, revision: snapshot.revision, log: snapshot.text };
+      } else if (call.name === "observe_pi") result = await this.toolObservePi(call);
+      else if (call.name === "control_pi") result = await this.toolControlPi(call);
+      else if (call.name === "scratchpad") result = await this.toolScratchpad(call);
+      else result = { ok: false, error: `Unknown tool ${call.name}` };
+    } catch (error) {
+      result = { ok: false, error: asError(error).message };
+    }
     this.feed.add("voice-tool", `${result.ok === false ? "✗" : "✓"} ${toolResultLabel(call.name, result)}`);
     this.widget?.tick();
     return result;
   }
 
   private async toolRunPiTask(call: ToolCall): Promise<Record<string, unknown>> {
-    const ctx = this.ctx;
-    if (!ctx) return { ok: false, error: "Pi context unavailable" };
     const instruction = typeof call.arguments.instruction === "string" ? call.arguments.instruction.trim() : "";
     if (!instruction) return { ok: false, error: "instruction must be non-empty" };
     if (instruction.length > 200_000) return { ok: false, error: "instruction exceeds safety limit" };
     const summary = typeof call.arguments.summary === "string" ? call.arguments.summary.trim().slice(0, 160) : "";
+    const response = await this.runPiInstruction(instruction, summary);
+    return { ok: true, ...response, observation_revision: this.piLog.revision, ...(summary ? { summary } : {}) };
+  }
+
+  private async runPiInstruction(instruction: string, summary = ""): Promise<{ queued: boolean; status: string }> {
+    const ctx = this.ctx;
+    if (!ctx) throw new Error("Pi context unavailable");
     this.delegated.delegated();
     const { queued } = await sendPiTask(this.pi, ctx, instruction);
     this.state.status = queued ? "Pi task queued · listening" : "Pi starting · listening";
     await this.log?.info("voice delegated Pi task", { queued, summary, characters: instruction.length });
-    return { ok: true, queued, status: queued ? "queued" : "submitted", observation_revision: this.piLog.revision, ...(summary ? { summary } : {}) };
+    return { queued, status: queued ? "queued" : "submitted" };
   }
 
   private async toolObservePi(call: ToolCall): Promise<Record<string, unknown>> {
@@ -176,6 +271,58 @@ export class VoiceController {
     }
   }
 
+  private async toolControlPi(call: ToolCall): Promise<Record<string, unknown>> {
+    const ctx = this.ctx;
+    if (!ctx || !this.piControl) return { ok: false, error: "Pi control is unavailable" };
+    const action = String(call.arguments.action ?? "").trim();
+    const result = await this.piControl.execute(action, call.arguments, ctx);
+    if (action === "cancel" && result.ok) {
+      this.delegated.reset();
+      this.state.status = "Pi cancelled · listening";
+    }
+    await this.log?.info("voice controlled Pi", { action, ok: result.ok });
+    return result;
+  }
+
+  private async toolScratchpad(call: ToolCall): Promise<Record<string, unknown>> {
+    const pad = this.scratchpad;
+    const config = this.config;
+    if (!pad || !config) return { ok: false, error: "Scratchpad is unavailable" };
+    const action = String(call.arguments.action ?? "read");
+    let result: Record<string, unknown> = { ok: true };
+    switch (action) {
+      case "open": pad.open(stringArg(call, "title") || undefined); break;
+      case "close": pad.close(); break;
+      case "read": break;
+      case "replace": pad.replace(stringArg(call, "content"), stringArg(call, "title") || undefined); break;
+      case "append": pad.append(stringArg(call, "content")); break;
+      case "load":
+        if (!config.permissions.scratchpadRead) return { ok: false, error: "Permission disabled: permissions.scratchpadRead" };
+        await pad.load(stringArg(call, "path")); break;
+      case "save": {
+        if (!config.permissions.scratchpadWrite) return { ok: false, error: "Permission disabled: permissions.scratchpadWrite" };
+        const saved = await pad.save(stringArg(call, "path") || undefined);
+        result.path = saved.path; break;
+      }
+      case "dispatch": {
+        const content = stringArg(call, "content") || pad.snapshot().content;
+        if (!content.trim()) return { ok: false, error: "Scratchpad selection is empty" };
+        const delegated = await this.runPiInstruction(content.trim(), stringArg(call, "summary") || "scratchpad");
+        result = { ok: true, ...delegated, dispatched_characters: content.trim().length };
+        break;
+      }
+      default: return { ok: false, error: `Unknown scratchpad action: ${action}` };
+    }
+    this.syncScratchpad();
+    const snapshot = pad.snapshot();
+    return { ...result, scratchpad: { ...snapshot, content: snapshot.content.slice(0, 120_000) } };
+  }
+
+  private syncScratchpad(): void {
+    if (this.scratchpad) this.state.scratchpad = this.scratchpad.snapshot();
+    this.widget?.tick();
+  }
+
   private mountWidget(ctx: ExtensionContext): void {
     const config = this.config!;
     ctx.ui.setWidget("orb-voice", (tui, theme) => {
@@ -184,6 +331,7 @@ export class VoiceController {
         orbDensity: config.orbDensity,
         panelHeight: config.panelHeight,
         activityLines: config.activityLines,
+        scratchpadPanelHeight: config.scratchpad.panelHeight,
       });
       this.widget = widget;
       return widget;
@@ -203,6 +351,11 @@ export class VoiceController {
     this.state.outputRms = levels.outputRms;
     this.state.audioCaptureDrops = levels.captureDrops;
     this.state.audioQueuedMs = Math.round(levels.queuedBytes / (24_000 * 2) * 1000);
+    this.state.audioRecoveries = levels.recoveries;
+    if (levels.recoveries > this.lastAudioRecoveries) {
+      void this.log?.info("audio playout recovered from underrun", { recoveries: levels.recoveries, queuedMs: this.state.audioQueuedMs });
+      this.lastAudioRecoveries = levels.recoveries;
+    }
     this.state.source = levels.outputRms > levels.inputRms && levels.outputRms > 0.01 ? "agent" : levels.inputRms > 0.01 ? "user" : "idle";
   }
 
@@ -245,6 +398,13 @@ function toolLabel(call: ToolCall): string {
   if (call.name === "run_pi_task") return `delegate to Pi${typeof call.arguments.summary === "string" && call.arguments.summary.trim() ? ` · ${call.arguments.summary.trim().slice(0, 80)}` : ""}`;
   if (call.name === "read_pi_log") return "check Pi result";
   if (call.name === "observe_pi") return `wait for Pi · ${call.arguments.until ?? "settled"}`;
+  if (call.name === "control_pi") {
+    const action = String(call.arguments.action ?? "control");
+    if (action === "shell") return `shell · ${String(call.arguments.command ?? "").slice(0, 90)}`;
+    if (action === "set_model") return `model · ${String(call.arguments.model ?? "")}`;
+    return `Pi ${action.replaceAll("_", " ")}`;
+  }
+  if (call.name === "scratchpad") return `scratchpad · ${String(call.arguments.action ?? "read")}`;
   return call.name;
 }
 function toolResultLabel(name: string, result: Record<string, unknown>): string {
@@ -252,10 +412,13 @@ function toolResultLabel(name: string, result: Record<string, unknown>): string 
   if (name === "run_pi_task") return result.queued ? "Pi task queued" : "Pi task started";
   if (name === "observe_pi") return `Pi ${String(result.status ?? "observed")}`;
   if (name === "read_pi_log") return "Pi result checked";
+  if (name === "control_pi") return "Pi control applied";
+  if (name === "scratchpad") return "scratchpad updated";
   return name;
 }
 function bounded(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.floor(parsed))) : fallback;
 }
+function stringArg(call: ToolCall, key: string): string { return typeof call.arguments[key] === "string" ? String(call.arguments[key]) : ""; }
 function asError(value: unknown): Error { return value instanceof Error ? value : new Error(String(value)); }

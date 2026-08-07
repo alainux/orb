@@ -5,12 +5,15 @@ const required = [
   "dist/extensions/voice.js",
   "src/controller.ts",
   "src/activity.ts",
+  "src/pi-control.ts",
+  "src/scratchpad.ts",
   "src/delegation.ts",
   "src/audio/bridge.ts",
   "src/audio/helper-resolution.ts",
   "src/audio/input-adapter.ts",
   "audio-helper/cmd/pi-voice-audio/main.go",
   "audio-helper/internal/playback/queue.go",
+  "audio-helper/internal/playback/buffer.go",
   "src/providers/gemini.ts",
   "src/providers/openai.ts",
   "src/orb.ts",
@@ -36,7 +39,7 @@ const required = [
 for (const path of required) await access(new URL(`../${path}`, import.meta.url));
 
 if (manifest.name !== "@alainux/orb") throw new Error("package name must be @alainux/orb");
-if (manifest.version !== "0.5.3") throw new Error("unexpected release version");
+if (manifest.version !== "0.6.0") throw new Error("unexpected release version");
 if (!manifest.keywords?.includes("pi-package")) throw new Error("missing pi-package keyword");
 if (!manifest.pi?.extensions?.includes("./extensions/voice.ts")) throw new Error("Pi extension manifest incorrect");
 if (manifest.bin?.orb !== "./bin/orb.mjs") throw new Error("Orb CLI entry point missing");

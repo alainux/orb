@@ -14,10 +14,32 @@
     "promptFile": ".orb/voice-prompt.md"
   },
   "ui": {
-    "panelHeight": 14,
-    "activityLines": 10,
+    "panelHeight": 12,
+    "activityLines": 8,
     "orbAspect": 2.0,
-    "orbDensity": 1.10
+    "orbDensity": 1.3
+  },
+  "audio": {
+    "bufferMs": 140,
+    "maxBufferMs": 380,
+    "recoveryStepMs": 40,
+    "interruptionStormCount": 3,
+    "interruptionStormWindowMs": 1800,
+    "interruptionRecoveryMuteMs": 320
+  },
+  "permissions": {
+    "cancelPi": true,
+    "setModel": true,
+    "setThinking": true,
+    "setTools": true,
+    "shell": true,
+    "scratchpadRead": true,
+    "scratchpadWrite": true,
+    "scratchpadOutsideProject": false
+  },
+  "scratchpad": {
+    "panelHeight": 18,
+    "maxBytes": 524288
   },
   "session": {
     "geminiSessionResumption": true,

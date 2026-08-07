@@ -1,6 +1,6 @@
 # Orb architecture
 
-Orb is a Pi extension with a deliberately narrow boundary:
+Orb is a Pi extension with four deliberately separate runtime layers:
 
 ```text
 human voice
@@ -8,44 +8,54 @@ human voice
 realtime provider (Gemini Live / OpenAI Realtime)
    ↕
 Orb orchestration
-   ├─ run_pi_task → Pi coding agent
-   ├─ observe_pi  ← Pi lifecycle/session events
-   └─ read_pi_log ← visible Pi session state
+   ├─ run_pi_task  → Pi coding agent
+   ├─ control_pi   → cancel / model / thinking / shell
+   ├─ observe_pi   ← Pi lifecycle/session events
+   ├─ read_pi_log  ← visible Pi session state
+   └─ scratchpad   ↔ ephemeral collaborative document
    ↕
-Go audio sidecar → operating-system audio device
+Go audio sidecar → adaptive playout buffer → operating-system audio callback
 ```
 
 ## Design rules
 
-1. **Pi owns coding.** Orb never exposes shell, file-write, or arbitrary execution tools to the realtime voice model. It delegates complete tasks to Pi.
-2. **The Pi editor belongs to the human.** Orb does not mirror, watch, replace, or submit the native prompt editor. Manual Pi interaction remains independent.
-3. **Voice stays high-level.** The user can already see Pi's full TUI, so Orb focuses on intent, outcomes, blockers, and useful next moves.
-4. **Audio timing stays out of Node.** A small Go/miniaudio helper owns capture and playback at the hardware callback clock. TypeScript only transports PCM and provider events.
-5. **Visible state only.** `read_pi_log` and `observe_pi` consume visible Pi messages/tool results. Hidden model reasoning is not mirrored into Orb.
-6. **Provider lifecycle is isolated.** Gemini and OpenAI adapters live behind `VoiceProvider`; a new realtime provider should not require changes to the Pi or audio layers.
+1. **Pi owns coding work.** Normal repository exploration, editing, debugging and verification are delegated to Pi as complete tasks.
+2. **Orb can manage Pi.** A narrow permission-gated control layer can abort an active run, switch model/thinking, and execute direct shell commands when the user wants `!`-style control. These controls use Pi's extension APIs rather than screen scraping.
+3. **The Pi editor belongs to the human.** Orb does not mirror, replace, verify, or submit the native editor contents. Human keyboard interaction remains independent and authoritative.
+4. **Scratchpad is separate from Pi's editor.** Long-form material can be loaded, refined, saved, or selectively dispatched without competing with the normal Pi prompt.
+5. **Audio timing stays out of Node.** Go/miniaudio owns capture and playback at the hardware callback clock. Its adaptive jitter buffer can stop on starvation, rebuild a lead, and resume without skipping or accelerating PCM.
+6. **Visible Pi state only.** `read_pi_log` and `observe_pi` use visible Pi messages/tool results. Hidden model reasoning is never exposed.
+7. **Orb UI avoids duplication.** The right pane shows the human/Orb script and Orb-side actions; Pi's own tool/output log remains on Pi's normal screen.
+8. **Provider lifecycle is isolated.** Gemini and OpenAI live behind `VoiceProvider`; provider wire protocols do not leak into Pi or audio layers.
 
 ## Source map
 
-- `extensions/voice.ts` — Pi package entry point, `/voice`, shortcut, lifecycle events.
-- `src/controller.ts` — session lifecycle and tool orchestration.
+- `extensions/voice.ts` — Pi entry point, `/voice`, shortcut, Pi lifecycle/user-bash events.
+- `src/controller.ts` — session lifecycle and orchestration.
+- `src/pi-control.ts` — permission-gated Pi controls.
+- `src/pi-log.ts` — visible Pi state mirror used by the voice model.
+- `src/scratchpad.ts` — ephemeral long-form working document.
 - `src/providers/` — realtime provider adapters.
-- `src/pi-log.ts` — visible Pi state mirror used internally by the voice model.
-- `src/audio/` — Node ↔ Go audio protocol/bridge.
-- `audio-helper/` — hardware-timed Go audio process.
-- `src/orb.ts` — deterministic particle-wave field.
-- `src/widget.ts` — themed Pi TUI component.
+- `src/audio/` — TypeScript ↔ Go framing/bridge.
+- `audio-helper/` — hardware-timed capture/playback and adaptive playout buffer.
+- `src/orb.ts` — deterministic themed particle-wave field.
+- `src/widget.ts` — Pi-themed Orb/scratchpad UI.
 - `src/config.ts` — layered JSON/env configuration.
 
 ## Extending Orb
 
 ### Add a realtime provider
 
-Implement `VoiceProvider` in `src/providers/`, register it in `src/providers/index.ts`, and keep all provider-specific wire events inside that adapter.
+Implement `VoiceProvider` in `src/providers/` and register it in `src/providers/index.ts`. Keep provider-specific events inside that adapter.
 
-### Add a voice-side capability
+### Add Pi control
 
-Prefer a narrow tool that delegates to Pi or reads observable Pi state. Do not add arbitrary process execution to the realtime voice model.
+Prefer Pi's typed extension API over emulating slash commands or scraping terminal output. Add a dedicated permission to `OrbPermissions`, implement the action in `PiControl`, expose only the minimum tool schema, and add both allowed/denied tests.
 
-### Change the voice behavior
+### Add a scratchpad operation
 
-Use a prompt file instead of forking code. Set `voice.promptFile` in `.orb/config.json` or `ORB_PROMPT_FILE`.
+Keep the scratchpad deterministic and filesystem access explicit. Project-bound paths are the default; outside-project access requires its own permission.
+
+### Change voice behavior
+
+Use a prompt file instead of forking code. Configure `voice.promptFile` in `.orb/config.json` or set `ORB_PROMPT_FILE`.

@@ -47,13 +47,9 @@ if (!go) {
   process.exit(127);
 }
 const buildEnv = { ...process.env, CGO_ENABLED: "1" };
-const download = spawn(go, ["mod", "download"], { cwd: "audio-helper", stdio: "inherit", env: buildEnv });
-const downloadCode = await new Promise((resolve) => download.on("exit", (value) => resolve(value ?? 1)).on("error", () => resolve(127)));
-if (downloadCode !== 0) {
-  console.error(`could not download Go dependencies for the Orb audio helper using ${go}. Check network access or use a published prebuilt helper.`);
-  process.exit(downloadCode);
-}
-const child = spawn(go, ["build", "-trimpath", "-o", join("..", target), "./cmd/pi-voice-audio"], {
+// -mod=mod lets Go fetch and record the exact module dependencies declared in
+// audio-helper/go.mod. Contributors should never need a separate `go get`.
+const child = spawn(go, ["build", "-mod=mod", "-trimpath", "-o", join("..", target), "./cmd/pi-voice-audio"], {
   cwd: "audio-helper",
   stdio: "inherit",
   env: buildEnv,
@@ -65,6 +61,7 @@ if (code !== 0) {
 }
 if (process.platform !== "win32") await chmod(target, 0o755);
 console.log(`built ${target}`);
+console.log("Go module dependencies are resolved automatically; no manual go get step is required.");
 
 async function findGo() {
   const candidates = [];

@@ -3,6 +3,32 @@ import type { ActivityEntry } from "./activity.js";
 export type VoiceProviderName = "gemini" | "openai";
 export type VoiceSource = "idle" | "user" | "agent";
 export type PiAgentStatus = "idle" | "working";
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface OrbPermissions {
+  cancelPi: boolean;
+  setModel: boolean;
+  setThinking: boolean;
+  setTools: boolean;
+  shell: boolean;
+  scratchpadRead: boolean;
+  scratchpadWrite: boolean;
+  scratchpadOutsideProject: boolean;
+}
+
+export interface AudioConfig {
+  bufferMs: number;
+  maxBufferMs: number;
+  recoveryStepMs: number;
+  interruptionStormCount: number;
+  interruptionStormWindowMs: number;
+  interruptionRecoveryMuteMs: number;
+}
+
+export interface ScratchpadConfig {
+  panelHeight: number;
+  maxBytes: number;
+}
 
 export interface VoiceConfig {
   provider: VoiceProviderName;
@@ -22,6 +48,9 @@ export interface VoiceConfig {
   geminiContextCompression: boolean;
   geminiCompressionTriggerTokens: number;
   geminiCompressionTargetTokens: number;
+  permissions: OrbPermissions;
+  audio: AudioConfig;
+  scratchpad: ScratchpadConfig;
 }
 
 export interface VoiceSessionContext {
@@ -32,7 +61,7 @@ export interface VoiceSessionContext {
 
 export interface ToolCall {
   id: string;
-  name: "run_pi_task" | "read_pi_log" | "observe_pi" | string;
+  name: "run_pi_task" | "read_pi_log" | "observe_pi" | "control_pi" | "scratchpad" | string;
   arguments: Record<string, unknown>;
 }
 
@@ -57,6 +86,13 @@ export interface VoiceProvider {
   close(): Promise<void>;
 }
 
+export interface ScratchpadViewState {
+  open: boolean;
+  title: string;
+  content: string;
+  dirty: boolean;
+}
+
 export interface VoiceViewState {
   active: boolean;
   status: string;
@@ -67,7 +103,9 @@ export interface VoiceViewState {
   outputRms: number;
   audioCaptureDrops: number;
   audioQueuedMs: number;
+  audioRecoveries: number;
   piAgentStatus: PiAgentStatus;
   activity: ActivityEntry[];
+  scratchpad: ScratchpadViewState;
   error: string | undefined;
 }

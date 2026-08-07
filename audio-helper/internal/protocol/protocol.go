@@ -13,6 +13,7 @@ const (
 	ClearPlayback Type = 0x02
 	SetMuted      Type = 0x03
 	Shutdown      Type = 0x04
+	PlaybackEnd   Type = 0x05
 
 	Capture Type = 0x10
 	Levels  Type = 0x11

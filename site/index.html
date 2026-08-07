@@ -2,10 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f7f7fa">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Orb — conversational voice for Pi</title>
-  <meta name="description" content="Talk naturally to your Pi coding agent. Orb delegates work, waits for results, and keeps you oriented without narrating the screen you can already see.">
+  <meta name="description" content="A calm realtime voice layer for the Pi coding harness. Talk through coding work, redirect Pi, and stay oriented while it works.">
   <meta property="og:title" content="Orb — conversational voice for Pi">
   <meta property="og:description" content="A calm realtime voice layer for the Pi coding harness.">
   <meta property="og:image" content="assets/orb-banner.png">
@@ -15,47 +14,59 @@
 <body>
   <header class="nav wrap">
     <a class="brand" href="#"><img src="assets/orb-logo.svg" alt=""><span>Orb</span></a>
-    <nav><a href="#how">How it works</a><a href="#install">Install</a><a href="https://github.com/alainux/orb">GitHub</a></nav>
+    <nav><a href="#how">How it works</a><a href="#scratchpad">Scratchpad</a><a href="#install">Install</a><a href="https://github.com/alainux/orb">GitHub</a></nav>
   </header>
 
   <main>
     <section class="hero wrap">
       <div class="hero-copy">
         <p class="eyebrow">Voice for the Pi coding harness</p>
-        <h1>Talk to your<br>coding agent.</h1>
-        <p class="lede">Orb turns a spoken goal into useful Pi work, waits while the agent handles the details, and gives you the high-level update when it matters.</p>
+        <h1>Talk through<br>the work.</h1>
+        <p class="lede">Orb is a conversational layer for Pi. Say what you want at a high level; it delegates, redirects, waits, and keeps you oriented while Pi does the coding.</p>
         <div class="actions"><a class="button primary" href="#install">Get Orb</a><a class="button" href="https://github.com/alainux/orb">View source</a></div>
-        <p class="quiet">Full duplex · Gemini Live or OpenAI Realtime · hardware-timed Go audio</p>
+        <p class="quiet">Full duplex · Gemini Live or OpenAI Realtime · hardware-timed audio</p>
       </div>
-      <div class="hero-visual"><img src="assets/orb-terminal.png" alt="Orb voice panel running above Pi"></div>
+      <div class="hero-visual"><img src="assets/orb-terminal.png" alt="Actual Orb voice panel running above the Pi coding harness"></div>
     </section>
 
     <section class="statement wrap">
-      <p>Pi already knows how to read, edit, run tests, and work through a repository.</p>
-      <h2>Orb helps you <em>direct the work</em> without turning the conversation into another terminal transcript.</h2>
+      <p>Pi already knows how to inspect a repository, edit code, run commands, test changes, and explain results.</p>
+      <h2>Orb gives you a <em>conversation</em> for directing that work.</h2>
     </section>
 
     <section id="how" class="how wrap">
-      <article><span>01</span><h3>Say what you need</h3><p>“Explore the project.” “Figure out why this test fails.” “Write the migration spec.” Broad intent is enough.</p></article>
-      <article><span>02</span><h3>Orb delegates</h3><p>It gives Pi a complete engineering task instead of asking you to approve routine steps one by one.</p></article>
-      <article><span>03</span><h3>Pi works</h3><p>You keep the normal Pi screen. Type commands yourself, inspect tools, or simply let the task run.</p></article>
-      <article><span>04</span><h3>Stay oriented</h3><p>Orb waits, observes visible results, and comes back with the outcome, blocker, or next meaningful decision.</p></article>
+      <article><span>01</span><h3>Say the goal</h3><p>“Explore the project.” “Fix this test.” “Use Sonnet and focus on the parser.” Broad intent is enough.</p></article>
+      <article><span>02</span><h3>Orb drives Pi</h3><p>It delegates complete tasks, can cancel a wrong turn, switch model or thinking level, and run direct shell controls when permitted.</p></article>
+      <article><span>03</span><h3>Pi stays visible</h3><p>The normal Pi screen remains yours. Type commands yourself, inspect tool output, or let the task run while you keep talking.</p></article>
+      <article><span>04</span><h3>Stay oriented</h3><p>Orb waits instead of narrating. It comes back for outcomes, blockers, and decisions that actually need you.</p></article>
     </section>
 
     <section class="conversation wrap">
       <div class="quote"><span>You</span><p>Can you explore the project?</p></div>
       <div class="quote orb"><span>Orb</span><p>Sure — one sec.</p></div>
-      <div class="delegate">delegates a full repository exploration to Pi · waits until settled</div>
-      <div class="quote orb"><span>Orb</span><p>It’s a small TypeScript Pi package with a Go audio sidecar. The build is healthy; release packaging is the main thing I’d tighten next.</p></div>
+      <div class="delegate">delegates a repository exploration · Pi works normally below</div>
+      <div class="quote"><span>You</span><p>Wait — use Sonnet and focus on the failing tests instead.</p></div>
+      <div class="quote orb"><span>Orb</span><p>Got it.</p></div>
+      <div class="delegate">cancels · switches model · delegates the new task</div>
     </section>
 
-    <section class="details wrap">
-      <div><p class="eyebrow">Quiet by design</p><h2>Less narration.<br>More direction.</h2></div>
+    <section id="scratchpad" class="details wrap">
+      <div><p class="eyebrow">When a sentence is not enough</p><h2>A scratchpad<br>for longer thoughts.</h2></div>
       <div class="detail-list">
-        <p><strong>Native Pi stays visible.</strong> Orb does not duplicate Pi's own tool log or take over its editor.</p>
-        <p><strong>Configurable behavior.</strong> Model, voice, UI density, panel size, session settings, and the complete voice-agent prompt can live in config files.</p>
-        <p><strong>Long-session aware.</strong> Gemini connection rotation uses session resumption and context compression; failed rollover closes gracefully instead of looking like a crash.</p>
-        <p><strong>Developer friendly.</strong> Provider adapters, Pi orchestration, audio, and rendering are separate layers with deterministic tests.</p>
+        <p><strong>Collect before sending.</strong> Build a long prompt, TODO list, spec, review notes, or migration plan together without occupying Pi's native editor.</p>
+        <p><strong>Load and save files.</strong> Pull a project document into the scratchpad, refine it by voice or keyboard, then save it back. Project-scoped permissions are the default.</p>
+        <p><strong>Dispatch exactly what matters.</strong> Send the whole document or a selected subset such as “the first three TODO items” directly to Pi.</p>
+        <p><strong>Quiet by design.</strong> The Orb panel shows your turns, Orb's turns, and Orb-side actions. Pi's own log remains on the Pi screen where it already belongs.</p>
+      </div>
+    </section>
+
+    <section class="details wrap subtle">
+      <div><p class="eyebrow">Realtime without stealing the terminal</p><h2>Built for long<br>coding sessions.</h2></div>
+      <div class="detail-list">
+        <p><strong>Hardware-timed audio.</strong> A small Go sidecar owns the device callback and an adaptive jitter buffer, independent of Pi's Node event loop.</p>
+        <p><strong>Recoverable playback.</strong> If provider delivery starves briefly, Orb rebuilds a lead and resumes instead of remaining permanently choppy.</p>
+        <p><strong>Configurable control.</strong> Cancellation, model changes, thinking, shell access, scratchpad reads/writes, UI, audio, providers, and the complete voice prompt are configurable.</p>
+        <p><strong>Open source.</strong> Provider, Pi-control, scratchpad, audio, and rendering layers are separate and tested so contributors can extend them independently.</p>
       </div>
     </section>
 
@@ -65,8 +76,9 @@
         <article><h3>Pi extension</h3><pre><code>pi install https://github.com/alainux/orb
 pi
 /voice</code></pre></article>
-        <article><h3>Convenience launcher</h3><pre><code>curl -fsSL https://raw.githubusercontent.com/alainux/orb/main/scripts/install.sh | sh
-orb</code></pre><p>Windows: <code>iwr https://raw.githubusercontent.com/alainux/orb/main/scripts/install.ps1 -UseBasicParsing | iex</code></p></article>
+        <article><h3>Convenience launcher</h3><p class="platform">macOS / Linux</p><pre><code>curl -fsSL https://raw.githubusercontent.com/alainux/orb/main/scripts/install.sh | sh
+orb</code></pre><p class="platform">Windows PowerShell</p><pre><code>iwr https://raw.githubusercontent.com/alainux/orb/main/scripts/install.ps1 -UseBasicParsing | iex
+orb</code></pre></article>
       </div>
     </section>
   </main>
