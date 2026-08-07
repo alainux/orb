@@ -118,9 +118,7 @@ export class VoiceWidget implements Component {
     const lines=[title+this.theme.fg("dim","─".repeat(Math.max(0,width-stripAnsi(title).length)))];
     const body=Math.max(left.length,rightLines.length);
     for(let i=0;i<body;i++)lines.push(`${padVisible(left[i]??"",leftWidth)}${" ".repeat(gap)}${rightLines[i]??""}`);
-    const sourceLabel=this.frame.source==="agent"?"ORB":this.frame.source.toUpperCase();
-    const meters=`YOU ${bar(this.frame.userEnergy,8)}  ORB ${bar(this.frame.agentEnergy,8)}  ${sourceLabel}  buffer ${state.audioQueuedMs}ms · recoveries ${state.audioRecoveries}`;
-    lines.push(this.theme.fg("dim",truncatePlain(meters,width)));
+    lines.push(this.renderMeters(state,width));
     lines.push(this.theme.fg("dim","─".repeat(width)));
     return lines;
   }
@@ -267,6 +265,35 @@ export class VoiceWidget implements Component {
     c=mix(c,WHITE,hot*(0.35+0.45*transient));
     return this.palette.color(c,glyph);
   }
+
+  /**
+   * Footer meters line: the active dots are colored so the live input pops —
+   * the YOU (microphone) meter runs the primary-accent half of the theme
+   * ramp, the ORB (voice) meter the secondary violet half, and each dot is a
+   * shade brighter than the last as the bar fills. Inactive dots stay dim.
+   * If the stats don't fit the width, falls back to the plain dim line.
+   */
+  private renderMeters(state:VoiceViewState,width:number):string{
+    const f=this.frame;
+    const sourceLabel=f.source==="agent"?"ORB":f.source.toUpperCase();
+    const stats=`${sourceLabel}  buffer ${state.audioQueuedMs}ms · recoveries ${state.audioRecoveries}`;
+    const plain=`YOU ${barText(f.userEnergy,8)}  ORB ${barText(f.agentEnergy,8)}  ${stats}`;
+    if(plain.length>width) return this.theme.fg("dim",truncatePlain(plain,width));
+    return `YOU ${this.meterBar(f.userEnergy,8,0.2,0.45)}  ORB ${this.meterBar(f.agentEnergy,8,0.6,0.98)}  ${this.theme.fg("dim",stats)}`;
+  }
+
+  /** One meter's dots on the theme ramp from `lo` to `hi` (sqrt-scaled):
+   * filled dots are colored, each a shade brighter than the last; empty dots
+   * are dim. */
+  private meterBar(value:number,count:number,lo:number,hi:number):string{
+    const filled=Math.round(Math.sqrt(Math.max(0,Math.min(1,value)))*count);
+    let out="";
+    for(let i=0;i<filled;i++){
+      const t=lo+(hi-lo)*(filled>1?i/(filled-1):0);
+      out+=this.palette.color(this.palette.rampAt(t),"•");
+    }
+    return out+this.theme.fg("dim","·".repeat(count-filled));
+  }
 }
 
 function clamp01(value:number):number{return Math.max(0,Math.min(1,value))}
@@ -301,11 +328,13 @@ function styleFor(kind:ActivityEntry["kind"]):{label:string;color:OrbThemeColor}
 }
 function wrap(text:string,width:number):string[]{const words=text.replace(/\s+/g," ").trim().split(" ").filter(Boolean);if(!words.length)return[""];const lines:string[]=[];let cur="";for(const word of words){const next=cur?`${cur} ${word}`:word;if(next.length<=width)cur=next;else{if(cur)lines.push(cur);cur=word.length>width?word.slice(0,width):word;}}if(cur)lines.push(cur);return lines;}
 function wrapPreservingLines(text:string,width:number):string[]{const out:string[]=[];for(const raw of text.split(/\r?\n/)){if(!raw){out.push("");continue;}const indent=raw.match(/^\s*/)?.[0]??"";const body=raw.slice(indent.length);const wrapped=wrap(body,Math.max(8,width-Math.min(indent.length,8)));for(const [index,line] of wrapped.entries())out.push(`${index===0?indent.slice(0,8):"  "}${line}`.slice(0,width));}return out;}
-function bar(value:number,count:number):string{
+function barText(value:number,count:number):string{
   // Perceptual (sqrt) scale for the audio meters: loudness is roughly
   // logarithmic, so a linear bar would barely light up during quiet speech.
   // The sqrt curve boosts low levels — the mic dot starts moving from the
   // first syllable instead of sitting empty until the input gets loud.
+  // Plain variant: used to measure the line width before the colored dots
+  // are drawn by meterBar().
   const boosted=Math.sqrt(Math.max(0,Math.min(1,value)));
   const filled=Math.round(boosted*count);
   return"•".repeat(filled)+"·".repeat(count-filled);
