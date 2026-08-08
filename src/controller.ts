@@ -4,7 +4,7 @@ import { AgentToolbox } from "./agent-tools.js";
 import { GoAudioBridge, type AudioLevels } from "./audio/bridge.js";
 import { PcmInputAdapter } from "./audio/input-adapter.js";
 import { PlayoutMonitor } from "./audio/playout.js";
-import { loadVoiceConfig } from "./config.js";
+import { loadVoiceConfig, persistThinkingDisplay } from "./config.js";
 import { DelegatedWorkTracker, sendPiTask } from "./delegation.js";
 import { RunLog } from "./log.js";
 import { PiControl } from "./pi-control.js";
@@ -195,6 +195,13 @@ export class VoiceController {
     ctx?.ui.notify?.(`Orb thinking display: ${label}.`, "info");
     void this.log?.info("thinking-display", { mode });
     this.widget?.tick();
+    // Durably mirror the preference in the user's .orb/config.json so it
+    // survives a restart. Non-blocking; a failure is logged only.
+    const cwd = ctx?.cwd ?? this.ctx?.cwd ?? process.cwd();
+    void persistThinkingDisplay(mode, cwd).then(
+      (file) => { void this.log?.info("thinking-display-persisted", { mode, file }); },
+      (error: unknown) => { this.log?.error("thinking-display-persist-failed", error); },
+    );
   }
 
   /** Cycle the reasoning-display preference: minimized → full → hidden → … */
