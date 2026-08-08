@@ -2,6 +2,7 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ActivityEntry } from "./activity.js";
 import { OrbMotion, OrbRenderer, rasterAt, type OrbCell, type OrbFrame, type OrbMode } from "./orb.js";
 import { createOrbPalette, mix, type OrbPalette, type OrbThemeColor, type Rgb, type ThemeLike } from "./theme.js";
+import { feedRowStyle, clipThoughtForDisplay, wrapFeed, wrapPlain } from "./feed-text.js";
 import type { VoiceViewState } from "./types.js";
 
 interface WidgetOptions { orbAspect:number; orbDensity:number; orbReactivity:number; orbBraille:boolean; panelHeight:number; activityLines:number; scratchpadPanelHeight:number }
@@ -104,7 +105,7 @@ export class VoiceWidget implements Component {
       }
       left.push(line);
     }
-    const rightLines=this.renderActivity(state.activity,rightWidth,Math.min(bodyHeight,this.options.activityLines));
+    const rightLines=this.renderActivity(state.activity,rightWidth,Math.min(bodyHeight,this.options.activityLines),state);
     // Title bar: "ORB" in the theme's primary accent, the live status
     // indicator (listening / thinking / waiting for Pi…) in the secondary
     // violet accent, and the Pi agent indicator in a theme-blue token.
@@ -119,40 +120,51 @@ export class VoiceWidget implements Component {
     return lines;
   }
 
-  private renderActivity(entries:ActivityEntry[],width:number,maxLines:number):string[] {
+  private renderActivity(entries:ActivityEntry[],width:number,maxLines:number,state:VoiceViewState):string[] {
     const rendered:string[]=[];
     const recent=entries.slice(-20);
     recent.forEach((entry,entryIndex)=>{
-      const {label,color}=styleFor(entry.kind);
-      const prefix=`${label} `;
-      const chunks=wrap(entry.text,Math.max(8,width-prefix.length));
+      // Reasoning rows carry the full thought text; the active display mode
+      // decides whether they are hidden, shown as a clipped summary, or full.
+      let rowText = entry.text;
+      if (entry.kind === "thinking") {
+        rowText = clipThoughtForDisplay(entry.text, state.thinkingDisplay) ?? "";
+        if (!rowText) return; // hidden mode — drop the row entirely
+      }
+      const style=feedRowStyle(entry.kind);
+      const prefix=`${style.label} `;
+      const wrapW=Math.max(8,width-prefix.length);
+      // Body: inline Markdown for prose rows (you/voice/thinking/…); plain
+      // text for tool rows that keep their ✓/✗ outcome marks.
+      const chunks=style.markdown
+        ? wrapFeed(rowText,this.theme,style,wrapW)
+        : wrapPlain(rowText,wrapW).map((c)=>this.colorToolText(c));
       chunks.forEach((chunk,index)=>{
-        const text=this.colorActivityText(entry.kind,chunk);
         rendered.push(index===0
-          ? this.theme.fg(color,prefix)+text
-          : this.theme.fg("dim"," ".repeat(prefix.length))+text);
+          ? this.theme.fg(style.labelColor,prefix)+chunk
+          : this.theme.fg("dim"," ".repeat(prefix.length))+chunk);
       });
       if(entryIndex<recent.length-1) rendered.push("");
     });
-    if(!rendered.length)rendered.push(this.theme.fg("dim","Listening…"));
+    // Single, clean status: the feed placeholder mirrors the title so a
+    // "live · listening" title is never paired with a contradicting feed row.
+    if(!rendered.length)rendered.push(this.theme.fg("dim",state.thinking?"Thinking…":"Listening…"));
     return rendered.slice(-maxLines);
   }
 
   /**
-   * Color an activity text chunk with the active theme. Tool rows (Pi's
-   * output) use Pi's tool-output token so they match how Pi itself renders
-   * tools, and leading ✓/✗ outcome marks get the theme's success/error colors.
+   * Render a tool row. Pi style: tool title in the marker color, output with
+   * the tool-output token, and leading ✓/✗ outcome marks get the theme's
+   * success/error colors. This stays a plain (non-Markdown) path so outcome
+   * markers keep their exact visual form.
    */
-  private colorActivityText(kind:ActivityEntry["kind"],text:string):string {
-    const bodyColor:OrbThemeColor=kind==="voice-tool"?"toolOutput":kind==="error"?"error":"muted";
+  private colorToolText(text:string):string {
     const mark=text.match(/^([✓✗])\s*(.*)$/);
     if(mark&&mark[1]){
       const body=mark[2]??"";
-      // Keep the ✓/✗ colorized as its own token but give it a breathing gap
-      // from the following text instead of concatenating them flush.
-      return this.theme.fg(mark[1]==="✓"?"success":"error",mark[1])+this.theme.fg(bodyColor,body?` ${body}`:"");
+      return this.theme.fg(mark[1]==="✓"?"success":"error",mark[1])+this.theme.fg("toolOutput",body?` ${body}`:"");
     }
-    return this.theme.fg(bodyColor,text);
+    return this.theme.fg("toolOutput",text);
   }
 
   private renderCompact(width:number,state:VoiceViewState):string[] {
@@ -169,8 +181,12 @@ export class VoiceWidget implements Component {
     }
     const last=state.activity.at(-1);
     if(last){
-      const {label,color}=styleFor(last.kind);
-      lines.push(this.theme.fg(color,label+" ")+this.colorActivityText(last.kind,truncatePlain(last.text,Math.max(8,width-label.length-1))));
+      const style=feedRowStyle(last.kind);
+      const text=truncatePlain(last.text,Math.max(8,width-style.label.length-1));
+      const body=style.markdown
+        ? (wrapFeed(text,this.theme,style,Math.max(8,width-style.label.length-1))[0]??"")
+        : this.colorToolText(text);
+      lines.push(this.theme.fg(style.labelColor,style.label+" ")+body);
     }
     return lines;
   }
@@ -278,17 +294,6 @@ export function statusForDisplay(status: string, muted: boolean, thinking = fals
   return muted ? status.replace(/\blistening\b/g, "muted") : status;
 }
 
-function styleFor(kind:ActivityEntry["kind"]):{label:string;color:OrbThemeColor}{
-  switch(kind){
-    case"you":return{label:"YOU",color:"accent"};               // user speech → primary accent
-    case"voice":return{label:"ORB",color:"customMessageLabel"}; // orb speech → secondary violet
-    case"voice-tool":return{label:"ORB›",color:"toolTitle"};    // Pi tool output → theme tool title
-    case"error":return{label:"ERR",color:"error"};
-    case"system":return{label:"·",color:"thinkingText"};
-    default:return{label:"·",color:"dim"};
-  }
-}
-function wrap(text:string,width:number):string[]{const words=text.replace(/\s+/g," ").trim().split(" ").filter(Boolean);if(!words.length)return[""];const lines:string[]=[];let cur="";for(const word of words){const next=cur?`${cur} ${word}`:word;if(next.length<=width)cur=next;else{if(cur)lines.push(cur);cur=word.length>width?word.slice(0,width):word;}}if(cur)lines.push(cur);return lines;}
 function barText(value:number,count:number):string{
   // Perceptual (sqrt) scale for the audio meters: loudness is roughly
   // logarithmic, so a linear bar would barely light up during quiet speech.

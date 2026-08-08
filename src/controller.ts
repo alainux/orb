@@ -12,11 +12,20 @@ import { PiLogMirror } from "./pi-log.js";
 import { createProvider } from "./providers/index.js";
 import { Scratchpad } from "./scratchpad.js";
 import { ScratchpadViewer } from "./scratchpad-view.js";
-import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderName, VoiceViewState } from "./types.js";
+import { ThinkingTracker, thinkingLabel, createFileLog } from "./thinking-timing.js";
+import type { ThinkingDisplay, ToolCall, VoiceConfig, VoiceProvider, VoiceProviderName, VoiceViewState } from "./types.js";
 import { auditionLine, nextVoice, resolveVoice, voiceOptions } from "./voices.js";
 import { VoiceWidget } from "./widget.js";
 
 export class VoiceController {
+  /** Provider-agnostic "Thinking…" duration tracer (shared by every voice model). */
+  private thinkingTracker: ThinkingTracker | undefined;
+  /** Epoch ms the current thinking window opened (for the feed's held duration). */
+  private thinkingStartedAt = 0;
+  /** True while a "Thinking…" feed row is open, so it can be closed with its paired thought row. */
+  private thinkingRowOpen = false;
+  /** Full reasoning text surfaced by the model this window (Gemini thought parts). */
+  private thinkingContent = "";
   private readonly feed = new ActivityFeed((turn) => {
     // Durably record each committed spoken turn. Only the finalized visible
     // text is emitted here (partials and replays are suppressed), so hidden
@@ -38,7 +47,7 @@ export class VoiceController {
     void this.log?.info("pi-activity", event);
   });
   private state: VoiceViewState = {
-    active: false, status: "off", source: "idle", muted: false, inputTranscript: "", outputTranscript: "", thinking: false,
+    active: false, status: "off", source: "idle", muted: false, inputTranscript: "", outputTranscript: "", thinking: false, thinkingDisplay: "minimized",
     inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0, audioPhase: "healthy",
     piAgentStatus: "idle", activity: [], scratchpad: { open: false, title: "Scratchpad", content: "", dirty: false }, error: undefined,
   };
@@ -81,6 +90,7 @@ export class VoiceController {
     try {
       this.config = await loadVoiceConfig(this.providerOverride, ctx.cwd);
       this.log = await RunLog.create(this.config.logDir);
+      this.thinkingTracker = new ThinkingTracker(thinkingLabel(this.config.provider, this.config.model), { log: createFileLog(this.config.logDir) });
       this.feed.clear();
       this.feed.add("system", `Orb voice · ${this.config.provider}`);
       this.scratchpad = new Scratchpad(ctx.cwd, this.config.scratchpad, this.config.permissions.scratchpadOutsideProject);
@@ -93,6 +103,7 @@ export class VoiceController {
       this.playoutMonitor.reset();
       this.state = {
         ...this.state, active: true, status: `starting · ${this.config.provider}`, source: "idle", muted: false, inputTranscript: "", outputTranscript: "",
+        thinkingDisplay: this.config.thinkingDisplay,
         inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0, audioPhase: "healthy",
         piAgentStatus: this.piLog.agentStatus, scratchpad: this.scratchpad.snapshot(), error: undefined, activity: [],
       };
@@ -171,8 +182,34 @@ export class VoiceController {
     this.widget?.tick();
   }
 
-  /** Switch the voice live: /voice voice one|list (no name cycles to the next). */
-  setVoice(voice: string | undefined, ctx: ExtensionContext): void {
+  /**
+   * Set the reasoning-display preference for the feed (full / minimized /
+   * hidden). Applied immediately: the widget re-derives every thinking row from
+   * the stored full text, so existing rows hide/expand without a reload.
+   */
+  setThinkingDisplay(mode: ThinkingDisplay, ctx?: ExtensionContext): void {
+    this.state.thinkingDisplay = mode;
+    if (this.config) this.config.thinkingDisplay = mode;
+    const label = mode === "full" ? "full thoughts" : mode === "hidden" ? "thinking hidden" : "thinking minimized";
+    this.feed.add("system", `Thinking display: ${label}`);
+    ctx?.ui.notify?.(`Orb thinking display: ${label}.`, "info");
+    void this.log?.info("thinking-display", { mode });
+    this.widget?.tick();
+  }
+
+  /** Cycle the reasoning-display preference: minimized → full → hidden → … */
+  cycleThinkingDisplay(ctx: ExtensionContext): void {
+    const order: ThinkingDisplay[] = ["minimized", "full", "hidden"];
+    const next = order[(order.indexOf(this.state.thinkingDisplay) + 1) % order.length] ?? "minimized";
+    this.setThinkingDisplay(next, ctx);
+  }
+
+  /** The current reasoning-display preference (falls back to configured). */
+  private displayMode(): ThinkingDisplay {
+    return this.state.thinkingDisplay || this.config?.thinkingDisplay || "minimized";
+  }
+
+  /** Switch the voice live: /voice voice one|list (no name cycles to the next). */  setVoice(voice: string | undefined, ctx: ExtensionContext): void {
     if (!this.state.active || !this.provider || !this.config) {
       ctx.ui.notify("Start Orb voice before switching its voice.", "warning");
       return;
@@ -341,7 +378,37 @@ export class VoiceController {
         this.widget?.tick();
       },
       onStatus: (status: string) => { this.state.status = status; this.widget?.tick(); },
-      onThinking: (thinking: boolean) => { this.state.thinking = thinking; this.widget?.tick(); },
+      onThinking: (thinking: boolean) => {
+        this.thinkingTracker?.observe(thinking);
+        this.state.thinking = thinking;
+        if (thinking) {
+          this.thinkingStartedAt = Date.now();
+          // Surface the pending indicator as a real row only when the display
+          // preference is not "hidden" and no conversational turn is streaming.
+          // Otherwise this add() would finalize the live partial and split one
+          // spoken sentence into several rows (the reported “Morning! Clean” …
+          // “Thought for…” … “Morning! Clean, what's next?” torn-turn). While a
+          // turn is already being spoken the indicator stays ephemeral (title).
+          this.thinkingRowOpen = this.displayMode() !== "hidden" && !this.feed.isLive();
+          if (this.thinkingRowOpen) this.feed.addNonBoundary("thinking", "Thinking…");
+        } else {
+          const held = this.thinkingStartedAt ? Date.now() - this.thinkingStartedAt : 0;
+          this.thinkingStartedAt = 0;
+          const content = this.thinkingContent.trim();
+          this.thinkingContent = "";
+          // Close the pair with the non-boundary push so it never finalizes a
+          // turn that has started streaming (start guard). We always want to
+          // close an open “Thinking…” row rather than leave it dangling. The
+          // row carries the FULL thought; minimal/hidden are applied when the
+          // widget renders, so toggling the preference updates every row at once.
+          if (this.thinkingRowOpen) {
+            this.feed.addNonBoundary("thinking", `Thought for ${held}ms${content ? ` · ${content}` : ""}`);
+          }
+          this.thinkingRowOpen = false;
+        }
+        this.widget?.tick();
+      },
+      onThinkingContent: (text: string) => { this.thinkingContent = text; },
       onError: (error: Error) => this.reportError(error, "provider"),
       onSessionEnded: (reason: string) => { void this.handleFriendlySessionEnd(reason).catch((error) => this.reportError(asError(error), "session end")); },
       onToolCall: (call: ToolCall) => this.handleToolCall(call),
@@ -703,6 +770,7 @@ export class VoiceController {
   }
 }
 
+/** Collapse, trim leading dangles, then cap a reasoning snippet for the feed. */
 function toolLabel(call: ToolCall): string {
   if (call.name === "run_pi_task") return `delegate to Pi${typeof call.arguments.summary === "string" && call.arguments.summary.trim() ? ` · ${call.arguments.summary.trim().slice(0, 80)}` : ""}`;
   if (call.name === "read_pi_log") return "check Pi result";

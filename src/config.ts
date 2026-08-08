@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { composeSystemPrompt } from "./policy.js";
-import type { VoiceConfig, VoiceProviderName } from "./types.js";
+import type { VoiceConfig, VoiceProviderName, ThinkingDisplay } from "./types.js";
 
 type JsonObject = Record<string, any>;
 
@@ -26,6 +26,14 @@ function boolValue(value: unknown, fallback: boolean, label: string): boolean {
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   throw new Error(`${label} must be true or false`);
+}
+export function thinkingDisplayValue(value: unknown, fallback: ThinkingDisplay, label: string): ThinkingDisplay {
+  if (value === undefined || value === null || value === "") return fallback;
+  const s = String(value).trim().toLowerCase();
+  if (["full", "show", "verbose"].includes(s)) return "full";
+  if (["minimized", "min", "summary", "snippet"].includes(s)) return "minimized";
+  if (["hidden", "hide", "off", "none"].includes(s)) return "hidden";
+  throw new Error(`${label} must be "full", "minimized", or "hidden"`);
 }
 
 export function defaultConfigPaths(cwd: string): string[] {
@@ -160,6 +168,10 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
     panelHeight: Math.round(numberValue(envFirst("ORB_PANEL_HEIGHT", "PI_VOICE_PANEL_HEIGHT") ?? uiConfig.panelHeight, 12, 8, 24, "ui.panelHeight")),
     autoStartVoice: boolValue(envFirst("ORB_AUTO_START") ?? merged.autoStartVoice, !isHerdrSubAgent(), "autoStartVoice"),
     activityLines: Math.round(numberValue(envFirst("ORB_ACTIVITY_LINES", "PI_VOICE_ACTIVITY_LINES") ?? uiConfig.activityLines, 8, 3, 30, "ui.activityLines")),
+    // Reasoning visibility for the feed. Defaults to `minimized` (a short
+    // clipped summary); `full` renders the whole thought, `hidden` keeps only
+    // the ephemeral status indicator. Env/JSON key: ui.thinkingDisplay.
+    thinkingDisplay: thinkingDisplayValue(envFirst("ORB_THINKING_DISPLAY") ?? uiConfig.thinkingDisplay, "minimized", "ui.thinkingDisplay"),
     logDir: expandPath(String(logDirRaw ?? defaultLogDir), cwd),
     configFiles: loadedFiles,
     geminiSessionResumption: boolValue(envFirst("ORB_GEMINI_SESSION_RESUMPTION") ?? sessionConfig.geminiSessionResumption, true, "session.geminiSessionResumption"),
@@ -171,6 +183,10 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
     // the knob that actually makes the visible "Thinking…" indicator reflect the
     // voice model's reasoning. Read at session start; takes effect on reconnect.
     geminiThinkingBudget: Math.round(numberValue(envFirst("ORB_GEMINI_THINKING_BUDGET") ?? sessionConfig.geminiThinkingBudget, -1, -1, 65536, "session.geminiThinkingBudget")),
+    // Minimum ms the "Thinking…" indicator stays visible once a turn opens, so a
+    // flash model that delivers its first audio in the same batch as the turn
+    // opening (on→off coalescing) can't make the indicator blink unseen.
+    geminiThinkingHoldMs: Math.round(numberValue(envFirst("ORB_GEMINI_THINKING_HOLD_MS") ?? sessionConfig.geminiThinkingHoldMs, 380, 0, 5000, "session.geminiThinkingHoldMs")),
     permissions: {
       cancelPi: boolValue(envFirst("ORB_ALLOW_CANCEL_PI") ?? permissionConfig.cancelPi, true, "permissions.cancelPi"),
       setModel: boolValue(envFirst("ORB_ALLOW_SET_MODEL") ?? permissionConfig.setModel, true, "permissions.setModel"),

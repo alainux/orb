@@ -1,4 +1,4 @@
-export type ActivityKind = "you" | "voice" | "voice-tool" | "system" | "error";
+export type ActivityKind = "you" | "voice" | "voice-tool" | "system" | "thinking" | "error";
 export interface ActivityEntry { id: number; kind: ActivityKind; text: string; final: boolean; at: number }
 
 export interface TurnRecord { kind: "you" | "voice"; text: string; at: number }
@@ -91,9 +91,29 @@ export class ActivityFeed {
     return this.push(kind, text, true);
   }
 
+  /**
+   * Append a lightweight non-conversation row WITHOUT committing any live
+   * turn. Unlike {@link add} this never calls finalizeLive, so transient
+   * thinking indicators can be opened/closed around streaming speech without
+   * ever splitting one spoken sentence into multiple feed rows.
+   */
+  addNonBoundary(kind: Exclude<ActivityKind, "you" | "voice">, text: string): ActivityEntry {
+    return this.push(kind, text, true);
+  }
+
   finalize(kind?: "you" | "voice"): void {
     if (kind) this.finalizeOne(kind);
     else this.finalizeLive();
+  }
+
+  /**
+   * True while a conversational turn is still streaming (not yet finalized).
+   * Used by the thinking indicator so it never emits a row that would commit a
+   * live turn mid-sentence and split one utterance into several feed rows.
+   */
+  isLive(kind?: "you" | "voice"): boolean {
+    if (kind) return this.liveIds.has(kind);
+    return this.liveIds.has("you") || this.liveIds.has("voice");
   }
 
   snapshot(limit = 32): ActivityEntry[] { return this.entries.slice(-limit).map((entry) => ({ ...entry })); }

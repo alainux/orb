@@ -42,7 +42,96 @@ test("the widget title renders the Thinking indicator and clears it on content",
   state.thinking = true;
   assert.match(widget.render(80)[0]!, /Thinking/);
   state.thinking = false;
-  assert.doesNotMatch(widget.render(80)[0]!, /Thinking/);
+  assert.doesNotMatch(widget.render(80)[0]!, /Listening/);
+});
+
+test("feed placeholder mirrors the title: thinking replaces listening cleanly (no duplicated status)", () => {
+  const tui = { requestRender: () => {} } as unknown as TUI;
+  const state = viewState(); // empty activity, thinking=false
+  const widget = new VoiceWidget(tui, fakeTheme({ ...DARK_THEME }), () => state, {
+    orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 10, activityLines: 6, scratchpadPanelHeight: 8,
+  });
+
+  // Idle, no activity yet: the feed placeholder reads "Listening…".
+  assert.match(widget.render(80).join("\n"), /Listening/);
+  assert.doesNotMatch(widget.render(80).join("\n"), /Thinking/);
+
+  // Thinking: the placeholder and title both show the reasoning state;
+  // "listening" must not appear anywhere in the frame (single clean status).
+  state.thinking = true;
+  const thinking = widget.render(80).join("\n");
+  assert.match(thinking, /Thinking/);
+  assert.doesNotMatch(thinking, /Listening/);
+});
+
+test("thinking activity rows render in the conversation feed", () => {
+  const tui = { requestRender: () => {} } as unknown as TUI;
+  const state = viewState();
+  state.activity.push({ id: 1, kind: "thinking", text: "Thought for 120ms · verifying the product is not prime", final: true, at: 0 });
+  const widget = new VoiceWidget(tui, fakeTheme({ ...DARK_THEME }), () => state, {
+    orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 10, activityLines: 6, scratchpadPanelHeight: 8,
+  });
+  const frame = widget.render(80).join("\n");
+  // Strip ANSI so the styled (per-word) rendering can be matched as plain text.
+  const plain = frame.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.match(plain, /Thought for 120ms/);
+});
+
+test("feed renders thinking rows italicized and strips inline-markdown markers", () => {
+  const tui = { requestRender: () => {} } as unknown as TUI;
+  const state = viewState();
+  state.activity.push(
+    { id: 1, kind: "voice", text: "sum **bold** \`code\` link", final: true, at: 0 },
+    { id: 2, kind: "thinking", text: "pondering why", final: true, at: 1 },
+  );
+  const widget = new VoiceWidget(tui, fakeTheme({ ...DARK_THEME }), () => state, {
+    orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 10, activityLines: 6, scratchpadPanelHeight: 8,
+  });
+  const frame = widget.render(80).join("\n");
+
+  // The thought row carries an italic SGR flag (…;3…).
+  const thoughtLine = frame.split("\n").find((l) => /pondering/.test(l));
+  assert.ok(thoughtLine, "thinking row present");
+  assert.match(thoughtLine!, /\x1b\[[0-9;]*3m/, "thought row must be italic");
+
+  // The voice row keeps its "ORB" marker and its body renders (ORB row is not italic).
+  const voiceLine = frame.split("\n").find((l) => /ORB/.test(l));
+  assert.ok(voiceLine, "voice row present");
+  if (voiceLine) assert.doesNotMatch(voiceLine, /;3m/);
+
+  // Markdown markers are consumed: no literal ** or backticks in the plain view.
+  const plain = frame.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.doesNotMatch(plain, /\*\*/);
+  assert.doesNotMatch(plain, /\s`/);
+});
+
+test("thinking display mode toggles full / minimized / hidden in the feed", () => {
+  const tui = { requestRender: () => {} } as unknown as TUI;
+  const long = "Thought for 20 · " + "the user upgraded to a pricier plan and the invoice was refunded so review the new plan ".repeat(8);
+  const makeWidget = (display: "full" | "minimized" | "hidden") => {
+    const state = viewState();
+    state.thinkingDisplay = display;
+    state.activity.push({ id: 1, kind: "thinking", text: long, final: true, at: 0 });
+    return new VoiceWidget(tui, fakeTheme({ ...DARK_THEME }), () => state, {
+      orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 12, activityLines: 12, scratchpadPanelHeight: 8,
+    });
+  };
+  const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+  // full: the whole reasoning is present (not ellipsized).
+  const fullFrame = strip(makeWidget("full").render(80).join("\n"));
+  assert.ok(fullFrame.includes("upgraded"), "full mode must render the complete thought");
+  assert.ok(!fullFrame.includes("…"), "full mode is not truncated");
+
+  // minimized: a clipped summary keeps the meta and ends with an ellipsis.
+  const minFrame = strip(makeWidget("minimized").render(80).join("\n"));
+  assert.match(minFrame, /Thought for 20 · /);
+  assert.ok(minFrame.includes("…"), "minimized row is clipped with an ellipsis");
+
+  // hidden: the reasoning row is not drawn at all.
+  const hiddenFrame = strip(makeWidget("hidden").render(80).join("\n"));
+  assert.doesNotMatch(hiddenFrame, /Thought for/);
+  assert.doesNotMatch(hiddenFrame, /refunded/);
 });
 
 // ---------------------------------------------------------------------------
@@ -91,7 +180,7 @@ function viewState(): VoiceViewState {
     active: true, status: "live · listening", source: "idle", muted: false,
     inputTranscript: "", outputTranscript: "", thinking: false, inputRms: 0, outputRms: 0,
     audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0, audioPhase: "healthy",
-    piAgentStatus: "idle", activity: [], error: undefined,
+    piAgentStatus: "idle", activity: [], error: undefined, thinkingDisplay: "minimized",
     scratchpad: { open: false, title: "Scratchpad", content: "", dirty: false },
   };
 }

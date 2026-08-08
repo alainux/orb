@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { RunLog } from "../src/log.js";
 import { GeminiLiveProvider } from "../src/providers/gemini.js";
@@ -22,6 +23,7 @@ function config(provider: "gemini" | "openai"): VoiceConfig {
     orbBraille: false,
     panelHeight: 12,
     activityLines: 8,
+    thinkingDisplay: "minimized",
     autoStartVoice: true,
     logDir: "/tmp/orb-think",
     configFiles: [],
@@ -30,6 +32,7 @@ function config(provider: "gemini" | "openai"): VoiceConfig {
     geminiCompressionTriggerTokens: 18000,
     geminiCompressionTargetTokens: 9000,
     geminiThinkingBudget: -1,
+    geminiThinkingHoldMs: 0,
     permissions: { cancelPi: true, setModel: true, setThinking: true, setTools: true, shell: true, nativeTools: true, scratchpadRead: true, scratchpadWrite: true, scratchpadOutsideProject: false },
     audio: { bufferMs: 140, maxBufferMs: 380, recoveryStepMs: 40, interruptionStormCount: 3, interruptionStormWindowMs: 1800, interruptionRecoveryMuteMs: 320, choppinessWindowRecoveries: 3, choppinessWindowMs: 1500, choppinessRecoverSilenceMs: 1500, inputResyncDrops: 3, inputResyncWindowMs: 1500, inputResyncCooldownMs: 4000 },
     scratchpad: { panelHeight: 12, maxBytes: 524288 },
@@ -41,11 +44,22 @@ async function logger() {
   return RunLog.create(logDir);
 }
 
-/** A sink that fences every supported callback so only `onThinking` is observed. */
-function captureSink(): { thinking: boolean[]; sink: VoiceProviderSink } {
+interface Cursor {
+  at: number; // performance.now() when the transition was observed
+  on: boolean; // the new thinking state
+}
+
+/**
+ * A sink that fences every supported callback so only `onThinking` is observed,
+ * while timestamping each transition so the *duration* of every "Thinking… on"
+ * window (the perceived flash) can be measured and reported.
+ */
+function captureSink(): { thinking: boolean[]; timeline: Cursor[]; sink: VoiceProviderSink } {
   const thinking: boolean[] = [];
+  const timeline: Cursor[] = [];
   return {
     thinking,
+    timeline,
     sink: {
       onAudio: () => {},
       onAudioEnd: () => {},
@@ -53,12 +67,51 @@ function captureSink(): { thinking: boolean[]; sink: VoiceProviderSink } {
       onInputTranscript: () => {},
       onOutputTranscript: () => {},
       onStatus: () => {},
-      onThinking: (t: boolean) => thinking.push(t),
+      onThinking: (t: boolean) => {
+        thinking.push(t);
+        timeline.push({ at: performance.now(), on: t });
+      },
       onError: () => {},
       onSessionEnded: () => {},
       onToolCall: async () => ({}),
     } as VoiceProviderSink,
   };
+}
+
+/** A cursor is "open" if it turned Thinking on and nothing has cleared it. */
+function openSince(timeline: Cursor[]): number | null {
+  let onAt: number | null = null;
+  for (const e of timeline) {
+    if (e.on) onAt = e.at;
+    else onAt = null;
+  }
+  return onAt;
+}
+
+/**
+ * Reduce a timestamped `onThinking` timeline into the measured duration of each
+ * contiguous "Thinking… on" window in ms. An open window (never cleared within
+ * the test) is reported with a "+" suffix.
+ */
+function flashDurations(timeline: Cursor[]): string[] {
+  const durations: string[] = [];
+  let onAt: number | null = null;
+  for (const e of timeline) {
+    if (e.on && onAt === null) onAt = e.at;
+    else if (!e.on && onAt !== null) {
+      durations.push((e.at - onAt).toFixed(1));
+      onAt = null;
+    }
+  }
+  if (onAt !== null) durations.push(`${(performance.now() - onAt).toFixed(0)}+ (open)`);
+  return durations;
+}
+
+/** Print the measured "Thinking… on" window(s) for the named run. */
+function report(name: string, timeline: Cursor[]) {
+  const flash = flashDurations(timeline);
+  // eslint-disable-next-line no-console
+  console.log(`  [timing] ${name}: Thinking was ON ${flash.length} run(s): ${flash.join("ms, ") || "none"} ms`);
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +122,7 @@ function captureSink(): { thinking: boolean[]; sink: VoiceProviderSink } {
 test("openai lifts thinking on response.created and clears on first content", async () => {
   const log = await logger();
   const provider = new OpenAIRealtimeProvider(config("openai"), log);
-  const { sink, thinking } = captureSink();
+  const { sink, thinking, timeline } = captureSink();
   (provider as any).sink = sink;
 
   assert.deepEqual(thinking, [], "idle before any response");
@@ -80,28 +133,31 @@ test("openai lifts thinking on response.created and clears on first content", as
   assert.deepEqual(thinking, [true, false], "first content clears thinking");
   await (provider as any).handleMessage(JSON.stringify({ type: "response.output_audio_transcript.delta", delta: "llo" }));
   assert.deepEqual(thinking, [true, false], "no duplicate on later deltas");
+  report("openai: response.created → first content delta", timeline);
 });
 
 test("openai clears thinking on response.done even with no delivered content", async () => {
   const log = await logger();
   const provider = new OpenAIRealtimeProvider(config("openai"), log);
-  const { sink, thinking } = captureSink();
+  const { sink, thinking, timeline } = captureSink();
   (provider as any).sink = sink;
 
   await (provider as any).handleMessage(JSON.stringify({ type: "response.created" }));
   await (provider as any).handleMessage(JSON.stringify({ type: "response.done" }));
   assert.deepEqual(thinking, [true, false]);
+  report("openai: response.created → response.done", timeline);
 });
 
 test("openai interruption (server barge-in) clears thinking", async () => {
   const log = await logger();
   const provider = new OpenAIRealtimeProvider(config("openai"), log);
-  const { sink, thinking } = captureSink();
+  const { sink, thinking, timeline } = captureSink();
   (provider as any).sink = sink;
 
   await (provider as any).handleMessage(JSON.stringify({ type: "response.created" }));
   await (provider as any).handleMessage(JSON.stringify({ type: "input_audio_buffer.speech_started" }));
   assert.deepEqual(thinking, [true, false]);
+  report("openai: response.created → barge-in", timeline);
 });
 
 // ---------------------------------------------------------------------------
@@ -111,7 +167,7 @@ test("openai interruption (server barge-in) clears thinking", async () => {
 test("gemini shows thinking for a turn that delivers no content, then clears on content", async () => {
   const log = await logger();
   const provider = new GeminiLiveProvider(config("gemini"), log);
-  const { sink, thinking } = captureSink();
+  const { sink, thinking, timeline } = captureSink();
   (provider as any).sink = sink;
 
   // A model turn that has started but carries no audio/transcript yet (e.g. a
@@ -122,29 +178,30 @@ test("gemini shows thinking for a turn that delivers no content, then clears on 
   // The next delivered audio content clears it.
   await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ inlineData: { data: "QUJD" } }] } } });
   assert.equal(thinking.at(-1), false, "delivered audio clears thinking");
+  report("gemini: contentless turn → audio", timeline);
 });
 
-test("gemini turn that opens already carrying content still surfaces thinking, then clears next message", async () => {
+test("gemini opening content surfaces thinking, then clears next message (same-batch on→off)", async () => {
   const log = await logger();
   const provider = new GeminiLiveProvider(config("gemini"), log);
-  const { sink, thinking } = captureSink();
+  const { sink, thinking, timeline } = captureSink();
   (provider as any).sink = sink;
 
   // Gemini streams the opening audio chunk in the turn-starting serverContent.
-  // This must still paint "Thinking" and hold it a beat rather than collapsing
-  // on→off in the same message (which left `thinking=false` for every paint).
+  // Without a hold this on→off collapses in one batch and never paints.
   await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ inlineData: { data: "QUJD" } }] } } });
   assert.deepEqual(thinking, [true], "turn-opening content surfaces Thinking and holds");
 
   // The following message (continued output) ends the reasoning window.
   await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ inlineData: { data: "REVG" } }] } } });
   assert.deepEqual(thinking, [true, false], "later content clears the held Thinking");
+  report("gemini: turn-opening content → next content chunk", timeline);
 });
 
 test("gemini holds Thinking through real thought parts stream, clears on first audio", async () => {
   const log = await logger();
   const provider = new GeminiLiveProvider(config("gemini"), log);
-  const { sink, thinking } = captureSink();
+  const { sink, thinking, timeline } = captureSink();
   (provider as any).sink = sink;
 
   // With thinkingConfig/includeThoughts enabled, the model narrates its reasoning
@@ -159,6 +216,27 @@ test("gemini holds Thinking through real thought parts stream, clears on first a
   // The first spoken audio ends the reasoning window and clears the indicator.
   await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ inlineData: { data: "QUJD" } }] } } });
   assert.deepEqual(thinking, [true, false], "first spoken content clears Thinking");
+  report("gemini: thought-parts stream → first audio", timeline);
+});
+
+test("gemini min-visible hold keeps the indicator visible when content arrives in the same batch", async () => {
+  const cfg = config("gemini");
+  cfg.geminiThinkingHoldMs = 120;
+  const log = await logger();
+  const provider = new GeminiLiveProvider(cfg, log);
+  const { sink, thinking, timeline } = captureSink();
+  (provider as any).sink = sink;
+
+  // Turn-opening content and a follow-up content message arrive in the same
+  // event-loop batch. Without the hold the on→off coalesces and "Thinking…"
+  // never paints; with the hold the off is deferred and stays visible.
+  await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ inlineData: { data: "AAAA" } }] } } });
+  await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ inlineData: { data: "BBBB" } }] } } });
+  assert.deepEqual(thinking, [true], "indicator is painted true; the clear is held");
+
+  await new Promise((r) => setTimeout(r, 180));
+  assert.deepEqual(thinking, [true, false], "indicator clears once the hold elapses");
+  report("gemini: min-visible hold = 120ms", timeline);
 });
 
 test("gemini user-only transcription never flashes thinking", async () => {

@@ -21,7 +21,14 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
   private thinking = false;
   /** True once the current model turn has begun generating (used for the thinking indicator). */
   private orbInTurn = false;
-
+  /** Earliest wall-clock ms the "Thinking" indicator may be cleared (min-visible hold). */
+  private thinkHoldUntil = 0;
+  /** Deferred clear timer used to guarantee the indicator is painted before it clears. */
+  private thinkHoldTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Only log the first reasoning batch per session to confirm thoughts arrive. */
+  private thoughtLogged = false;
+  /** Concatenated reasoning text for the current turn (thought parts), capped. */
+  private thoughtBuffer = "";
   constructor(private readonly config: VoiceConfig, private readonly log: RunLog) { super(); }
 
   async connect(sink: VoiceProviderSink, context: VoiceSessionContext): Promise<void> {
@@ -30,7 +37,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
     this.closed = false;
     this.client = new GoogleGenAI({ apiKey: this.config.apiKey });
     sink.onStatus(`connecting · Gemini · ${this.config.model}`);
-    await this.log.info("connecting provider", { provider: this.name, model: this.config.model, resumption: this.config.geminiSessionResumption, compression: this.config.geminiContextCompression });
+    await this.log.info("connecting provider", { provider: this.name, model: this.config.model, resumption: this.config.geminiSessionResumption, compression: this.config.geminiContextCompression, thinkingBudget: this.config.geminiThinkingBudget, thinkingHoldMs: this.config.geminiThinkingHoldMs });
     await this.openSession("");
     const environment = `PI_CODING_CONTEXT\nProject cwd: ${context.cwd}\nPi status: ${context.piStatus}\nRecent visible Pi activity:\n${context.recentPiActivity}`;
     this.sendText(environment);
@@ -52,6 +59,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
     if (this.closed) return;
     this.closed = true;
     this.epoch++;
+    this.clearThinkHold();
     try { this.session?.close(); } catch { /* idempotent */ }
     this.session = undefined;
     await this.log.info("Gemini provider closed");
@@ -79,6 +87,8 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
     const epoch = ++this.epoch;
     this.thinking = false;
     this.orbInTurn = false;
+    this.clearThinkHold();
+    this.thoughtLogged = false;
     this.sink?.onThinking?.(false);
     const session = await client.live.connect({
       model: this.config.model,
@@ -168,6 +178,23 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
       // "Thinking" until the first real output chunk. User-only transcription
       // messages never open a model turn, so they never flash "Thinking".
       const modelThought = Boolean(server?.modelTurn?.parts?.some((p: any) => p?.thought === true));
+      if (modelThought && !this.thoughtLogged) {
+        this.thoughtLogged = true;
+        void this.log.info("Gemini thought parts received", { text: server?.modelTurn?.parts?.filter((p: any) => p?.thought === true).map((p: any) => p?.text).filter(Boolean).slice(0, 1) });
+      }
+      if (modelThought) {
+        // Surface the model's reasoning text (Gemini thought parts) to the UI so
+        // the controller can show a real snippet of what it's pondering, not just
+        // the on/off toggle.
+        const frag = (server?.modelTurn?.parts?.filter((p: any) => p?.thought) ?? []).map((p: any) => p?.text ?? "").join(" ").trim();
+        if (frag) {
+          // Accumulate the FULL reasoning text (no cap) so the controller can
+          // render the complete thought when the user's display preference is
+          // "full" — truncation happens at render time, not here.
+          this.thoughtBuffer = this.thoughtBuffer ? `${this.thoughtBuffer} ${frag}` : frag;
+          this.sink?.onThinkingContent?.(this.thoughtBuffer);
+        }
+      }
       const modelActivity = Boolean(server?.modelTurn) || typeof server?.outputTranscription?.text === "string" || modelThought;
       const deliversContent = Boolean(server?.modelTurn?.parts?.some((p: any) => typeof p?.inlineData?.data === "string" && p.inlineData.data.length > 0)) || typeof server?.outputTranscription?.text === "string";
       if (interrupted || boundary) {
@@ -183,6 +210,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
           // on `thinking=false` before the widget ever painted, and an ordinary
           // immediate reply to a human never showed "Thinking…".
           this.orbInTurn = true;
+          this.thoughtBuffer = "";
           this.emitThinking(true);
         } else if (modelThought) {
           // Reasoning is still in progress (thought parts, no audio yet): hold the
@@ -255,8 +283,40 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
 
   private emitThinking(value: boolean): void {
     if (this.thinking === value) return;
-    this.thinking = value;
-    this.sink?.onThinking?.(value);
+    if (value) {
+      // Opening the indicator: record the minimum-visible hold so a model that
+      // delivers its first audio in the same event batch (flash-live) cannot
+      // clear "Thinking" before the widget has a chance to paint it.
+      this.clearThinkHold();
+      this.thinking = true;
+      this.thinkHoldUntil = Date.now() + this.config.geminiThinkingHoldMs;
+      this.sink?.onThinking?.(true);
+      return;
+    }
+    // Clearing the indicator.
+    const remaining = this.thinkHoldUntil - Date.now();
+    if (this.config.geminiThinkingHoldMs > 0 && remaining > 0 && !this.thinkHoldTimer) {
+      // Sequence may have gone on→off within one paint cycle: defer the clear so
+      // the widget renders at least one frame with the indicator visible.
+      this.thinkHoldTimer = setTimeout(() => {
+        this.thinkHoldTimer = undefined;
+        this.thinkHoldUntil = 0;
+        if (this.thinking) {
+          this.thinking = false;
+          this.sink?.onThinking?.(false);
+        }
+      }, remaining);
+      return;
+    }
+    this.clearThinkHold();
+    this.thinking = false;
+    this.sink?.onThinking?.(false);
+  }
+
+  /** Cancel any pending minimum-visible hold (e.g. reconnect, close, re-open). */
+  private clearThinkHold(): void {
+    if (this.thinkHoldTimer !== undefined) { clearTimeout(this.thinkHoldTimer); this.thinkHoldTimer = undefined; }
+    this.thinkHoldUntil = 0;
   }
 
   private async processToolCalls(calls: unknown): Promise<void> {

@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { parseVoiceCommand } from "../src/commands.js";
-import { resolveAutoStartVoice } from "../src/config.js";
+import { resolveAutoStartVoice, thinkingDisplayValue } from "../src/config.js";
 import { VoiceController } from "../src/controller.js";
 
 const INSTANCE_KEY = Symbol.for("alainux.orb.voice-extension");
@@ -25,6 +25,13 @@ export default function orbVoiceExtension(pi: ExtensionAPI): void {
   pi.registerShortcut("ctrl+alt+m", {
     description: "Mute or unmute Orb's microphone",
     handler: async (ctx) => { if (!controller.active) { ctx.ui.notify("Start Orb voice before muting the microphone.", "warning"); return; } controller.setMuted(ctx); },
+  });
+  pi.registerShortcut("ctrl+alt+t", {
+    description: "Cycle Orb thinking display (minimized / full / hidden)",
+    handler: async (ctx) => {
+      if (!controller.active) { ctx.ui.notify("Start Orb voice before toggling the thinking display.", "warning"); return; }
+      controller.cycleThinkingDisplay(ctx);
+    },
   });
 
   const forward = (eventName: string) => (event: unknown, ctx: ExtensionContext) => controller.recordPiEvent(eventName, event, ctx);
@@ -56,7 +63,11 @@ export async function handleVoiceCommand(controller: VoiceController, rawArgs: s
     case "provider": controller.setProvider(command.provider, ctx); break;
     case "mute": controller.setMuted(ctx, command.muted); break;
     case "voice": controller.setVoice(command.voice, ctx); break;
+    case "thinking":
+      if (command.value === undefined) controller.cycleThinkingDisplay(ctx);
+      else controller.setThinkingDisplay(thinkingDisplayValue(command.value, "minimized", "thinking display"), ctx);
+      break;
     case "scratchpad": await controller.scratchpadCommand(command.scratchpadAction, command.argument, ctx); break;
-    case "help": ctx.ui.notify("/voice [start [gemini|openai]] · /voice status · /voice log · /voice provider <name> · /voice mute [on|off] · /voice voice [name|list] · /voice scratchpad [open|view|edit|load|save|dispatch|close] · /voice stop", "info"); break;
+    case "help": ctx.ui.notify("/voice [start [gemini|openai]] · /voice status · /voice log · /voice provider <name> · /voice mute [on|off] · /voice thinking [full|minimized|hidden] · /voice voice [name|list] · /voice scratchpad [open|view|edit|load|save|dispatch|close] · /voice stop", "info"); break;
   }
 }

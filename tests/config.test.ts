@@ -109,3 +109,25 @@ test("autoStartVoice is off by default in a Herdr sub-agent tab",async()=>withEn
 test("ORB_AUTO_START=true still opts a sub-agent tab back in",async()=>withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_AUTO_START:"true",HERDR_ENV:"1",PI_SUBAGENT_ID:"1"},async()=>{
   assert.equal(await resolveAutoStartVoice(tmpdir()),true);
 }));
+
+test("thinkingDisplay defaults to minimized and honors ui.thinkingDisplay + env override",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"orb-config-thinkdisplay-"));
+  const configFile=join(root,"config.json");
+  await writeFile(configFile,JSON.stringify({ui:{thinkingDisplay:"full"}}),"utf8");
+  // JSON preference wins by default.
+  await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:configFile,ORB_THINKING_DISPLAY:undefined},async()=>{
+    assert.equal((await loadVoiceConfig("gemini",root)).thinkingDisplay,"full");
+  });
+  // Env var overrides the JSON preference.
+  await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:configFile,ORB_THINKING_DISPLAY:"hidden"},async()=>{
+    assert.equal((await loadVoiceConfig("gemini",root)).thinkingDisplay,"hidden");
+  });
+  // With no preference anywhere the default is "minimized".
+  await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_THINKING_DISPLAY:undefined},async()=>{
+    assert.equal((await loadVoiceConfig("gemini",tmpdir())).thinkingDisplay,"minimized");
+  });
+  // An invalid value is rejected.
+  await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_THINKING_DISPLAY:"banana"},async()=>{
+    await assert.rejects(()=>loadVoiceConfig("gemini",tmpdir()),/thinkingDisplay/);
+  });
+});

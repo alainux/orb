@@ -84,3 +84,42 @@ test("finalized turns are notified once for durable logging (partials & replays 
     { kind: "voice", text: "hey" },
   ]);
 });
+
+test("isLive reports when a conversational turn is streaming",()=>{
+  const feed=new ActivityFeed();
+  assert.equal(feed.isLive(),false);
+  feed.transcript("voice","Morning",false);
+  assert.equal(feed.isLive(),true);
+  assert.equal(feed.isLive("voice"),true);
+  assert.equal(feed.isLive("you"),false);
+  feed.transcript("voice","Morning! Clean tree",true);
+  assert.equal(feed.isLive(),false);
+});
+
+test("addNonBoundary never commits a live turn (no torn turns)",()=>{
+  const feed=new ActivityFeed();
+  // A model starts speaking (live partial)…
+  feed.transcript("voice","Morning! Clean",false);
+  // …and then re-thinks mid-speech. A boundary (add) would finalize the
+  // partial into its own row; the non-boundary push must leave it live.
+  feed.addNonBoundary("thinking","Thinking…");
+  assert.equal(feed.isLive(),true,"live turn must survive a non-boundary thinking row");
+  feed.addNonBoundary("thinking","Thought for 85ms · …");
+  // …then the same turn finalizes to its real text.
+  feed.transcript("voice","Morning! Clean tree — what's next?",true);
+  const rows=feed.snapshot();
+  // The assistant ENDS up appearing as ONE row carrying the finalized text,
+  // not a torn “Morning! Clean” + thinking + “Morning! Clean, what's next?”.
+  assert.equal(rows.filter(r=>r.kind==="voice").length,1);
+  assert.equal(rows.find(r=>r.kind==="voice")?.text,"Morning! Clean tree — what's next?");
+});
+
+test("a boundary add DOES split a live turn (control: the pre-fix behavior)",()=>{
+  const feed=new ActivityFeed();
+  feed.transcript("voice","Morning! Clean",false);
+  feed.add("thinking","Thinking…"); // finalizes the live partial
+  feed.add("thinking","Thought for 85ms · …");
+  feed.transcript("voice","Morning! Clean tree — what's next?",true);
+  const voice=feed.snapshot().filter(r=>r.kind==="voice");
+  assert.equal(voice.length,2,"legacy add() finalizes and splits the live turn");
+});

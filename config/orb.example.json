@@ -18,7 +18,8 @@
     "panelHeight": 12,
     "activityLines": 8,
     "orbAspect": 2.0,
-    "orbDensity": 1.3
+    "orbDensity": 1.3,
+    "thinkingDisplay": "minimized"
   },
   "audio": {
     "bufferMs": 140,
@@ -47,6 +48,7 @@
     "geminiContextCompression": true,
     "geminiCompressionTriggerTokens": 18000,
     "geminiCompressionTargetTokens": 9000,
-    "geminiThinkingBudget": -1
+    "geminiThinkingBudget": -1,
+    "geminiThinkingHoldMs": 380
   }
 }

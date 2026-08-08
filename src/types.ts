@@ -4,6 +4,12 @@ export type VoiceProviderName = "gemini" | "openai";
 export type VoiceSource = "idle" | "user" | "agent";
 export type PiAgentStatus = "idle" | "working";
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+/**
+ * How much of the voice model's reasoning to render in the conversation feed.
+ * `full` shows the whole thought, `minimized` a short clipped summary,
+ * `hidden` only the ephemeral status indicator (never a feed row).
+ */
+export type ThinkingDisplay = "full" | "minimized" | "hidden";
 
 export interface OrbPermissions {
   cancelPi: boolean;
@@ -59,6 +65,8 @@ export interface VoiceConfig {
   logDir: string;
   configFiles: string[];
   autoStartVoice: boolean;
+  /** Reasoning visibility preference (full / minimized / hidden) for the feed. */
+  thinkingDisplay: ThinkingDisplay;
   geminiSessionResumption: boolean;
   geminiContextCompression: boolean;
   geminiCompressionTriggerTokens: number;
@@ -72,6 +80,13 @@ export interface VoiceConfig {
    * at session start; a change takes effect on the next voice connection.
    */
   geminiThinkingBudget: number;
+  /**
+   * Minimum time (ms) the "Thinking…" indicator stays visible once a Gemini
+   * turn opens, even if the model delivers its first audio in the same event
+   * batch. Prevents the on→off signals from coalescing before the widget can
+   * paint, so the indicator is actually seen. `0` disables the hold.
+   */
+  geminiThinkingHoldMs: number;
   permissions: OrbPermissions;
   audio: AudioConfig;
   scratchpad: ScratchpadConfig;
@@ -98,6 +113,8 @@ export interface VoiceProviderSink {
   onStatus(status: string): void;
   /** True while the model is generating but has not yet delivered content. */
   onThinking(thinking: boolean): void;
+  /** Optional: latest reasoning text surfaced by the model (Gemini thought parts). */
+  onThinkingContent?(text: string): void;
   onError(error: Error): void;
   onSessionEnded(reason: string): void;
   onToolCall(call: ToolCall): Promise<Record<string, unknown>>;
@@ -130,6 +147,8 @@ export interface VoiceViewState {
   outputTranscript: string;
   /** True while the voice model is reasoning but has not spoken output yet. */
   thinking: boolean;
+  /** How the feed should render reasoning rows (full / minimized / hidden). */
+  thinkingDisplay: ThinkingDisplay;
   inputRms: number;
   outputRms: number;
   audioCaptureDrops: number;
