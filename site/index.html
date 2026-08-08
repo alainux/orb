@@ -36,7 +36,7 @@
 
     <section id="how" class="how wrap">
       <article><span>01</span><h3>Say the goal</h3><p>“Explore the project.” “Fix this test.” “Use Sonnet and focus on the parser.” Broad intent is enough.</p></article>
-      <article><span>02</span><h3>Orb drives Pi</h3><p>It delegates complete tasks, can cancel a wrong turn, switch model or thinking level, and run direct shell controls when permitted.</p></article>
+      <article><span>02</span><h3>Orb drives Pi</h3><p>It delegates complete tasks, can cancel a wrong turn, adjust its thinking level, and run direct shell controls when permitted.</p></article>
       <article><span>03</span><h3>Pi stays visible</h3><p>The normal Pi screen remains yours. Type commands yourself, inspect tool output, or let the task run while you keep talking.</p></article>
       <article><span>04</span><h3>Stay oriented</h3><p>Orb waits instead of narrating. It comes back for outcomes, blockers, and decisions that actually need you.</p></article>
     </section>
@@ -47,7 +47,7 @@
       <div class="delegate">delegates a repository exploration · Pi works normally below</div>
       <div class="quote"><span>You</span><p>Wait — use Sonnet and focus on the failing tests instead.</p></div>
       <div class="quote orb"><span>Orb</span><p>Got it.</p></div>
-      <div class="delegate">cancels · switches model · delegates the new task</div>
+      <div class="delegate">cancels · delegates the new task</div>
     </section>
 
     <section id="scratchpad" class="details wrap">
@@ -65,7 +65,7 @@
       <div class="detail-list">
         <p><strong>Hardware-timed audio.</strong> A small Go sidecar owns the device callback and an adaptive jitter buffer, independent of Pi's Node event loop.</p>
         <p><strong>Recoverable playback.</strong> If provider delivery starves briefly, Orb rebuilds a lead and resumes instead of remaining permanently choppy.</p>
-        <p><strong>Configurable control.</strong> Cancellation, model changes, thinking, shell access, scratchpad reads/writes, UI, audio, providers, and the complete voice prompt are configurable.</p>
+        <p><strong>Configurable control.</strong> Cancellation, thinking level, shell access, scratchpad reads/writes, UI, audio, providers, and the complete voice prompt are configurable.</p>
         <p><strong>Open source.</strong> Provider, Pi-control, scratchpad, audio, and rendering layers are separate and tested so contributors can extend them independently.</p>
       </div>
     </section>
