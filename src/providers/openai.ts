@@ -3,7 +3,7 @@ import { openAIOrchestrationTools } from "../orchestration-tools.js";
 import type { RunLog } from "../log.js";
 import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderSink, VoiceSessionContext } from "../types.js";
 import { BaseProvider } from "./base.js";
-import { mergeTranscript, safeJsonParse } from "./util.js";
+import { buildEnvironmentContext, markSeenCall, mergeTranscript, safeJsonParse, toError } from "./util.js";
 
 export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvider {
   readonly name = "openai" as const;
@@ -77,8 +77,7 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
     this.ready = true;
     sink.onStatus("live · listening");
 
-    const environment = `PI_CODING_CONTEXT\nProject cwd: ${context.cwd}\nPi status: ${context.piStatus}\nRecent visible Pi activity:\n${context.recentPiActivity}`;
-    this.sendText(environment);
+    this.sendText(buildEnvironmentContext(context));
   }
 
   sendAudio(pcm: Buffer): void {
@@ -196,7 +195,7 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
                 arguments: safeJsonParse(String(item.arguments ?? "{}")),
               });
             } catch (error) {
-              await this.log.error("OpenAI response.done tool call failed", error instanceof Error ? error : new Error(String(error)));
+              await this.log.error("OpenAI response.done tool call failed", toError(error));
             }
           }
           this.sink?.onStatus("live · listening");
@@ -205,7 +204,7 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           throw new Error(String(event.error?.message ?? "OpenAI Realtime error"));
       }
     } catch (error) {
-      const normalized = error instanceof Error ? error : new Error(String(error));
+      const normalized = toError(error);
       this.sink?.onError(normalized);
       await this.log.error("OpenAI event handler failed", { error: normalized, raw: raw.slice(0, 2000) });
     }
@@ -218,13 +217,12 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
   }
 
   private async handleToolCallOnce(call: ToolCall): Promise<void> {
-    if (!call.id || this.handledCalls.has(call.id)) return;
-    this.handledCalls.add(call.id);
+    if (!call.id || markSeenCall(this.handledCalls, call.id)) return;
     let output: Record<string, unknown>;
     try {
       output = await this.sink!.onToolCall(call);
     } catch (error) {
-      const normalized = error instanceof Error ? error : new Error(String(error));
+      const normalized = toError(error);
       output = { ok: false, error: normalized.message };
       await this.log.error("OpenAI tool call failed", normalized);
     }
@@ -233,10 +231,6 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
     catch { /* session already closing; nothing to respond to */ }
     this.sendEvent({ type: "response.create" });
     this.functionNames.delete(call.id);
-    if (this.handledCalls.size > 256) {
-      const oldest = this.handledCalls.values().next().value;
-      if (typeof oldest === "string") this.handledCalls.delete(oldest);
-    }
   }
 
   private sendEvent(event: Record<string, unknown>): void {

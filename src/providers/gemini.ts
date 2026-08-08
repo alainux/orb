@@ -10,7 +10,7 @@ import { geminiOrchestrationTools } from "../orchestration-tools.js";
 import type { RunLog } from "../log.js";
 import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderSink, VoiceSessionContext } from "../types.js";
 import { BaseProvider } from "./base.js";
-import { isExpectedGeminiRotationError, mergeTranscript } from "./util.js";
+import { buildEnvironmentContext, isExpectedGeminiRotationError, mergeTranscript, toError } from "./util.js";
 import { buildGeminiLiveConfig } from "./gemini-config.js";
 
 /**
@@ -62,20 +62,19 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
     sink.onStatus(`connecting · Gemini · ${this.config.model}`);
     await this.log.info("connecting provider", { provider: this.name, model: this.config.model, resumption: this.config.geminiSessionResumption, compression: this.config.geminiContextCompression, thinkingBudget: this.config.geminiThinkingBudget, thinkingHoldMs: this.config.geminiThinkingHoldMs });
     await this.openSession("");
-    const environment = `PI_CODING_CONTEXT\nProject cwd: ${context.cwd}\nPi status: ${context.piStatus}\nRecent visible Pi activity:\n${context.recentPiActivity}`;
-    this.sendText(environment);
+    this.sendText(buildEnvironmentContext(context));
   }
 
   sendAudio(pcm: Buffer): void {
     if (!this.session || this.closed || pcm.length === 0) return;
     try { this.session.sendRealtimeInput({ audio: { data: pcm.toString("base64"), mimeType: "audio/pcm;rate=16000" } }); }
-    catch (error) { if (!this.reconnecting) this.sink?.onError(asError(error)); }
+    catch (error) { if (!this.reconnecting) this.sink?.onError(toError(error)); }
   }
 
   sendText(text: string, _options?: { requestResponse?: boolean }): void {
     if (!this.session || this.closed || !text.trim()) return;
     try { this.session.sendRealtimeInput({ text }); }
-    catch (error) { if (!this.reconnecting) this.sink?.onError(asError(error)); }
+    catch (error) { if (!this.reconnecting) this.sink?.onError(toError(error)); }
   }
 
   async close(): Promise<void> {
@@ -161,7 +160,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
         this.sink?.onStatus("live · listening");
         await this.log.info("Gemini session resumed");
       } catch (error) {
-        const normalized = asError(error);
+        const normalized = toError(error);
         await this.log.error("Gemini session resumption failed", normalized);
         this.endFriendly("Gemini ended the long-running voice session. Run /voice when you're ready to continue.");
       }
@@ -186,7 +185,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
         this.triggerReconnect("server GoAway");
       }
     } catch (error) {
-      await this.log.error("Gemini GoAway/update failed", asError(error));
+      await this.log.error("Gemini GoAway/update failed", toError(error));
     }
 
     try {
@@ -294,7 +293,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
     } catch (error) {
       // A transcript/audio hiccup must not drop an already-emitted tool call:
       // log it and continue on to process function calls.
-      const normalized = asError(error);
+      const normalized = toError(error);
       await this.log.error("Gemini transcript/audio update failed", normalized);
       if (!this.reconnecting) this.sink?.onError(normalized);
     }
@@ -365,7 +364,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
         const result = await this.sink!.onToolCall(call);
         this.sendToolResponse(call, result);
       } catch (error) {
-        const normalized = asError(error);
+        const normalized = toError(error);
         await this.log.error("Gemini tool call execution failed", normalized);
         // Answer the model so it never stalls waiting for a tool result.
         this.sendToolResponse(call, { ok: false, error: normalized.message });
@@ -376,13 +375,13 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
   /** Best-effort send of the tool result; session may have rotated mid-call. */
   private sendToolResponse(call: ToolCall, response: Record<string, unknown>): void {
     try { this.session?.sendToolResponse({ functionResponses: [{ id: call.id, name: call.name, response }] }); }
-    catch (error) { if (this.closed) return; const n = asError(error); this.sink?.onError(n); void this.log.error("Gemini tool response failed", n); }
+    catch (error) { if (this.closed) return; const n = toError(error); this.sink?.onError(n); void this.log.error("Gemini tool response failed", n); }
   }
 
   /** Fire-and-forget reconnect that logs instead of surfacing an unhandled rejection. */
   private triggerReconnect(reason: string): void {
     Promise.resolve(this.reconnect(reason)).catch((error) => {
-      const normalized = asError(error);
+      const normalized = toError(error);
       if (!this.closed) this.sink?.onError(normalized);
       void this.log.error("Gemini reconnect failed", normalized);
     });
@@ -401,4 +400,4 @@ function geminiTools(): Record<string, unknown>[] {
   return [...geminiOrchestrationTools()];
 }
 
-function asError(value: unknown): Error { return value instanceof Error ? value : new Error(String(value)); }
+
