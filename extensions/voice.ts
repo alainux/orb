@@ -4,31 +4,33 @@ import { Container, SettingsList, type SettingItem } from "@earendil-works/pi-tu
 import { parseVoiceCommand } from "../src/commands.js";
 import { resolveAutoStartVoice, thinkingDisplayValue } from "../src/config.js";
 import { VoiceController } from "../src/controller.js";
-import type { ThinkingDisplay } from "../src/types.js";
+import type { PrefKey } from "../src/settings.js";
 
 const INSTANCE_KEY = Symbol.for("alainux.orb.voice-extension");
 
 /**
  * Canonical settings panel (Pi docs tui.md "Pattern 3 - Settings/Toggles" and
- * examples/extensions/tools.ts). Renders the reasoning-display preference as a
- * SettingsList; changes push through the controller, which persists them via
- * the canonical session entry (appendEntry), not a config file.
+ * examples/extensions/tools.ts). Renders every user preference from the
+ * controller's shared catalog (src/settings.ts) as a SettingsList; changes are
+ * pushed through the controller, which persists them via the canonical session
+ * entry (appendEntry) — never by writing to the user's config file.
  */
 async function showVoiceSettings(controller: VoiceController, ctx: ExtensionCommandContext): Promise<void> {
   if (!ctx.hasUI || ctx.mode !== "tui") {
     ctx.ui.notify("Orb settings requires the interactive TUI.", "warning");
     return;
   }
-  const items: SettingItem[] = [
-    {
-      id: "thinkingDisplay",
-      label: "Thinking display",
-      description: "How the model's reasoning is shown in the feed",
-      currentValue: controller.thinkingDisplayPref,
-      values: ["minimized", "full", "hidden"],
-    },
-  ];
   await ctx.ui.custom((_tui, theme, _kb, done) => {
+    const buildItems = (): SettingItem[] =>
+      controller.getSettings().map((row) => ({
+        id: row.id,
+        label: `${row.group}  ${row.label}`,
+        description: row.description,
+        currentValue: row.currentValue,
+        values: row.values,
+      }));
+
+    const items = buildItems();
     const container = new Container();
     container.addChild(new (class {
       render(_width: number) { return [theme.fg("accent", theme.bold("Orb Voice Settings")), ""]; }
@@ -39,13 +41,8 @@ async function showVoiceSettings(controller: VoiceController, ctx: ExtensionComm
       Math.min(items.length + 2, 15),
       getSettingsListTheme(),
       (id, newValue) => {
-        if (id === "thinkingDisplay") {
-          const mode = newValue as ThinkingDisplay;
-          if (mode === "full" || mode === "minimized" || mode === "hidden") {
-            controller.setThinkingDisplay(mode, ctx);
-            list.updateValue("thinkingDisplay", mode);
-          }
-        }
+        controller.setPref(id as PrefKey, newValue, ctx);
+        list.updateValue(id, newValue);
       },
       () => done?.(undefined),
       { enableSearch: true },
@@ -107,7 +104,7 @@ export default function orbVoiceExtension(pi: ExtensionAPI): void {
   pi.on("session_shutdown", async (_event, ctx) => { await controller.stop(ctx, { quiet: true }); });
   // Restore a display preference saved in the current branch on branch
   // navigation (canonical `appendEntry` restore, as in examples/tools.ts).
-  pi.on("session_tree", async (_event, ctx) => { controller.restoreThinkingPref(ctx); });
+  pi.on("session_tree", async (_event, ctx) => { controller.restorePrefs(ctx); });
 }
 
 export async function handleVoiceCommand(controller: VoiceController, rawArgs: string, ctx: ExtensionCommandContext): Promise<void> {

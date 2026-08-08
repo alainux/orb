@@ -31,8 +31,8 @@ test("setThinkingDisplay applies immediately and persists via a session entry, n
 
   // Applied to the live view-model for instant re-derive.
   assert.equal(c.thinkingDisplayPref, "full");
-  // Persisted to the Pi session tree (canonical appendEntry pattern)…
-  assert.deepEqual(records, [[VOICE_PREFS_ENTRY, { thinkingDisplay: "full" }]]);
+  // Persisted to the Pi session tree (… first try/catch)…
+  assert.deepEqual(records, [[VOICE_PREFS_ENTRY, { thinking: "full" }]]);
   // …with the canonical payload shape, exactly one entry.
   assert.equal(records.length, 1);
   // A system row + notify was surfaced for the user.
@@ -47,7 +47,7 @@ test("cycleThinkingDisplay rotates minimized → full → hidden and persists ea
 
   c.cycleThinkingDisplay(branchCtx([]));
   assert.equal(c.thinkingDisplayPref, "full");
-  assert.deepEqual(records.at(-1), [VOICE_PREFS_ENTRY, { thinkingDisplay: "full" }]);
+  assert.deepEqual(records.at(-1), [VOICE_PREFS_ENTRY, { thinking: "full" }]);
   reset();
 
   c.cycleThinkingDisplay(branchCtx([]));
@@ -65,12 +65,12 @@ test("restoreThinkingPref restores the newest matching entry from the branch, si
 
   const branch = [
     { type: "message", message: { role: "assistant" } },
-    { type: "custom", customType: VOICE_PREFS_ENTRY, data: { thinkingDisplay: "full" } },
+    { type: "custom", customType: VOICE_PREFS_ENTRY, data: { thinking: "full" } },
     { type: "tool_call", toolName: "run" },
-    { type: "custom", customType: VOICE_PREFS_ENTRY, data: { thinkingDisplay: "hidden" } },
+    { type: "custom", customType: VOICE_PREFS_ENTRY, data: { thinking: "hidden" } },
     { type: "custom", customType: "some-other-ext", data: {} },
   ];
-  c.restoreThinkingPref(branchCtx(branch));
+  c.restorePrefs(branchCtx(branch));
 
   // Newest orb-prefs entry wins; the restore is applied but not re-persisted.
   assert.equal(c.thinkingDisplayPref, "hidden");

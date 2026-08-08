@@ -9,6 +9,7 @@ import { RunLog } from "./log.js";
 import { PiControl } from "./pi-control.js";
 import { PiLogMirror } from "./pi-log.js";
 import { createProvider } from "./providers/index.js";
+import { buildPreferences, parseSettingValue, type PrefsView, type SettingDescriptor, type VoicePrefs, type PrefKey } from "./settings.js";
 import { Scratchpad } from "./scratchpad.js";
 import { ScratchpadViewer } from "./scratchpad-view.js";
 import { ThinkingTracker, thinkingLabel, createFileLog } from "./thinking-timing.js";
@@ -27,7 +28,6 @@ import { VoiceWidget } from "./widget.js";
  */
 export const VOICE_PREFS_ENTRY = "orb-voice-prefs";
 
-export interface VoicePrefsPayload { thinkingDisplay: ThinkingDisplay; }
 
 export class VoiceController {
   /** Provider-agnostic "Thinking…" duration tracer (shared by every voice model). */
@@ -86,8 +86,8 @@ export class VoiceController {
   private inputSuppressedUntil = 0;
   private lastAudioRecoveries = 0;
   private playoutMonitor: PlayoutMonitor | undefined;
-  /** In-session reasoning-display preference (overrides the config default). */
-  private displayPref: ThinkingDisplay | undefined;
+  /** Live, user-togglable preferences for the current Pi session. */
+  private prefs: VoicePrefs = {};
 
   constructor(private readonly pi: ExtensionAPI) {}
   get active(): boolean { return this.state.active; }
@@ -102,7 +102,7 @@ export class VoiceController {
       this.config = await loadVoiceConfig(this.providerOverride, ctx.cwd);
       // A preference persisted in the session branch (canonical restore) wins
       // over the configured default for this voice session.
-      this.restoreThinkingPref(ctx);
+      this.restorePrefs(ctx);
       this.log = await RunLog.create(this.config.logDir);
       this.thinkingTracker = new ThinkingTracker(thinkingLabel(this.config.provider, this.config.model), { log: createFileLog(this.config.logDir) });
       this.feed.clear();
@@ -195,27 +195,74 @@ export class VoiceController {
     this.widget?.tick();
   }
 
-  /**
-   * Set the reasoning-display preference for the feed (full / minimized /
-   * hidden). Applied immediately: the widget re-derives every thinking row from
-   * the stored full text, so existing rows hide/expand without a reload. The
-   * choice is persisted through the Pi session (canonical extension pattern),
-   * not written back into the user's config file.
-   */
   setThinkingDisplay(mode: ThinkingDisplay, ctx?: ExtensionContext): void {
-    this.applyThinkingDisplay(mode, ctx, { notify: true, persist: true });
+    this.setPref("thinking", mode, ctx);
   }
 
   /** Cycle the reasoning-display preference: minimized → full → hidden → … */
   cycleThinkingDisplay(ctx: ExtensionContext): void {
     const order: ThinkingDisplay[] = ["minimized", "full", "hidden"];
     const next = order[(order.indexOf(this.currentDisplay()) + 1) % order.length] ?? "minimized";
-    this.setThinkingDisplay(next, ctx);
+    this.setPref("thinking", next, ctx);
   }
 
-  /** Apply a reasoning-display preference, optionally surfacing/saved. */
+  /** Accessor for the SettingsList: the active reasoning display. */
+  get thinkingDisplayPref(): ThinkingDisplay {
+    return this.currentDisplay();
+  }
+
+  /** The current reasoning-display preference (falls back to configured). */
+  private currentDisplay(): ThinkingDisplay {
+    return this.prefs.thinking ?? this.config?.thinkingDisplay ?? "minimized";
+  }
+
+  /**
+   * Surface every preference row for the /voice settings panel, derived from
+   * live state via the shared catalog (src/settings.ts).
+   */
+  getSettings(): SettingDescriptor[] {
+    const view: PrefsView = {
+      prefs: this.prefs,
+      config: this.config,
+      active: this.state.active,
+      activeProvider: this.config?.provider ?? this.providerOverride,
+      currentVoice: this.config?.voice,
+    };
+    return buildPreferences(view);
+  }
+
+  /**
+   * Apply a preference chosen from the SettingsList. Persists it through the
+   * session entry (canonical appendEntry), and where a live side-effect exists
+   * (reasoning display, active voice) applies it immediately. Session-scoped
+   * choices take effect on the next voice start/reconnect.
+   */
+  setPref(id: PrefKey, value: string, ctx?: ExtensionContext): void {
+    const delta = parseSettingValue(id, value);
+    this.prefs = { ...this.prefs, ...delta };
+    this.applyStoredPrefsToConfig();
+    this.persistPrefs();
+
+    const cfg = this.config;
+    if (id === "thinking" && delta.thinking) {
+      this.applyThinkingDisplay(delta.thinking, ctx, { notify: true, persist: false });
+    } else if (id === "voice" && delta.voice && this.state.active && this.provider && cfg) {
+      cfg.voice = delta.voice;
+      void this.provider.setVoice(delta.voice)
+        .then(() => {
+          ctx?.ui.notify(`Orb voice → ${delta.voice}`, "info");
+          void this.log?.info("voice switched", { voice: delta.voice });
+        })
+        .catch((error: unknown) => ctx?.ui.notify?.(`Voice switch failed: ${error instanceof Error ? error.message : String(error)}`, "error"));
+    } else if (!this.state.active && ctx?.ui?.notify) {
+      ctx.ui.notify("Preference saved — applies to the next voice session.", "info");
+    }
+    this.widget?.tick();
+  }
+
+  /** Apply a reasoning-display preference live, optionally notifying/saving. */
   private applyThinkingDisplay(mode: ThinkingDisplay, ctx: ExtensionContext | undefined, opts: { notify: boolean; persist: boolean }): void {
-    this.displayPref = mode;
+    this.prefs.thinking = mode;
     this.state.thinkingDisplay = mode;
     if (this.config) this.config.thinkingDisplay = mode;
     if (opts.notify) {
@@ -225,50 +272,58 @@ export class VoiceController {
       void this.log?.info("thinking-display", { mode });
     }
     this.widget?.tick();
-    if (opts.persist) this.persistDisplayPref();
-  }
-
-  /** The current reasoning-display preference (falls back to configured). */
-  private currentDisplay(): ThinkingDisplay {
-    return this.state.thinkingDisplay || this.config?.thinkingDisplay || "minimized";
-  }
-
-  /** Read-only accessor so settings UI can reflect the live preference. */
-  get thinkingDisplayPref(): ThinkingDisplay {
-    return this.currentDisplay();
+    if (opts.persist) this.persistPrefs();
   }
 
   /**
-   * Restore a reasoning-display preference saved in the current session branch
-   * (canonical `appendEntry` restore; see docs examples/tools.ts). Applied
-   * silently — no feed notice, notification, or re-persist — then re-derived by
-   * the widget like any other display change.
+   * Restore preferences persisted in the current session branch (canonical
+   * appendEntry restore; see docs examples/tools.ts). Applied silently — no
+   * feed notice, notification, or re-persist.
    */
-  restoreThinkingPref(ctx: ExtensionContext | undefined): void {
-    const saved: ThinkingDisplay | undefined = this.findSavedPref(ctx);
-    if (saved) this.applyThinkingDisplay(saved, ctx, { notify: false, persist: false });
+  restorePrefs(ctx: ExtensionContext | undefined): void {
+    const saved = this.findSavedPrefs(ctx);
+    if (!saved) return;
+    this.prefs = saved;
+    this.applyStoredPrefsToConfig();
+    if (saved.thinking) this.applyThinkingDisplay(saved.thinking, ctx, { notify: false, persist: false });
+    this.widget?.tick();
+  }
+
+  /** Override loaded config fields with any stored preference. */
+  private applyStoredPrefsToConfig(): void {
+    const cfg = this.config;
+    if (!cfg) return;
+    const p = this.prefs;
+    if (p.thinking) cfg.thinkingDisplay = p.thinking;
+    if (p.budget !== undefined) cfg.geminiThinkingBudget = p.budget;
+    if (p.provider && p.provider !== "auto") cfg.provider = p.provider;
+    if (p.voice) cfg.voice = p.voice;
+    if (p.compression !== undefined) cfg.geminiContextCompression = p.compression;
+    if (p.resumption !== undefined) cfg.geminiSessionResumption = p.resumption;
+    if (p.braille !== undefined) cfg.orbBraille = p.braille;
+    if (p.autoStart !== undefined) cfg.autoStartVoice = p.autoStart;
   }
 
   /** Scans the current branch for the newest Orb preference entry. */
-  private findSavedPref(ctx: ExtensionContext | undefined): ThinkingDisplay | undefined {
+  private findSavedPrefs(ctx: ExtensionContext | undefined): VoicePrefs | undefined {
     try {
       const entries = ctx?.sessionManager?.getBranch?.() ?? [];
       for (let i = entries.length - 1; i >= 0; i--) {
         const entry = entries[i];
-        const e = entry as { type?: string; customType?: string; data?: VoicePrefsPayload } | null;
-        if (e && e.type === "custom" && e.customType === VOICE_PREFS_ENTRY && e.data?.thinkingDisplay) return e.data.thinkingDisplay;
+        const e = entry as { type?: string; customType?: string; data?: VoicePrefs } | null;
+        if (e && e.type === "custom" && e.customType === VOICE_PREFS_ENTRY && e.data && Object.keys(e.data).length) return e.data;
       }
     } catch { /* a fake/unavailable session manager is fine */ }
     return undefined;
   }
 
-  /** Durable-write the current display preference into the Pi session. */
-  private persistDisplayPref(): void {
+  /** Durable-write the current preference map into the Pi session. */
+  private persistPrefs(): void {
     try {
-      const piApi = this.pi as ExtensionAPI & { appendEntry?: (customType: string, data: VoicePrefsPayload) => void };
-      piApi.appendEntry?.(VOICE_PREFS_ENTRY, { thinkingDisplay: this.currentDisplay() });
+      const piApi = this.pi as ExtensionAPI & { appendEntry?: (customType: string, data: VoicePrefs) => void };
+      piApi.appendEntry?.(VOICE_PREFS_ENTRY, this.prefs);
     } catch (error: unknown) {
-      this.log?.error("thinking-display-persist-failed", error);
+      this.log?.error("prefs-persist-failed", error);
     }
   }
 
