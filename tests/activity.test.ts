@@ -70,3 +70,17 @@ test("a late final with different text still becomes its own entry",()=>{
   assert.deepEqual(rows.map(x=>x.kind),["voice","you","voice"]);
   assert.equal(rows[2]?.text,"First answer, revised");
 });
+
+test("finalized turns are notified once for durable logging (partials & replays skipped)",()=>{
+  const turns:Array<{kind:string;text:string}> = [];
+  const feed = new ActivityFeed((t) => turns.push({ kind: t.kind, text: t.text }));
+  feed.transcript("you","hello",false);   // partial — no notification
+  feed.transcript("you","hello",true);    // committed
+  feed.transcript("you","hello",true);    // replay — dropped
+  feed.transcript("voice","hey",false);   // partial
+  feed.finalize("voice");                 // committed
+  assert.deepEqual(turns, [
+    { kind: "you", text: "hello" },
+    { kind: "voice", text: "hey" },
+  ]);
+});

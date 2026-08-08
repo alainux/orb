@@ -32,6 +32,7 @@ Go audio sidecar → adaptive playout buffer → operating-system audio callback
 
 - `extensions/voice.ts` — Pi entry point, `/voice`, shortcut, Pi lifecycle/user-bash events.
 - `src/controller.ts` — session lifecycle and orchestration.
+- `src/agent-tools.ts` — the voice agent's native coding layer. It builds pi's real `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` tools (via the `pi-coding-agent` SDK's `create*Tool` exports) against the project cwd and dispatches the realtime provider's `function_call`s to them in-process, so the voice model can code small/quick tasks itself instead of always delegating. Also carries the shared OpenAI/Gemini tool schema descriptions and a permission gate (`permissions.nativeTools`).
 - `src/pi-control.ts` — permission-gated Pi controls.
 - `src/pi-log.ts` — visible Pi state mirror used by the voice model.
 - `src/scratchpad.ts` — ephemeral long-form working document.

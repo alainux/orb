@@ -11,6 +11,7 @@ export interface OrbPermissions {
   setThinking: boolean;
   setTools: boolean;
   shell: boolean;
+  nativeTools: boolean;
   scratchpadRead: boolean;
   scratchpadWrite: boolean;
   scratchpadOutsideProject: boolean;
@@ -85,6 +86,8 @@ export interface VoiceProvider {
   connect(sink: VoiceProviderSink, context: VoiceSessionContext): Promise<void>;
   sendAudio(pcm: Buffer): void;
   sendText(text: string, options?: { requestResponse?: boolean }): void;
+  /** Switch the spoken voice, reconfiguring the live session without a full reload. */
+  setVoice(voice: string): Promise<void>;
   close(): Promise<void>;
 }
 

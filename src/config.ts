@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { DEFAULT_VOICE_SYSTEM_PROMPT } from "./policy.js";
+import { composeSystemPrompt } from "./policy.js";
 import type { VoiceConfig, VoiceProviderName } from "./types.js";
 
 type JsonObject = Record<string, any>;
@@ -70,16 +70,24 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
     ? (envFirst("GEMINI_LIVE_MODEL") ?? providerConfig.model ?? "gemini-3.1-flash-live-preview")
     : (envFirst("OPENAI_REALTIME_MODEL") ?? providerConfig.model ?? "gpt-realtime-2.1");
   const voice = provider === "gemini"
-    ? (envFirst("GEMINI_VOICE") ?? providerConfig.voice ?? "Aoede")
+    ? (envFirst("GEMINI_VOICE") ?? providerConfig.voice ?? "Zephyr")
     : (envFirst("OPENAI_VOICE") ?? providerConfig.voice ?? "marin");
 
   const promptFile = envFirst("ORB_PROMPT_FILE", "PI_VOICE_PROMPT_FILE") ?? voiceConfig.promptFile;
   const inlinePrompt = envFirst("ORB_SYSTEM_PROMPT", "PI_VOICE_SYSTEM_PROMPT") ?? voiceConfig.systemPrompt;
-  let systemPrompt = typeof inlinePrompt === "string" && inlinePrompt.trim() ? inlinePrompt.trim() : DEFAULT_VOICE_SYSTEM_PROMPT;
+  // Compose the final prompt: BASE_ORB_PROMPT is non-overridable and always kept;
+  // a prompt file or inline override replaces only the overridable layer. With
+  // neither, the shipped prompts/default.md is the default layer.
+  let systemPrompt: string;
   if (typeof promptFile === "string" && promptFile.trim()) {
     const resolved = expandPath(promptFile, cwd);
-    systemPrompt = (await readFile(resolved, "utf8")).trim();
-    if (!systemPrompt) throw new Error(`Voice prompt file is empty: ${resolved}`);
+    const layer = (await readFile(resolved, "utf8")).trim();
+    if (!layer) throw new Error(`Voice prompt file is empty: ${resolved}`);
+    systemPrompt = composeSystemPrompt(layer);
+  } else if (typeof inlinePrompt === "string" && inlinePrompt.trim()) {
+    systemPrompt = composeSystemPrompt(inlinePrompt);
+  } else {
+    systemPrompt = composeSystemPrompt();
   }
 
   const logDirRaw = envFirst("ORB_LOG_DIR", "PI_VOICE_LOG_DIR") ?? loggingConfig.dir;
@@ -92,7 +100,7 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
     apiKey,
     model: String(model),
     voice: String(voice),
-    temperature: numberValue(envFirst("ORB_TEMPERATURE", "PI_VOICE_TEMPERATURE") ?? voiceConfig.temperature, 0.72, 0, 2, "temperature"),
+    temperature: numberValue(envFirst("ORB_TEMPERATURE", "PI_VOICE_TEMPERATURE") ?? voiceConfig.temperature, 0.83, 0, 2, "temperature"),
     systemPrompt,
     greetingEnabled: boolValue(envFirst("ORB_GREETING", "PI_VOICE_GREETING") ?? voiceConfig.greeting, true, "voice.greeting"),
     orbAspect: numberValue(envFirst("ORB_ASPECT", "PI_VOICE_ORB_ASPECT") ?? uiConfig.orbAspect, 2, 0.45, 3, "ui.orbAspect"),
@@ -113,6 +121,7 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
       setThinking: boolValue(envFirst("ORB_ALLOW_SET_THINKING") ?? permissionConfig.setThinking, true, "permissions.setThinking"),
       setTools: boolValue(envFirst("ORB_ALLOW_SET_TOOLS") ?? permissionConfig.setTools, true, "permissions.setTools"),
       shell: boolValue(envFirst("ORB_ALLOW_SHELL") ?? permissionConfig.shell, true, "permissions.shell"),
+      nativeTools: boolValue(envFirst("ORB_ALLOW_NATIVE_TOOLS") ?? permissionConfig.nativeTools, true, "permissions.nativeTools"),
       scratchpadRead: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_READ") ?? permissionConfig.scratchpadRead, true, "permissions.scratchpadRead"),
       scratchpadWrite: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_WRITE") ?? permissionConfig.scratchpadWrite, true, "permissions.scratchpadWrite"),
       scratchpadOutsideProject: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_OUTSIDE_PROJECT") ?? permissionConfig.scratchpadOutsideProject, false, "permissions.scratchpadOutsideProject"),

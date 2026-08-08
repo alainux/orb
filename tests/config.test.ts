@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadVoiceConfig } from "../src/config.js";
+import { BASE_ORB_PROMPT } from "../src/base-prompt.js";
 
 async function withEnv(values:Record<string,string|undefined>,run:()=>Promise<void>):Promise<void>{
   const prev:Record<string,string|undefined>={};
@@ -22,7 +23,7 @@ test("JSON config controls UI, session and prompt file",async()=>{
   await writeFile(configFile,JSON.stringify({provider:"gemini",voice:{temperature:0.31,promptFile:prompt,greeting:false},ui:{panelHeight:11,orbDensity:1.3,orbReactivity:0.35,orbBraille:true},session:{geminiSessionResumption:true,geminiContextCompression:true}}),"utf8");
   await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:configFile},async()=>{
     const config=await loadVoiceConfig(undefined,root);
-    assert.equal(config.temperature,0.31);assert.equal(config.systemPrompt,"CUSTOM ORB PROMPT");assert.equal(config.panelHeight,11);assert.equal(config.orbDensity,1.3);assert.equal(config.orbReactivity,0.35);assert.equal(config.orbBraille,true);assert.equal(config.greetingEnabled,false);assert.equal(config.configFiles.includes(configFile),true);
+    assert.equal(config.temperature,0.31);assert.ok(config.systemPrompt.startsWith(BASE_ORB_PROMPT),"base prompt is always prepended");assert.match(config.systemPrompt,/CUSTOM ORB PROMPT/);assert.ok(config.systemPrompt.indexOf("CUSTOM ORB PROMPT")>BASE_ORB_PROMPT.length,"custom layer sits below the base");assert.equal(config.panelHeight,11);assert.equal(config.orbDensity,1.3);assert.equal(config.orbReactivity,0.35);assert.equal(config.orbBraille,true);assert.equal(config.greetingEnabled,false);assert.equal(config.configFiles.includes(configFile),true);
   });
 });
 

@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ActivityFeed } from "./activity.js";
+import { AgentToolbox } from "./agent-tools.js";
 import { GoAudioBridge, type AudioLevels } from "./audio/bridge.js";
 import { PcmInputAdapter } from "./audio/input-adapter.js";
 import { loadVoiceConfig } from "./config.js";
@@ -11,11 +12,21 @@ import { createProvider } from "./providers/index.js";
 import { Scratchpad } from "./scratchpad.js";
 import { ScratchpadViewer } from "./scratchpad-view.js";
 import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderName, VoiceViewState } from "./types.js";
+import { auditionLine, nextVoice, resolveVoice, voiceOptions } from "./voices.js";
 import { VoiceWidget } from "./widget.js";
 
 export class VoiceController {
-  private readonly feed = new ActivityFeed();
-  private readonly piLog = new PiLogMirror();
+  private readonly feed = new ActivityFeed((turn) => {
+    // Durably record each committed spoken turn. Only the finalized visible
+    // text is emitted here (partials and replays are suppressed), so hidden
+    // chain-of-thought never leaks into the run log.
+    void this.log?.info("conversation", { speaker: turn.kind, text: turn.text });
+  });
+  private readonly piLog = new PiLogMirror((event) => {
+    // Durably record Pi's observable activity (final text / tool execs / status)
+    // into the run log for debugging; reasoning stays hidden upstream.
+    void this.log?.info("pi-activity", event);
+  });
   private state: VoiceViewState = {
     active: false, status: "off", source: "idle", muted: false, inputTranscript: "", outputTranscript: "",
     inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0,
@@ -34,7 +45,11 @@ export class VoiceController {
   private observingPi = 0;
   private readonly delegated = new DelegatedWorkTracker();
   private scratchpad: Scratchpad | undefined;
+  private scratchpadViewerOpen = false;
+  /** Live dismiss handle for the open viewer so close actions can tear it down programmatically. */
+  private dismissScratchpadViewer: (() => void) | undefined;
   private piControl: PiControl | undefined;
+  private agentTools: AgentToolbox | undefined;
   private interruptionTimes: number[] = [];
   private inputSuppressedUntil = 0;
   private lastAudioRecoveries = 0;
@@ -55,6 +70,7 @@ export class VoiceController {
       this.feed.add("system", `Orb voice · ${this.config.provider}`);
       this.scratchpad = new Scratchpad(ctx.cwd, this.config.scratchpad, this.config.permissions.scratchpadOutsideProject);
       this.piControl = new PiControl(this.pi, this.config.permissions);
+      this.agentTools = new AgentToolbox(ctx.cwd, this.config.permissions);
       this.interruptionTimes = [];
       this.inputSuppressedUntil = 0;
       this.lastAudioRecoveries = 0;
@@ -138,6 +154,39 @@ export class VoiceController {
     this.widget?.tick();
   }
 
+  /** Switch the voice live: /voice voice one|list (no name cycles to the next). */
+  setVoice(voice: string | undefined, ctx: ExtensionContext): void {
+    if (!this.state.active || !this.provider || !this.config) {
+      ctx.ui.notify("Start Orb voice before switching its voice.", "warning");
+      return;
+    }
+    const config = this.config;
+    void (async () => {
+      try {
+        const providerName = config.provider;
+        const options = voiceOptions(providerName);
+        if (voice?.trim().toLowerCase() === "list") {
+          ctx.ui.notify(`Voices (${providerName}): ${options.join(", ")} — current: ${config.voice}`, "info");
+          return;
+        }
+        const given = voice && voice.trim() ? voice.trim() : undefined;
+        const target = given ? resolveVoice(providerName, given) : nextVoice(providerName, config.voice);
+        if (!target || !options.includes(target)) {
+          ctx.ui.notify(`Unknown voice: "${given}". Available: ${options.join(", ")}`, "warning");
+          return;
+        }
+        await this.provider!.setVoice(target);
+        config.voice = target;
+        // Speak an introduction so the user can hear (and audition) the new voice.
+        void this.provider!.sendText(auditionLine(target), { requestResponse: true });
+        ctx.ui.notify(`Orb voice → ${target}`, "info");
+        void this.log?.info("voice switched", { voice: target });
+      } catch (error) {
+        ctx.ui.notify(`Voice switch failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+      }
+    })();
+  }
+
   recordPiEvent(eventName: string, event: unknown, ctx?: ExtensionContext): void {
     this.piLog.record(eventName, event);
     this.state.piAgentStatus = this.piLog.agentStatus;
@@ -164,9 +213,9 @@ export class VoiceController {
   async scratchpadCommand(action: "open" | "close" | "view" | "edit" | "load" | "save" | "dispatch", argument: string, ctx: ExtensionCommandContext): Promise<void> {
     if (!this.config || !this.scratchpad) { ctx.ui.notify("Start Orb voice before using its scratchpad.", "warning"); return; }
     switch (action) {
-      case "open": this.scratchpad.open(argument || undefined); break;
-      case "close": this.scratchpad.close(); break;
-      case "view": this.showScratchpadViewer(ctx); return;
+      case "open": this.scratchpad.open(argument || undefined); this.showScratchpadViewer(ctx); break;
+      case "close": this.scratchpad.close(); this.closeScratchpadViewer(); break;
+      case "view": this.showScratchpadViewer(ctx, { notifyIfUnavailable: true }); return;
       case "edit": {
         const editor = ctx.ui.editor;
         if (!editor) { ctx.ui.notify("This Pi UI does not expose the extension editor dialog.", "warning"); return; }
@@ -192,10 +241,18 @@ export class VoiceController {
   }
 
   /** Open the scrollable, markdown-styled scratchpad viewer as a focusable overlay. */
-  private showScratchpadViewer(ctx: ExtensionCommandContext): void {
-    if (!ctx.hasUI || ctx.mode !== "tui") { ctx.ui.notify("Orb's scratchpad viewer requires Pi's interactive TUI mode.", "warning"); return; }
+  private showScratchpadViewer(ctx: ExtensionContext, opts: { notifyIfUnavailable?: boolean } = {}): void {
+    if (!ctx.hasUI || ctx.mode !== "tui") {
+      if (opts.notifyIfUnavailable) ctx.ui.notify("Orb's scratchpad viewer requires Pi's interactive TUI mode.", "warning");
+      return;
+    }
     const pad = this.scratchpad;
-    if (!pad) { ctx.ui.notify("Start Orb voice before using its scratchpad.", "warning"); return; }
+    if (!pad) {
+      if (opts.notifyIfUnavailable) ctx.ui.notify("Start Orb voice before using its scratchpad.", "warning");
+      return;
+    }
+    if (this.scratchpadViewerOpen) return;
+    this.scratchpadViewerOpen = true;
     let dismiss: (() => void) | undefined;
     void ctx.ui.custom(
       (tui, theme) => {
@@ -227,10 +284,28 @@ export class VoiceController {
         },
         onHandle: (handle) => {
           handle.focus();
-          dismiss = () => handle.hide();
+          dismiss = () => { this.scratchpadViewerOpen = false; this.dismissScratchpadViewer = undefined; handle.hide(); };
+          this.dismissScratchpadViewer = dismiss;
         },
       },
     );
+  }
+
+  /** Best-effort viewer open from a voice tool call; silently no-ops when TUI is unavailable. */
+  private tryShowScratchpadViewer(): boolean {
+    const ctx = this.ctx;
+    if (!ctx || !ctx.hasUI || ctx.mode !== "tui") return false;
+    if (!this.scratchpad || this.scratchpadViewerOpen) return false;
+    this.showScratchpadViewer(ctx);
+    return true;
+  }
+
+  /** Programmatically dismiss the viewer overlay (used by the `close` action). Safe to call always. */
+  private closeScratchpadViewer(): void {
+    this.scratchpadViewerOpen = false;
+    const dismiss = this.dismissScratchpadViewer;
+    this.dismissScratchpadViewer = undefined;
+    dismiss?.();
   }
 
   private createProviderSink() {
@@ -288,10 +363,14 @@ export class VoiceController {
       else if (call.name === "read_pi_log") {
         const count = bounded(call.arguments.max_entries, 14, 1, 40);
         const snapshot = this.piLog.snapshot(this.ctx, count);
+        void this.log?.info("voice tool read_pi_log", { entries: snapshot.status, revision: snapshot.revision, visible_chars: snapshot.text.length });
         result = { ok: true, status: snapshot.status, revision: snapshot.revision, log: snapshot.text };
       } else if (call.name === "observe_pi") result = await this.toolObservePi(call);
       else if (call.name === "control_pi") result = await this.toolControlPi(call);
       else if (call.name === "scratchpad") result = await this.toolScratchpad(call);
+      else if (call.name === "set_voice") result = await this.toolSetVoice(call);
+      else if (this.agentTools?.enabled() && AgentToolbox.isCodingTool(call.name)) result = await this.toolNative(call);
+      else if (AgentToolbox.isCodingTool(call.name)) result = { ok: false, error: "Permission disabled: permissions.nativeTools" };
       else result = { ok: false, error: `Unknown tool ${call.name}` };
     } catch (error) {
       result = { ok: false, error: asError(error).message };
@@ -299,6 +378,61 @@ export class VoiceController {
     this.feed.add("voice-tool", `${result.ok === false ? "✗" : "✓"} ${toolResultLabel(call.name, result)}`);
     this.widget?.tick();
     return result;
+  }
+
+  private async toolNative(call: ToolCall): Promise<Record<string, unknown>> {
+    const toolbox = this.agentTools;
+    if (!toolbox) return { ok: false, error: "Native tools are unavailable" };
+    const out = await toolbox.run(call.name, call.id, call.arguments);
+    // Durable audit trail: native coding tools (edit/read/write/bash/grep/...)
+    // only used to surface as a transient in-memory feed row, so they were
+    // invisible in the chat/run logs. Persist name, sanitized args, outcome,
+    // and a bounded output preview to the session run log so execution is
+    // reviewable beyond the current session.
+    const ok = out.ok;
+    const file = this.filePathFrom(call);
+    await this.log?.info("voice native tool", {
+      tool: call.name,
+      ...(file ? { file } : {}),
+      arguments: this.summarizeForLog(call.arguments),
+      ok,
+      ...(ok ? { preview: this.summarizeForLog(out.output, 320) } : { error: out.error }),
+    });
+    return ok ? { ok: true, tool: call.name, output: out.output } : { ok: false, tool: call.name, error: out.error };
+  }
+
+  /**
+   * The file path a tool accesses, surfaced prominently (top-level & first) in
+   * the durable audit log so the file being read/written is obvious at a glance
+   * instead of buried in the nested sanitized arguments. Handles the read-link
+   * family (read, readline) as well as write/edit/ls-by-path via the common
+   * `path`/`file`/`file_path` keys.
+   */
+  private filePathFrom(call: ToolCall): string | undefined {
+    const args = (call.arguments ?? {}) as Record<string, unknown>;
+    for (const key of ["path", "file", "file_path", "filename"]) {
+      const v = args[key];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+    return undefined;
+  }
+
+  /**
+   * Bound/truncate arbitrary tool data for durable logging only — full file
+   * contents and long outputs are never written verbatim to the run log.
+   */
+  private summarizeForLog(value: unknown, maxLen = 200): unknown {
+    if (typeof value === "string") {
+      if (value.length <= maxLen) return value;
+      return `${value.slice(0, maxLen)}…(${value.length} chars)`;
+    }
+    if (Array.isArray(value)) return value.map((v) => this.summarizeForLog(v, maxLen));
+    if (value && typeof value === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = this.summarizeForLog(v, maxLen);
+      return out;
+    }
+    return value;
   }
 
   private async toolRunPiTask(call: ToolCall): Promise<Record<string, unknown>> {
@@ -330,6 +464,7 @@ export class VoiceController {
     try {
       await this.piLog.observe(after, until, timeout);
       const snapshot = this.piLog.snapshot(this.ctx, max);
+      void this.log?.info("voice tool observe_pi", { until, after, timeout_ms: timeout, timed_out: snapshot.revision <= after, status: snapshot.status });
       return { ok: true, status: snapshot.status, revision: snapshot.revision, log: snapshot.text, timed_out: snapshot.revision <= after };
     } finally {
       this.observingPi--;
@@ -357,8 +492,9 @@ export class VoiceController {
     const action = String(call.arguments.action ?? "read");
     let result: Record<string, unknown> = { ok: true };
     switch (action) {
-      case "open": pad.open(stringArg(call, "title") || undefined); break;
-      case "close": pad.close(); break;
+      case "open": pad.open(stringArg(call, "title") || undefined); this.tryShowScratchpadViewer(); break;
+      case "view": pad.open(); this.tryShowScratchpadViewer(); break;
+      case "close": pad.close(); this.closeScratchpadViewer(); break;
       case "read": break;
       case "replace": pad.replace(stringArg(call, "content"), stringArg(call, "title") || undefined); break;
       case "append": pad.append(stringArg(call, "content")); break;
@@ -381,7 +517,35 @@ export class VoiceController {
     }
     this.syncScratchpad();
     const snapshot = pad.snapshot();
+    void this.log?.info("voice tool scratchpad", {
+      action,
+      ok: result.ok !== false,
+      ...(typeof result.path === "string" ? { path: result.path } : {}),
+      ...(result.ok && "dispatched_characters" in result ? { dispatched_characters: result.dispatched_characters } : {}),
+      characters: snapshot.content.length,
+    });
     return { ...result, scratchpad: { ...snapshot, content: snapshot.content.slice(0, 120_000) } };
+  }
+
+  /** set_voice tool: let the agent switch the live voice (robust config-equivalent). */
+  private async toolSetVoice(call: ToolCall): Promise<Record<string, unknown>> {
+    const provider = this.provider;
+    const config = this.config;
+    if (!provider || !config) return { ok: false, error: "Voice session is unavailable" };
+    const raw = String(call.arguments.voice ?? "").trim();
+    if (!raw) {
+      const opts = voiceOptions(config.provider);
+      return { ok: false, error: `Which voice? Available: ${opts.join(", ")}` };
+    }
+    const target = resolveVoice(config.provider, raw);
+    if (!target) {
+      const opts = voiceOptions(config.provider);
+      return { ok: false, error: `Unknown voice "${raw}". Available: ${opts.join(", ")}` };
+    }
+    await provider.setVoice(target);
+    config.voice = target;
+    void this.log?.info("voice switched via tool", { voice: target });
+    return { ok: true, voice: target, provider: config.provider };
   }
 
   private syncScratchpad(): void {
@@ -477,6 +641,8 @@ function toolLabel(call: ToolCall): string {
     return `Pi ${action.replaceAll("_", " ")}`;
   }
   if (call.name === "scratchpad") return `scratchpad · ${String(call.arguments.action ?? "read")}`;
+  if (call.name === "set_voice") return `voice → ${String(call.arguments.voice ?? "next")}`;
+  if (AgentToolbox.isCodingTool(call.name)) return `${call.name} · ${nativeLabel(call)}`;
   return call.name;
 }
 function toolResultLabel(name: string, result: Record<string, unknown>): string {
@@ -486,7 +652,38 @@ function toolResultLabel(name: string, result: Record<string, unknown>): string 
   if (name === "read_pi_log") return "Pi result checked";
   if (name === "control_pi") return "Pi control applied";
   if (name === "scratchpad") return "scratchpad updated";
+  if (name === "set_voice") return `voice → ${String(result.voice ?? "")}`;
+  if (AgentToolbox.isCodingTool(name)) return "tool result";
   return name;
+}
+function nativeLabel(call: ToolCall): string {
+  return nativeToolLabel(call);
+}
+
+/**
+ * Short label for a native coding tool shown in the Orb panel. File-backed
+ * tools (read/write/edit) render a compact trailing file name (basename)
+ * rather than a noisy full path; longer paths are trimmed so the row stays
+ * readable. Exported so tests can pin the panel presentation.
+ */
+export function nativeToolLabel(call: ToolCall): string {
+  if (call.name === "bash") return String(call.arguments.command ?? "").replace(/\s+/g, " ").trim().slice(0, 90) || "shell";
+  if (call.name === "read" || call.name === "write" || call.name === "edit") {
+    return shortFileName(call.arguments.path)
+      || (call.name === "read" ? "read file" : call.name === "write" ? "write file" : "edit file");
+  }
+  if (call.name === "grep") return String(call.arguments.pattern ?? "").slice(0, 60) || "grep";
+  if (call.name === "find") return String(call.arguments.pattern ?? "").slice(0, 60) || "find";
+  if (call.name === "ls") return shortFileName(call.arguments.path) || "list dir";
+  return call.name;
+}
+
+/** Collapse a path to its trailing file name, trimmed for a small panel row. */
+function shortFileName(value: unknown): string {
+  const p = String(value ?? "").trim();
+  if (!p) return "";
+  const base = p.split(/[/\\]/).filter(Boolean).pop() ?? p;
+  return base.length > 50 ? `${base.slice(0, 50)}…` : base;
 }
 function bounded(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = Number(value);

@@ -16,3 +16,30 @@ test("Pi session branch exposes normal ! command output but respects !! exclusio
   {type:"message",message:{role:"bashExecution",command:"git status",output:"clean",exitCode:0,cancelled:false,excludeFromContext:false}},
   {type:"message",message:{role:"bashExecution",command:"secret",output:"hidden",exitCode:0,cancelled:false,excludeFromContext:true}},
 ]}};const s=m.snapshot(ctx,10);assert.match(s.text,/git status/);assert.match(s.text,/clean/);assert.doesNotMatch(s.text,/secret|hidden/);});
+
+test("Pi visible activity is forwarded durably but hidden thinking is not",()=>{
+  const got:Array<{kind:string;text:string}> = [];
+  const m = new PiLogMirror((e) => got.push(e));
+  m.record("agent_start",{});
+  m.record("message_update",{assistantMessageEvent:{type:"thinking_delta",delta:"secret-plan"}});
+  m.record("message_end",{message:{role:"assistant",content:[{type:"thinking",thinking:"hidden"},{type:"text",text:"Found it"}]}});
+  m.record("tool_execution_start",{toolName:"read"});
+  m.record("tool_execution_end",{toolName:"read"});
+  m.record("user_bash",{command:"git status",excludeFromContext:false});
+  const all = got.map(x => x.text).join(" | ");
+  assert.match(all,/Pi started working/);
+  assert.match(all,/Found it/);
+  assert.match(all,/read/);
+  assert.match(all,/git status/);
+  // thinking delta & hidden thinking never forwarded
+  assert.doesNotMatch(all,/secret-plan|hidden/i);
+  // no live text_delta notes (only finalized assistant text is forwarded)
+  assert.equal(got.filter(e => e.text.includes("secret-plan")).length, 0);
+});
+
+test("excluded !! bash is not forwarded for durable logging",()=>{
+  const got:Array<{kind:string;text:string}> = [];
+  const m = new PiLogMirror((e) => got.push(e));
+  m.record("user_bash",{command:"rm -rf secret",excludeFromContext:true});
+  assert.equal(got.some(e => e.text.includes("secret")), false);
+});

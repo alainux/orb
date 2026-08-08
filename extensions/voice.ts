@@ -51,7 +51,8 @@ export async function handleVoiceCommand(controller: VoiceController, rawArgs: s
     case "log": controller.showDiagnostics(ctx); break;
     case "provider": controller.setProvider(command.provider, ctx); break;
     case "mute": controller.setMuted(ctx, command.muted); break;
+    case "voice": controller.setVoice(command.voice, ctx); break;
     case "scratchpad": await controller.scratchpadCommand(command.scratchpadAction, command.argument, ctx); break;
-    case "help": ctx.ui.notify("/voice [start [gemini|openai]] · /voice status · /voice log · /voice provider <name> · /voice mute [on|off] · /voice scratchpad [open|view|edit|load|save|dispatch|close] · /voice stop", "info"); break;
+    case "help": ctx.ui.notify("/voice [start [gemini|openai]] · /voice status · /voice log · /voice provider <name> · /voice mute [on|off] · /voice voice [name|list] · /voice scratchpad [open|view|edit|load|save|dispatch|close] · /voice stop", "info"); break;
   }
 }

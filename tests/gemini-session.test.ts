@@ -49,7 +49,7 @@ function geminiConfig(): VoiceConfig {
     geminiContextCompression: true,
     geminiCompressionTriggerTokens: 18000,
     geminiCompressionTargetTokens: 9000,
-    permissions: { cancelPi: true, setModel: true, setThinking: true, setTools: true, shell: true, scratchpadRead: true, scratchpadWrite: true, scratchpadOutsideProject: false },
+    permissions: { cancelPi: true, setModel: true, setThinking: true, setTools: true, shell: true, nativeTools: true, scratchpadRead: true, scratchpadWrite: true, scratchpadOutsideProject: false },
     audio: { bufferMs: 140, maxBufferMs: 380, recoveryStepMs: 40, interruptionStormCount: 3, interruptionStormWindowMs: 1800, interruptionRecoveryMuteMs: 320 },
     scratchpad: { panelHeight: 18, maxBytes: 524288 },
   };

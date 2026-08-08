@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { openAICodingTools } from "../agent-tools.js";
 import type { RunLog } from "../log.js";
 import { greetingCue } from "../policy.js";
 import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderSink, VoiceSessionContext } from "../types.js";
@@ -120,13 +121,24 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           {
             type: "function",
             name: "scratchpad",
-            description: "Manage Orb's ephemeral collaborative scratchpad. Open/read/edit/load/save it, or dispatch selected/all scratchpad content to Pi.",
+            description: "Manage Orb's ephemeral collaborative scratchpad. Open/read/edit/load/save it, surface it as a viewer overlay (open on view), or dispatch selected/all scratchpad content to Pi.",
             parameters: {
               type: "object", additionalProperties: false,
-              properties: { action: { type: "string", enum: ["open", "read", "replace", "append", "load", "save", "dispatch", "close"] }, title: { type: "string" }, content: { type: "string" }, path: { type: "string" }, summary: { type: "string" } },
+              properties: { action: { type: "string", enum: ["open", "view", "read", "replace", "append", "load", "save", "dispatch", "close"] }, title: { type: "string" }, content: { type: "string" }, path: { type: "string" }, summary: { type: "string" } },
               required: ["action"],
             },
           },
+          {
+            type: "function",
+            name: "set_voice",
+            description: "Change Orb's active spoken OpenAI Realtime voice to audition a different sound.",
+            parameters: {
+              type: "object", additionalProperties: false,
+              properties: { voice: { type: "string", description: "Exact voice name, e.g. alloy, ash, ballad, coral, echo, sage, shimmer, verse." } },
+              required: ["voice"],
+            },
+          },
+          ...(this.config.permissions.nativeTools ? openAICodingTools() : []),
         ],
         tool_choice: "auto",
       },
@@ -159,6 +171,23 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
     this.ready = false;
     try { this.socket?.close(1000, "voice mode stopped"); } catch { this.socket?.terminate(); }
     await this.log.info("OpenAI provider closed");
+  }
+
+  /** Switch voice live via session.update; no reconnect or context reload. */
+  async setVoice(voice: string): Promise<void> {
+    const previous = this.config.voice;
+    if (voice === previous) return;
+    this.config.voice = voice;
+    try {
+      await this.log.info("switching OpenAI voice", { voice });
+      this.sendEvent({
+        type: "session.update",
+        session: { audio: { output: { voice } } },
+      });
+    } catch (error) {
+      this.config.voice = previous;
+      throw error;
+    }
   }
 
   private async handleMessage(raw: string): Promise<void> {

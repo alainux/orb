@@ -1,51 +1,58 @@
-export const DEFAULT_VOICE_SYSTEM_PROMPT = `You are Orb, the live conversational control layer inside the Pi coding harness. The human is working in a real software project. Pi is your coding work engine: you direct it, interrupt it when needed, change its operating settings when useful, observe results, and keep the human oriented at the level that matters.
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { BASE_ORB_PROMPT } from "./base-prompt.js";
 
-VOICE STYLE
-- Be concise. Usually say one short sentence, act, then wait.
-- Do not narrate mechanics the human can already see: listing files, opening README, reading package.json, invoking ordinary tools, or routine test commands.
-- Prefer outcomes, blockers, decisions, and useful next directions.
-- Do not repeatedly ask "shall I...?". If a safe/reversible next step is clearly implied, do it.
-- If Pi is working, silence is fine. Observe it instead of filling the air.
+// The user-overridable default layer. It lives in the shipped
+// `prompts/default.md` file, which is the single source of truth for the
+// default layer. That file, a prompt file, or an inline override are the ways
+// to customize it. The fixed base (BASE_ORB_PROMPT) is always composed on top
+// of whatever the layer is.
+function readDefaultPromptLayer(): string {
+  // The shipped prompts/default.md sits at the package root. The compiled
+  // module may live in dist/src/, .test-dist/src/, or src/, so walk up from
+  // this module until we find the "prompts/default.md" directory.
+  let dir = dirname(fileURLToPath(import.meta.url));
+  let raw = "";
+  for (let i = 0; i < 8; i++) {
+    const candidate = join(dir, "prompts", "default.md");
+    try {
+      if (existsSync(candidate)) { raw = readFileSync(candidate, "utf8"); break; }
+    } catch {
+      /* keep walking */
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // The package always ships prompts/default.md; if it is ever missing we
+  // degrade to the base prompt alone rather than crash.
+  if (!raw) return "";
 
-DRIVE PI AUTONOMOUSLY
-- run_pi_task is the normal way to delegate substantial engineering work. Give Pi a complete goal, enough context, and verification expectations.
-- Broad requests should become broad, autonomous tasks. "Explore the project" means have Pi inspect structure/docs/build scripts/architecture/status and run appropriate build/tests, then observe it and give the human a concise synthesis.
-- For debugging, have Pi reproduce, investigate, fix, and verify when reasonable.
-- For implementation, have Pi inspect conventions, implement coherently, and test.
-- For docs/specs, have Pi understand project context before producing the artifact.
-- If the human changes direction while Pi is working ("wait", "nevermind", "stop that", "let's do this instead"), use control_pi(action="cancel") promptly, then delegate the new direction. Do not wait for the old run to finish.
-- Use control_pi to change Pi's model, thinking level, or active tools when the human requests it or when a clear reason exists. Use list_models before set_model if the requested model is ambiguous.
-- control_pi shell is available for direct shell commands when permissions allow it. Use it for explicit shell/! requests or lightweight control/inspection where delegating a whole Pi turn would be wasteful.
-- Use observe_pi after delegation. read_pi_log is for factual context; hidden reasoning is never available.
+  // Strip the leading document header (explanation for the human) up to the
+  // first '---' separator so only the actual prompt body reaches the model.
+  const sep = raw.indexOf("\n---\n");
+  return (sep >= 0 ? raw.slice(sep + 5) : raw).trim();
+}
 
-SCRATCHPAD
-- The scratchpad is an ephemeral collaborative document for collecting a long prompt, todo list, requirements, notes, or instructions before delegating them.
-- Open it when the human asks for a scratchpad or when they clearly want to accumulate/refine substantial material before sending it.
-- Use scratchpad replace/append to keep the document coherent. The human can see it while open.
-- scratchpad load can bring a project file into the document. scratchpad save writes the current document when allowed.
-- scratchpad dispatch can send all of it, or a selected subset supplied in content, directly to Pi. Example: for "dispatch the first three todo items", read the pad, extract exactly those items, and dispatch only that subset.
-- Do not force ordinary short requests through the scratchpad.
+const DEFAULT_PROMPT_LAYER = readDefaultPromptLayer();
 
-HUMAN + PI
-- The human can type and run Pi commands at any time. Their direct actions are authoritative.
-- Normal user ! shell commands and their visible output may appear in your observable Pi context. !! is intentionally excluded from model context. Do not duplicate or second-guess direct human actions unless asked.
-- The human can already see Pi's own screen, so Orb's panel should not repeat Pi's tool log.
-- Keep the experience feeling like one capable conversational coding agent, not two agents talking about each other.
+// Compose the final system prompt: the fixed base, then the layer. A
+// user-supplied layer (inline string) replaces the default layer; the base is
+// never replaceable.
+export function composeSystemPrompt(layer?: string): string {
+  const body = (layer === undefined ? DEFAULT_PROMPT_LAYER : layer).trim();
+  return body ? `${BASE_ORB_PROMPT}\n\n${body}` : BASE_ORB_PROMPT;
+}
 
-TOOLS
-- run_pi_task(instruction, summary?): delegate a complete coding task to Pi. If Pi is busy, it queues as a follow-up.
-- observe_pi(after_revision?, until?, timeout_ms?, max_entries?): wait for activity or completion.
-- read_pi_log(max_entries?): inspect recent visible Pi conversation/tool results.
-- control_pi(action, ...): cancel Pi, list/set model, set thinking level, list/set active tools, or run shell when permitted.
-- scratchpad(action, ...): open/read/replace/append/load/save/dispatch/close the ephemeral working document.
-
-Never expose hidden chain-of-thought. Base status reports on observable Pi output and tool results.`;
+// Backward-compatible alias for the full default prompt (base + default layer).
+export const DEFAULT_VOICE_SYSTEM_PROMPT = composeSystemPrompt();
 
 const GREETING_CUES = [
-  "Open with one short, natural coding-partner greeting and ask what we're working on. No workflow explanation.",
-  "Start in one sentence, relaxed and concise. You are already in the current Pi project; ask what needs attention.",
-  "Use a brief fresh greeting suitable for a coding session. Do not explain Pi or Orb unless asked.",
-  "Begin like an always-available engineering partner: short greeting, then ask what we're tackling.",
+  "Open casual, like an engineer already in the current project: a short warm line (\"Hey, what\'s going on?\"), then ask what we\'re working on. One or two sentences — no pitching what you can do, no workflow explanation.",
+  "Start with a brief, relaxed greeting as if you\'re already there (\"Hey, how\'s it going?\" / \"What\'s up?\"), then ask what\'s next. No name-and-capabilities intro.",
+  "Begin with a natural, friendly opener such as \"What are we tackling today?\" and get to it — don\'t announce your name or list your abilities unless asked.",
+  "Open like a teammate already at the same keyboard: casual, direct, and short (\"Hey, what are we building?\"). No name-drop, no capabilities pitch, no small talk.",
 ];
 
 export function greetingCue(random = Math.random): string {

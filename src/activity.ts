@@ -1,10 +1,28 @@
 export type ActivityKind = "you" | "voice" | "voice-tool" | "system" | "error";
 export interface ActivityEntry { id: number; kind: ActivityKind; text: string; final: boolean; at: number }
 
+export interface TurnRecord { kind: "you" | "voice"; text: string; at: number }
+
 export class ActivityFeed {
   private nextId = 1;
   private entries: ActivityEntry[] = [];
   private liveIds = new Map<"you" | "voice", number>();
+  private emitted = new Set<number>();
+
+  constructor(private readonly onTurn?: (turn: TurnRecord) => void) {}
+
+  /**
+   * Fire the durable-log observer exactly once per committed conversational
+   * turn. Replays and partials are excluded because they are never finalized
+   * here (partials final later, replays are dropped before reaching `push`).
+   */
+  private emitTurn(entry: ActivityEntry): void {
+    if (!entry.final) return;
+    if (entry.kind !== "you" && entry.kind !== "voice") return;
+    if (this.emitted.has(entry.id)) return;
+    this.emitted.add(entry.id);
+    this.onTurn?.({ kind: entry.kind, text: entry.text, at: entry.at });
+  }
 
   transcript(kind: "you" | "voice", text: string, final: boolean): void {
     const clean = text.trim();
@@ -14,10 +32,11 @@ export class ActivityFeed {
     if (existing) {
       const entry = this.entries.find((item) => item.id === existing);
       if (entry) { entry.text = compact(clean || entry.text); entry.final = final; entry.at = Date.now(); }
+      if (final && entry) this.emitTurn(entry);
       if (final) this.liveIds.delete(kind);
       this.trim();
       // A fragment from the other speaker is a hard turn boundary for the
-      // still-live entry of this speaker; commit it before the next turn.
+      // still-live entry of this other/kind: commit it before the next turn.
       this.finalizeOther(kind);
       return;
     }
@@ -88,12 +107,13 @@ export class ActivityFeed {
     const id = this.liveIds.get(kind);
     if (!id) return;
     const entry = this.entries.find((item) => item.id === id);
-    if (entry) entry.final = true;
+    if (entry) { entry.final = true; this.emitTurn(entry); }
     this.liveIds.delete(kind);
   }
   private push(kind: ActivityKind, text: string, final: boolean): ActivityEntry {
     const entry = { id: this.nextId++, kind, text: compact(text), final, at: Date.now() };
     this.entries.push(entry);
+    if (final) this.emitTurn(entry);
     this.trim();
     return entry;
   }

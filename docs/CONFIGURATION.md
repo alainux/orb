@@ -17,14 +17,14 @@ API keys intentionally stay in environment variables.
   "provider": "gemini",
   "gemini": {
     "model": "gemini-3.1-flash-live-preview",
-    "voice": "Aoede"
+    "voice": "Zephyr"
   },
   "openai": {
     "model": "gpt-realtime-2.1",
     "voice": "marin"
   },
   "voice": {
-    "temperature": 0.72,
+    "temperature": 0.83,
     "greeting": true,
     "promptFile": ".orb/voice-prompt.md"
   },
@@ -71,7 +71,10 @@ A copy ships at `config/orb.example.json`.
 
 ## Prompt customization
 
-The complete default prompt is [`prompts/default.md`](../prompts/default.md).
+The voice prompt is composed of two layers:
+
+- A **fixed, non-overridable base** (`src/base-prompt.ts`) — identity and the core persona invariants: never expose hidden chain-of-thought, base reports on observable output, the human's direct actions are authoritative, and the conversational norms (warm, friendly, concise; narrate visible mechanics; don't pepper the human with permission prompts; silence is fine while work runs). These load in every path and cannot be removed, replaced, or overridden by a custom prompt. The base is always prepended.
+- A **user-overridable layer** on top of it — the default is [`prompts/default.md`](../prompts/default.md), which you can replace with a prompt file or an inline string. Your override replaces only this layer; the base (including the persona) still applies.
 
 ```json
 {
@@ -87,7 +90,11 @@ or:
 export ORB_PROMPT_FILE="$HOME/prompts/my-orb.md"
 ```
 
-An inline `voice.systemPrompt` is also supported; a prompt file takes precedence.
+An inline `voice.systemPrompt` is also supported; a prompt file takes precedence. Either way, only the overridable layer is replaced — the non-overridable base is always present.
+
+### Opening greeting & brevity
+
+When a session opens, Orb speaks a short, casual greeting to break the ice. The opener is chosen from `greetingCue()` in `src/policy.ts`; turn it off with `voice.greeting` / `ORB_GREETING`. Conversations default to a terse, conversational style — one short clause or fragment (a result, then at most a single next question). The base prompt forbids re-introducing yourself or re-greeting mid-session, so a long-running session never "says hello again" unless a new `/voice` session actually starts.
 
 ## Permissions
 
@@ -143,6 +150,19 @@ When open, the right side of the Orb widget shows the scratchpad document plus a
 - `ORB_AUDIO_HELPER`
 
 Legacy `PI_VOICE_*` names remain accepted where practical for migration.
+
+## Run log contents
+
+Each `/voice` session writes a durable log to `ORB_LOG_DIR` (default `~/.cache/orb/logs`). It captures factual, observable execution state — never hidden chain-of-thought:
+
+- `Orb voice starting / stopped` — session lifecycle.
+- `conversation` — each committed spoken turn, `{speaker: "you"|"voice", text}`. Only finalized turns are logged once; partial transcripts and replays are suppressed.
+- `pi-activity` — Pi's observable progress: `{kind system|pi|pi-tool}` (started/finished, final assistant text, `✓/✗ tool`, bash `!` commands, model changes). Reasoning/thinking blocks are never included.
+- `voice native tool` — Orb's own `read/write/edit/bash/grep/find/ls` calls, with the target `file`, sanitized `arguments`, `ok`, and a bounded `preview`.
+- Tool calls: `voice delegated Pi task`, `voice controlled Pi`, `voice switched via tool`, `voice tool read_pi_log / observe_pi / scratchpad`, `microphone mute changed`, `voice switched`, audio/`interruption` recovery.
+- `ERROR` lines for failures with `stack`; `Orb voice stopped` on exit.
+
+Hidden reasoning is never written: the Pi mirror only forwards visibly-emitting text/tool events, and the conversation feed only emits finalized speaking turns.
 
 ## Long-running Gemini sessions
 

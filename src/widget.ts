@@ -16,11 +16,6 @@ export class VoiceWidget implements Component {
   private nowMs = 0;
   /** Last frame that was actually sent to the TUI, used to skip imperceptible animation frames. */
   private lastPainted = { userEnergy:-1, agentEnergy:-1, t:-1, mode:"smoke" as OrbMode };
-  /** Scratchpad wrap cache: content is immutable, so reference+width equality is a safe key. */
-  private wrapKey: string | undefined;
-  private wrapWidth = 0;
-  private wrapLines: string[] = [];
-
   constructor(private readonly tui:TUI, private readonly theme:ThemeLike, private readonly getState:()=>VoiceViewState, private readonly options:WidgetOptions) {
     this.renderer = new OrbRenderer(options.orbDensity, options.orbReactivity, options.orbBraille);
     // Every color in this widget comes from Pi's active theme. The palette
@@ -91,7 +86,7 @@ export class VoiceWidget implements Component {
   private renderFrame(width:number):string[] {
     const state=this.getState();
     if(width<54)return this.renderCompact(width,state);
-    const requestedHeight=state.scratchpad.open?this.options.scratchpadPanelHeight:this.options.panelHeight;
+    const requestedHeight=this.options.panelHeight;
     const height=Math.max(8,Math.min(32,requestedHeight));
     const leftWidth=Math.min(39,Math.max(25,Math.floor(width*0.31)));
     const gap=2;
@@ -107,9 +102,7 @@ export class VoiceWidget implements Component {
       }
       left.push(line);
     }
-    const rightLines=state.scratchpad.open
-      ? this.renderScratchpad(state,rightWidth,bodyHeight)
-      : this.renderActivity(state.activity,rightWidth,Math.min(bodyHeight,this.options.activityLines));
+    const rightLines=this.renderActivity(state.activity,rightWidth,Math.min(bodyHeight,this.options.activityLines));
     // Title bar: "ORB" in the theme's primary accent, the live status
     // indicator (listening / thinking / waiting for Pi…) in the secondary
     // violet accent, and the Pi agent indicator in a theme-blue token.
@@ -122,33 +115,6 @@ export class VoiceWidget implements Component {
     lines.push(this.renderMeters(state,width));
     lines.push(this.theme.fg("dim","─".repeat(width)));
     return lines;
-  }
-
-  private renderScratchpad(state:VoiceViewState,width:number,height:number):string[] {
-    const lines:string[]=[];
-    const dirty=state.scratchpad.dirty?" · modified":"";
-    // Scratchpad title in the theme's primary accent.
-    lines.push(this.theme.fg("accent",truncatePlain(`SCRATCHPAD · ${state.scratchpad.title}${dirty}`,width)));
-    const logBudget=Math.min(4,Math.max(2,Math.floor(height*0.28)));
-    const contentBudget=Math.max(2,height-logBudget-2);
-    const content=state.scratchpad.content;
-    // Re-wrap only when the content or width actually changed; the full
-    // document can be hundreds of KB and re-wrapping it on every animation
-    // frame is pure main-thread stall on the audio delivery path.
-    if (this.wrapKey!==content || this.wrapWidth!==width) {
-      this.wrapLines=wrapPreservingLines(content,width);
-      this.wrapKey=content;
-      this.wrapWidth=width;
-    }
-    const contentLines=this.wrapLines;
-    // Scratchpad items in the secondary (violet) accent.
-    if(!contentLines.length) lines.push(this.theme.fg("dim","(empty — keep talking, load a file, or edit with /voice scratchpad edit)"));
-    else for(const line of contentLines.slice(-contentBudget)) lines.push(this.palette.secondaryText(line));
-    while(lines.length<contentBudget+1)lines.push("");
-    lines.push(this.theme.fg("dim","─".repeat(Math.max(1,width))));
-    const activity=this.renderActivity(state.activity,width,logBudget);
-    lines.push(...activity);
-    return lines.slice(0,height);
   }
 
   private renderActivity(entries:ActivityEntry[],width:number,maxLines:number):string[] {
@@ -179,25 +145,15 @@ export class VoiceWidget implements Component {
     const bodyColor:OrbThemeColor=kind==="voice-tool"?"toolOutput":kind==="error"?"error":"muted";
     const mark=text.match(/^([✓✗])\s*(.*)$/);
     if(mark&&mark[1]){
-      return this.theme.fg(mark[1]==="✓"?"success":"error",mark[1])+this.theme.fg(bodyColor,mark[2]??"");
+      const body=mark[2]??"";
+      // Keep the ✓/✗ colorized as its own token but give it a breathing gap
+      // from the following text instead of concatenating them flush.
+      return this.theme.fg(mark[1]==="✓"?"success":"error",mark[1])+this.theme.fg(bodyColor,body?` ${body}`:"");
     }
     return this.theme.fg(bodyColor,text);
   }
 
   private renderCompact(width:number,state:VoiceViewState):string[] {
-    if(state.scratchpad.open){
-      // Reuse the same content+width wrap cache as the wide layout: re-wrapping
-      // the full document on every paint would stall the audio delivery thread.
-      const content=state.scratchpad.content;
-      if (this.wrapKey!==content || this.wrapWidth!==width) {
-        this.wrapLines=wrapPreservingLines(content,width);
-        this.wrapKey=content;
-        this.wrapWidth=width;
-      }
-      const lines=[this.theme.fg("accent",truncatePlain(`ORB · SCRATCHPAD · ${state.scratchpad.title}`,width))];
-      for(const line of this.wrapLines.slice(-Math.max(3,this.options.panelHeight-2))) lines.push(this.palette.secondaryText(line));
-      return lines;
-    }
     const h=Math.max(4,Math.min(6,this.options.panelHeight-3));
     const raster=this.renderer.render(width,h,this.options.orbAspect,this.frame,this.mode,this.nowMs||undefined);
     const lines=[this.theme.fg("accent",`ORB · `)+this.palette.secondaryText(statusForDisplay(state.status,state.muted))];
@@ -325,7 +281,6 @@ function styleFor(kind:ActivityEntry["kind"]):{label:string;color:OrbThemeColor}
   }
 }
 function wrap(text:string,width:number):string[]{const words=text.replace(/\s+/g," ").trim().split(" ").filter(Boolean);if(!words.length)return[""];const lines:string[]=[];let cur="";for(const word of words){const next=cur?`${cur} ${word}`:word;if(next.length<=width)cur=next;else{if(cur)lines.push(cur);cur=word.length>width?word.slice(0,width):word;}}if(cur)lines.push(cur);return lines;}
-function wrapPreservingLines(text:string,width:number):string[]{const out:string[]=[];for(const raw of text.split(/\r?\n/)){if(!raw){out.push("");continue;}const indent=raw.match(/^\s*/)?.[0]??"";const body=raw.slice(indent.length);const wrapped=wrap(body,Math.max(8,width-Math.min(indent.length,8)));for(const [index,line] of wrapped.entries())out.push(`${index===0?indent.slice(0,8):"  "}${line}`.slice(0,width));}return out;}
 function barText(value:number,count:number):string{
   // Perceptual (sqrt) scale for the audio meters: loudness is roughly
   // logarithmic, so a linear bar would barely light up during quiet speech.

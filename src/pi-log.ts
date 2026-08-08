@@ -12,48 +12,59 @@ export class PiLogMirror {
   private revisionValue = 0;
   private waiters = new Set<Waiter>();
 
+  constructor(private readonly onVisible?: (event: { kind: string; text: string }) => void) {}
+
   get agentStatus(): PiAgentStatus { return this.status; }
   get revision(): number { return this.revisionValue; }
+
+  /**
+   * Forward a committed, visible Pi activity fact to a durable-log consumer.
+   * Never call this for hidden chain-of-thought: only final text/tool/status
+   * entries (already filtered by visibleMessageText) are forwarded.
+   */
+  private note(kind: string, text: string): void {
+    this.onVisible?.({ kind, text });
+  }
 
   record(eventName: string, event: any): PiVisibleEvent[] {
     const visible: PiVisibleEvent[] = [];
     switch (eventName) {
       case "agent_start":
         this.status = "working"; this.liveAssistant = "";
-        visible.push({ kind: "system", text: "Pi started working." }); this.push("status", "Pi agent started working."); break;
+        visible.push({ kind: "system", text: "Pi started working." }); this.push("status", "Pi agent started working."); this.note("system", "Pi started working."); break;
       case "agent_end":
         this.status = "idle";
-        visible.push({ kind: "system", text: "Pi finished its turn." }); this.push("status", "Pi agent finished."); break;
+        visible.push({ kind: "system", text: "Pi finished its turn." }); this.push("status", "Pi agent finished."); this.note("system", "Pi finished its turn."); break;
       case "message_update":
         if (event?.assistantMessageEvent?.type === "text_delta") { this.liveAssistant += String(event?.assistantMessageEvent?.delta ?? ""); if (this.liveAssistant.trim()) visible.push({ kind: "pi", text: this.liveAssistant, final: false }); }
         break;
       case "message_end": {
         const message = event?.message; const role = String(message?.role ?? "");
         if (role === "assistant") {
-          const text = visibleMessageText(message); if (text) { this.push("assistant", text); visible.push({ kind: "pi", text, final: true }); }
+          const text = visibleMessageText(message); if (text) { this.push("assistant", text); visible.push({ kind: "pi", text, final: true }); this.note("pi", text); }
           this.liveAssistant = "";
         } else if (role === "toolResult") {
           const text = visibleMessageText(message); const name = String(message?.toolName ?? "tool");
           const body = `${name}: ${text || (message?.isError ? "failed" : "completed")}`;
-          this.push(message?.isError ? "tool error" : `tool ${name}`, body); visible.push({ kind: "pi-tool", text: body });
+          this.push(message?.isError ? "tool error" : `tool ${name}`, body); visible.push({ kind: "pi-tool", text: body }); this.note("pi-tool", body);
         }
         break;
       }
       case "tool_execution_start": {
-        const text = `→ ${String(event?.toolName ?? "tool")}`; this.push("tool", text); visible.push({ kind: "pi-tool", text }); break;
+        const text = `→ ${String(event?.toolName ?? "tool")}`; this.push("tool", text); visible.push({ kind: "pi-tool", text }); this.note("pi-tool", text); break;
       }
       case "tool_execution_end": {
-        const text = `${event?.isError ? "✗" : "✓"} ${String(event?.toolName ?? "tool")}`; this.push(event?.isError ? "tool error" : "tool", text); visible.push({ kind: "pi-tool", text }); break;
+        const text = `${event?.isError ? "✗" : "✓"} ${String(event?.toolName ?? "tool")}`; this.push(event?.isError ? "tool error" : "tool", text); visible.push({ kind: "pi-tool", text }); this.note("pi-tool", text); break;
       }
       case "user_bash": {
         const command = String(event?.command ?? "").trim();
-        if (command) this.push(event?.excludeFromContext ? "user bash !!" : "user bash !", command);
+        if (command) { this.push(event?.excludeFromContext ? "user bash !!" : "user bash !", command); if (!event?.excludeFromContext) this.note("pi-tool", `bash: ${command}`); }
         break;
       }
       case "model_select": {
         const model = event?.model;
         const key = model?.provider && model?.id ? `${model.provider}/${model.id}` : String(model?.id ?? "unknown");
-        this.push("model", `Pi model changed to ${key}`);
+        this.push("model", `Pi model changed to ${key}`); this.note("pi-tool", `model - ${key}`);
         break;
       }
     }

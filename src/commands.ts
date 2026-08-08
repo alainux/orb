@@ -6,6 +6,7 @@ export type VoiceCommand =
   | { action: "stop" | "status" | "log" | "help" }
   | { action: "provider"; provider: VoiceProviderName }
   | { action: "mute"; muted: boolean | undefined }
+  | { action: "voice"; voice: string | undefined }
   | { action: "scratchpad"; scratchpadAction: ScratchpadCommandAction; argument: string };
 
 export function parseVoiceCommand(raw: string): VoiceCommand {
@@ -25,6 +26,8 @@ export function parseVoiceCommand(raw: string): VoiceCommand {
       return { action: "provider", provider: parseProvider(argument) };
     case "mute":
       return { action: "mute", muted: argument === undefined ? undefined : parseMute(argument) };
+    case "voice":
+      return { action: "voice", voice: argument };
     case "scratchpad":
     case "pad": {
       const sub = (argument ?? "open") as ScratchpadCommandAction;

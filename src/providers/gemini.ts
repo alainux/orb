@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { geminiCodingTools } from "../agent-tools.js";
 import type { RunLog } from "../log.js";
 import { greetingCue } from "../policy.js";
 import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderSink, VoiceSessionContext } from "../types.js";
@@ -52,6 +53,22 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
     await this.log.info("Gemini provider closed");
   }
 
+  /** Switch voice by re-opening the live socket with a new speechConfig.
+   * No agent-context reload needed: Gemini reconnects with chat history via
+   * the resume handle when available, otherwise starts a fresh session. */
+  async setVoice(voice: string): Promise<void> {
+    if (voice === this.config.voice) return;
+    this.config.voice = voice;
+    const handle = this.resumeHandle;
+    const old = this.session;
+    this.session = undefined;
+    this.sink?.onStatus(`switching voice · ${voice}`);
+    await this.log.info("switching Gemini voice", { voice });
+    try { old?.close(); } catch { /* idempotent */ }
+    await this.openSession(handle);
+    this.sink?.onStatus("live · listening");
+  }
+
   private async openSession(handle: string): Promise<void> {
     const client = this.client;
     if (!client) throw new Error("Gemini client is unavailable");
@@ -76,7 +93,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
           this.endFriendly(reason || "The realtime provider closed the session.");
         },
       },
-      config: buildGeminiLiveConfig(this.config, handle, geminiTools()),
+      config: buildGeminiLiveConfig(this.config, handle, geminiTools(this.config)),
     });
     if (epoch !== this.epoch || this.closed) { try { session.close(); } catch {} return; }
     this.session = session;
@@ -192,7 +209,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
   }
 }
 
-function geminiTools(): Record<string, unknown>[] {
+function geminiTools(config: VoiceConfig): Record<string, unknown>[] {
   return [
     {
       name: "run_pi_task",
@@ -208,9 +225,15 @@ function geminiTools(): Record<string, unknown>[] {
     },
     {
       name: "scratchpad",
-      description: "Manage Orb's ephemeral collaborative scratchpad. Actions: open, read, replace, append, load, save, dispatch, close. Dispatch sends either provided content or the whole scratchpad to Pi as a task.",
+      description: "Manage Orb's ephemeral collaborative scratchpad. Actions: open, view, read, replace, append, load, save, dispatch, close. open/view surface the scrollable viewer overlay. Dispatch sends either provided content or the whole scratchpad to Pi as a task.",
       parameters: { type: "OBJECT", properties: { action: { type: "STRING" }, title: { type: "STRING" }, content: { type: "STRING" }, path: { type: "STRING" }, summary: { type: "STRING" } }, required: ["action"] },
     },
+    {
+      name: "set_voice",
+      description: "Change Orb's active spoken voice (Gemini prebuilt TTS voice) to audition or pick a different sound. Use with the voice name.",
+      parameters: { type: "OBJECT", properties: { voice: { type: "STRING", description: "Exact voice name, e.g. Kore, Aoede, Puck, Charon, Fenrir, Atlas, Zephyr, Echo." } }, required: ["voice"] },
+    },
+    ...(config?.permissions?.nativeTools ? geminiCodingTools() : []),
   ];
 }
 

@@ -120,6 +120,9 @@ Commands:
 /voice mute
 /voice mute on
 /voice mute off
+/voice voice              # cycle to the next voice live
+/voice voice Zephyr       # set a specific voice by name
+/voice voice list         # show the available voices
 /voice scratchpad
 /voice scratchpad view
 /voice scratchpad edit
@@ -141,6 +144,7 @@ Orb can manage the active Pi harness through Pi's extension APIs instead of pret
 - change Pi's thinking level;
 - enable/disable Pi tools;
 - run direct shell commands for `!`-style requests;
+- **code directly** for small/quick tasks using Pi's own coding tools (`read`, `bash`, `write`, `edit`, `grep`, `find`, `ls`), executed in-process against the project — the voice agent can fix a line, inspect a file, or run a single test itself without delegating a whole Pi turn;
 - delegate normal coding tasks to Pi;
 - wait for visible Pi activity or completion and inspect results.
 
@@ -160,6 +164,7 @@ These capabilities are independently configurable. Defaults enable Pi control wh
     "setThinking": true,
     "setTools": true,
     "shell": true,
+    "nativeTools": true,
     "scratchpadRead": true,
     "scratchpadWrite": true,
     "scratchpadOutsideProject": false
@@ -167,7 +172,7 @@ These capabilities are independently configurable. Defaults enable Pi control wh
 }
 ```
 
-Disable anything you do not want the realtime voice model to use.
+Disable anything you do not want the realtime voice model to use. `nativeTools` (or `ORB_ALLOW_NATIVE_TOOLS=false`) disables the voice agent's direct coding tools (`read`/`bash`/`write`/`edit`/`grep`/`find`/`ls`) so it can only orchestrate Pi. The system prompt can be overridden with `ORB_SYSTEM_PROMPT` / `PI_VOICE_SYSTEM_PROMPT` or a `voice.systemPromptFile`.
 
 ## Scratchpad
 
@@ -230,7 +235,7 @@ Orb merges, in order:
 3. `ORB_CONFIG=/some/config.json`
 4. environment overrides
 
-The complete voice-agent prompt ships at [`prompts/default.md`](prompts/default.md) and can be replaced with `voice.promptFile` or `ORB_PROMPT_FILE`.
+The voice system prompt has two layers: a fixed, non-overridable base (identity and invariants, in `src/base-prompt.ts`) plus an overridable layer. The default layer ships at [`prompts/default.md`](prompts/default.md); the base is always kept and the layer can be replaced with `voice.promptFile`, `ORB_PROMPT_FILE`, or an inline `voice.systemPrompt`.
 
 Example:
 
@@ -238,7 +243,7 @@ Example:
 {
   "provider": "gemini",
   "voice": {
-    "temperature": 0.72,
+    "temperature": 0.83,
     "promptFile": ".orb/voice-prompt.md"
   },
   "ui": {
