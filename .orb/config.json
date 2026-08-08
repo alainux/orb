@@ -1,5 +1,8 @@
 {
   "session": {
-    "geminiThinkingBudget": -1
+    "geminiThinkingBudget": 0
+  },
+  "ui": {
+    "thinkingDisplay": "full"
   }
 }

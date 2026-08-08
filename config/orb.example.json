@@ -48,7 +48,7 @@
     "geminiContextCompression": true,
     "geminiCompressionTriggerTokens": 18000,
     "geminiCompressionTargetTokens": 9000,
-    "geminiThinkingBudget": -1,
+    "geminiThinkingBudget": 0,
     "geminiThinkingHoldMs": 380
   }
 }

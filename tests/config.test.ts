@@ -165,3 +165,18 @@ test("persistThinkingDisplay without ORB_CONFIG writes the project .orb/config.j
     assert.equal(onDisk.ui?.thinkingDisplay,"full");
   });
 });
+
+test("geminiThinkingBudget defaults to 0 (thinking disabled) for max performance",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"orb-config-budget-default-"));
+  // Isolate from any ambient user config by pointing XDG_CONFIG_HOME into a
+  // fresh dir and clearing the env override so the code default applies.
+  await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_GEMINI_THINKING_BUDGET:undefined,XDG_CONFIG_HOME:join(root,"xdg")},async()=>{
+    const config=await loadVoiceConfig("gemini",root);
+    assert.equal(config.geminiThinkingBudget,0,"thinking is disabled by default");
+
+    // And an explicit env override still works with the new floor.
+    await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_GEMINI_THINKING_BUDGET:"-1",XDG_CONFIG_HOME:join(root,"xdg")},async()=>{
+      assert.equal((await loadVoiceConfig("gemini",root)).geminiThinkingBudget,-1);
+    });
+  });
+});

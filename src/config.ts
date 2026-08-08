@@ -212,11 +212,12 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
     geminiContextCompression: boolValue(envFirst("ORB_GEMINI_CONTEXT_COMPRESSION") ?? sessionConfig.geminiContextCompression, true, "session.geminiContextCompression"),
     geminiCompressionTriggerTokens: Math.round(numberValue(envFirst("ORB_GEMINI_COMPRESSION_TRIGGER_TOKENS") ?? sessionConfig.geminiCompressionTriggerTokens, 18000, 4000, 128000, "session.geminiCompressionTriggerTokens")),
     geminiCompressionTargetTokens: Math.round(numberValue(envFirst("ORB_GEMINI_COMPRESSION_TARGET_TOKENS") ?? sessionConfig.geminiCompressionTargetTokens, 9000, 2000, 64000, "session.geminiCompressionTargetTokens")),
-    // Voice-model thinking budget (tokens) for Gemini Live. -1 = model's automatic
-    // budget, 0 = disabled (no thinkingConfig sent), positive = explicit cap. This is
-    // the knob that actually makes the visible "Thinking…" indicator reflect the
-    // voice model's reasoning. Read at session start; takes effect on reconnect.
-    geminiThinkingBudget: Math.round(numberValue(envFirst("ORB_GEMINI_THINKING_BUDGET") ?? sessionConfig.geminiThinkingBudget, -1, -1, 65536, "session.geminiThinkingBudget")),
+    // Voice-model thinking budget (tokens) for Gemini Live. 0 = disabled by default
+    // (no thinkingConfig sent → fastest responses; the Thinking… indicator only
+    // opens when a budget is configured), -1 = model's automatic budget, positive =
+    // explicit cap. This is the knob that makes the visible "Thinking…" indicator
+    // follow the voice model's reasoning. Read at session start; takes effect on reconnect.
+    geminiThinkingBudget: Math.round(numberValue(envFirst("ORB_GEMINI_THINKING_BUDGET") ?? sessionConfig.geminiThinkingBudget, 0, -1, 65536, "session.geminiThinkingBudget")),
     // Minimum ms the "Thinking…" indicator stays visible once a turn opens, so a
     // flash model that delivers its first audio in the same batch as the turn
     // opening (on→off coalescing) can't make the indicator blink unseen.
