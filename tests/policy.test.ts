@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { BASE_ORB_PROMPT } from "../src/base-prompt.js";
-import { composeSystemPrompt, DEFAULT_VOICE_SYSTEM_PROMPT, greetingCue } from "../src/policy.js";
+import { composeSystemPrompt, DEFAULT_VOICE_SYSTEM_PROMPT } from "../src/policy.js";
 
 test("the persona/style invariants are in the non-overridable base (survive user overrides)", () => {
   // Even when a user overrides the layer (or default.md goes missing), the
@@ -46,4 +46,3 @@ test("voice policy is a warm native coder that delegates big work and stays prec
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /direct actions are authoritative/);
   assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /shall I go ahead/i);
 });
-test("greeting cue varies deterministically", () => assert.notEqual(greetingCue(() => 0), greetingCue(() => 0.99)));

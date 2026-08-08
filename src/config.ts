@@ -102,7 +102,6 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
     voice: String(voice),
     temperature: numberValue(envFirst("ORB_TEMPERATURE", "PI_VOICE_TEMPERATURE") ?? voiceConfig.temperature, 0.83, 0, 2, "temperature"),
     systemPrompt,
-    greetingEnabled: boolValue(envFirst("ORB_GREETING", "PI_VOICE_GREETING") ?? voiceConfig.greeting, true, "voice.greeting"),
     orbAspect: numberValue(envFirst("ORB_ASPECT", "PI_VOICE_ORB_ASPECT") ?? uiConfig.orbAspect, 2, 0.45, 3, "ui.orbAspect"),
     orbDensity: numberValue(envFirst("ORB_DENSITY", "PI_VOICE_ORB_DENSITY") ?? uiConfig.orbDensity, 1.30, 0.7, 1.8, "ui.orbDensity"),
     orbReactivity: numberValue(envFirst("ORB_REACTIVITY", "PI_VOICE_ORB_REACTIVITY") ?? uiConfig.orbReactivity, 0.7, 0, 1, "ui.orbReactivity"),

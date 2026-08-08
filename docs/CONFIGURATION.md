@@ -25,7 +25,6 @@ API keys intentionally stay in environment variables.
   },
   "voice": {
     "temperature": 0.83,
-    "greeting": true,
     "promptFile": ".orb/voice-prompt.md"
   },
   "ui": {
@@ -92,9 +91,9 @@ export ORB_PROMPT_FILE="$HOME/prompts/my-orb.md"
 
 An inline `voice.systemPrompt` is also supported; a prompt file takes precedence. Either way, only the overridable layer is replaced — the non-overridable base is always present.
 
-### Opening greeting & brevity
+### Brevity & no auto-greeting
 
-When a session opens, Orb speaks a short, casual greeting to break the ice. The opener is chosen from `greetingCue()` in `src/policy.ts`; turn it off with `voice.greeting` / `ORB_GREETING`. Conversations default to a terse, conversational style — one short clause or fragment (a result, then at most a single next question). The base prompt forbids re-introducing yourself or re-greeting mid-session, so a long-running session never "says hello again" unless a new `/voice` session actually starts.
+Orb no longer injects a greeting or an opening cue when a session starts (the randomized `GREETING_CUES` / `greetingCue` were removed from `src/policy.ts`). Conversations default to a terse, conversational style — one short clause or fragment (a result, then at most a single next question). The base prompt forbids re-introducing yourself (re-greeting) mid-session, so a running session never says "hello again" unless a new `/voice` conversation starts.
 
 ## Permissions
 

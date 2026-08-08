@@ -47,14 +47,3 @@ export function composeSystemPrompt(layer?: string): string {
 
 // Backward-compatible alias for the full default prompt (base + default layer).
 export const DEFAULT_VOICE_SYSTEM_PROMPT = composeSystemPrompt();
-
-const GREETING_CUES = [
-  "Open casual, like an engineer already in the current project: a short warm line (\"Hey, what\'s going on?\"), then ask what we\'re working on. One or two sentences — no pitching what you can do, no workflow explanation.",
-  "Start with a brief, relaxed greeting as if you\'re already there (\"Hey, how\'s it going?\" / \"What\'s up?\"), then ask what\'s next. No name-and-capabilities intro.",
-  "Begin with a natural, friendly opener such as \"What are we tackling today?\" and get to it — don\'t announce your name or list your abilities unless asked.",
-  "Open like a teammate already at the same keyboard: casual, direct, and short (\"Hey, what are we building?\"). No name-drop, no capabilities pitch, no small talk.",
-];
-
-export function greetingCue(random = Math.random): string {
-  return GREETING_CUES[Math.floor(random() * GREETING_CUES.length)] ?? GREETING_CUES[0]!;
-}

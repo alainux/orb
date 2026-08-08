@@ -1,7 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { geminiCodingTools } from "../agent-tools.js";
 import type { RunLog } from "../log.js";
-import { greetingCue } from "../policy.js";
 import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderSink, VoiceSessionContext } from "../types.js";
 import { BaseProvider } from "./base.js";
 import { isExpectedGeminiRotationError, mergeTranscript } from "./util.js";
@@ -28,8 +27,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
     await this.log.info("connecting provider", { provider: this.name, model: this.config.model, resumption: this.config.geminiSessionResumption, compression: this.config.geminiContextCompression });
     await this.openSession("");
     const environment = `PI_CODING_CONTEXT\nProject cwd: ${context.cwd}\nPi status: ${context.piStatus}\nRecent visible Pi activity:\n${context.recentPiActivity}`;
-    const greeting = this.config.greetingEnabled ? `\n\n${greetingCue()}` : "";
-    this.sendText(`${environment}${greeting}`, { requestResponse: this.config.greetingEnabled });
+    this.sendText(environment);
   }
 
   sendAudio(pcm: Buffer): void {

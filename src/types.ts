@@ -38,7 +38,6 @@ export interface VoiceConfig {
   voice: string;
   temperature: number;
   systemPrompt: string;
-  greetingEnabled: boolean;
   orbAspect: number;
   orbDensity: number;
   orbReactivity: number;

@@ -36,7 +36,6 @@ function geminiConfig(): VoiceConfig {
     voice: "Aoede",
     temperature: 0.7,
     systemPrompt: "test",
-    greetingEnabled: false,
     orbAspect: 2,
     orbDensity: 1.1,
     orbReactivity: 0.7,
