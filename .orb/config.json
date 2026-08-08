@@ -1,8 +1,8 @@
 {
   "session": {
-    "geminiThinkingBudget": 0
+    "geminiThinkingBudget": 1024
   },
   "ui": {
-    "thinkingDisplay": "hidden"
+    "thinkingDisplay": "full"
   }
 }
