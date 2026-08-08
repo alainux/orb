@@ -42,6 +42,7 @@ function geminiConfig(): VoiceConfig {
     orbBraille: false,
     panelHeight: 14,
     activityLines: 10,
+    autoStartVoice: true,
     logDir: "/tmp/orb-test",
     configFiles: [],
     geminiSessionResumption: true,

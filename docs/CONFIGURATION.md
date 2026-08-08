@@ -15,6 +15,7 @@ API keys intentionally stay in environment variables.
 ```json
 {
   "provider": "gemini",
+  "autoStartVoice": true,
   "gemini": {
     "model": "gemini-3.1-flash-live-preview",
     "voice": "Zephyr"
@@ -129,6 +130,18 @@ The footer shows the current queued milliseconds and recovery count.
 - `scratchpad.maxBytes` / `ORB_SCRATCHPAD_MAX_BYTES`
 
 When open, the right side of the Orb widget shows the scratchpad document plus a small recent-activity strip.
+
+## Auto-start
+
+Orb starts voice automatically when a Pi session begins. Set `autoStartVoice` to `false` to opt out, or `true` to keep it (the default):
+
+```json
+{
+  "autoStartVoice": false
+}
+```
+
+The environment variable `ORB_AUTO_START` (e.g. `ORB_AUTO_START=false`) overrides the config key. When auto-started, the voice session begins exactly as a manual `/voice start` would; the provider / API keys from the rest of the config still apply.
 
 ## Other environment overrides
 

@@ -38,15 +38,3 @@ Design notes to honor:
 Planned files (rough): a `VoiceSessionAdapter` wired into `controller.ts`, a
 `createAgentSessionRuntime` + `SessionManager`, and `session.subscribe()` ->
 existing `ActivityFeed`. Produce a fuller spec before coding; get approval first.
-
-
-## De-duplication (pre-existing)
-
-- The five **orchestration** tools (`run_pi_task`, `read_pi_log`, `observe_pi`,
-  `control_pi`, `scratchpad`) are defined inline **twice**:
-    - `src/providers/openai.ts` (~lines 75–131)
-    - `src/providers/gemini.ts` (~line 199+)
-  Their descriptions already diverge between providers (e.g. `run_pi_task`
-  wording differs). Apply the same single-catalog treatment used for the native
-  coding tools in `src/agent-tools.ts` (one catalog feeding both providers'
-  registrations) to remove the per-provider copy.

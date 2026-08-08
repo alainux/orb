@@ -46,6 +46,7 @@ export interface VoiceConfig {
   activityLines: number;
   logDir: string;
   configFiles: string[];
+  autoStartVoice: boolean;
   geminiSessionResumption: boolean;
   geminiContextCompression: boolean;
   geminiCompressionTriggerTokens: number;

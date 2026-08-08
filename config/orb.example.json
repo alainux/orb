@@ -1,5 +1,6 @@
 {
   "provider": "gemini",
+  "autoStartVoice": true,
   "gemini": {
     "model": "gemini-3.1-flash-live-preview",
     "voice": "Aoede"

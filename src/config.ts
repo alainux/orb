@@ -35,6 +35,56 @@ export function defaultConfigPaths(cwd: string): string[] {
   return [join(userBase, "orb", "config.json"), join(cwd, ".orb", "config.json")];
 }
 
+/**
+ * True when the current process is running as a sub-agent tab spawned inside the
+ * Herdr (herdr.dev) terminal multiplexer, as opposed to a top-level instance
+ * launched directly from bash.
+ *
+ * A top-level instance launched directly from bash is *not* inside a Herdr pane,
+ * so it inherits no `HERDR_*` at all. Every process that runs in a Herdr pane
+ * inherits `HERDR_ENV=1` (plus `HERDR_PANE_ID`/`HERDR_TAB_ID`/
+ * `HERDR_WORKSPACE_ID`/`HERDR_SOCKET_PATH`) from the pane shell. Harnesses such
+ * as the Factory spawn worker panes via Herdr's built-in launcher
+ * (`herdr agent start --kind pi -- ... --name <agent>`) and do *not* set any
+ * `PI_SUBAGENT_*`; only the `pi-herdr-subagents` extension does. So the robust
+ * discriminator is `HERDR_ENV`, with `PI_SUBAGENT_*` as a stricter confirmation
+ * when present.
+ */
+export function isHerdrSubAgent(): boolean {
+  if (process.env.PI_SUBAGENT_ID ||
+      process.env.PI_SUBAGENT_NAME ||
+      process.env.PI_SUBAGENT_SESSION ||
+      process.env.PI_SUBAGENT_SURFACE) {
+    return true;
+  }
+  return process.env.HERDR_ENV === "1";
+}
+
+/**
+ * Decide whether Orb voice should auto-start when a Pi session begins.
+ *
+ * Defaults to `true`. Can be disabled either in the config.json via the top-level
+ * `autoStartVoice` key, or per-launch via the `ORB_AUTO_START` environment
+ * variable. Voice is never auto-launched in a Herdr sub-agent tab (see
+ * `isHerdrSubAgent`) unless it is explicitly turned on — this keeps one voice
+ * session per top-level instance and avoids an audio stack in every sub-agent
+ * pane. An explicit `ORB_AUTO_START=true` or `autoStartVoice: true` still wins.
+ * Unlike `loadVoiceConfig`, this never requires provider API keys, so the
+ * extension can consult it before any voice session exists.
+ */
+export async function resolveAutoStartVoice(cwd = process.cwd()): Promise<boolean> {
+  const envValue = envFirst("ORB_AUTO_START");
+  if (envValue !== undefined) return boolValue(envValue, true, "ORB_AUTO_START");
+  let merged: JsonObject = {};
+  const explicit = envFirst("ORB_CONFIG", "PI_VOICE_CONFIG");
+  const candidates = [...defaultConfigPaths(cwd), ...(explicit ? [expandPath(explicit, cwd)] : [])];
+  for (const path of candidates) {
+    const parsed = await readJsonIfPresent(path);
+    if (parsed) merged = deepMerge(merged, parsed);
+  }
+  return boolValue(merged.autoStartVoice, !isHerdrSubAgent(), "autoStartVoice");
+}
+
 export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd = process.cwd()): Promise<VoiceConfig> {
   let merged: JsonObject = {};
   const loadedFiles: string[] = [];
@@ -108,6 +158,7 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
     orbReactivity: numberValue(envFirst("ORB_REACTIVITY", "PI_VOICE_ORB_REACTIVITY") ?? uiConfig.orbReactivity, 0.7, 0, 1, "ui.orbReactivity"),
     orbBraille: boolValue(envFirst("ORB_BRAILLE", "PI_VOICE_ORB_BRAILLE") ?? uiConfig.orbBraille, true, "ui.orbBraille"),
     panelHeight: Math.round(numberValue(envFirst("ORB_PANEL_HEIGHT", "PI_VOICE_PANEL_HEIGHT") ?? uiConfig.panelHeight, 12, 8, 24, "ui.panelHeight")),
+    autoStartVoice: boolValue(envFirst("ORB_AUTO_START") ?? merged.autoStartVoice, !isHerdrSubAgent(), "autoStartVoice"),
     activityLines: Math.round(numberValue(envFirst("ORB_ACTIVITY_LINES", "PI_VOICE_ACTIVITY_LINES") ?? uiConfig.activityLines, 8, 3, 30, "ui.activityLines")),
     logDir: expandPath(String(logDirRaw ?? defaultLogDir), cwd),
     configFiles: loadedFiles,

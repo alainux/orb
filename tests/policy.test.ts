@@ -4,11 +4,19 @@ import { composeSystemPrompt, DEFAULT_VOICE_SYSTEM_PROMPT } from "../src/policy.
 
 test("the style/invariant persona lives in the authoritative default prompt", () => {
   // The single default (prompts/default.md) carries the identity + invariants.
-  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /warm, friendly/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /be concise|Do not narrate mechanics/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Do not narrate|narrate mechanics/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Do not repeatedly ask|permission/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Silence is fine/);
+});
+
+test("the default prompt imposes a one-line, no-recap greeting (no long run-on openers)", () => {
+  // Greeting is constrained to a single short warm line; the previous verbose
+  // formula that let the model stack status + a trailing question is gone.
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /one short, warm line|exactly one opening/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Hey, what's up/);
+  assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /Greet naturally and casually/);
+  assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /recap who you are or list what you can/);
 });
 
 test("an override replaces the default wholesale (two-layer model)", () => {

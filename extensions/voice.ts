@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { parseVoiceCommand } from "../src/commands.js";
+import { resolveAutoStartVoice } from "../src/config.js";
 import { VoiceController } from "../src/controller.js";
 
 const INSTANCE_KEY = Symbol.for("alainux.orb.voice-extension");
@@ -35,7 +36,10 @@ export default function orbVoiceExtension(pi: ExtensionAPI): void {
   pi.on("user_bash", (event: unknown, ctx: ExtensionContext) => { controller.recordUserBash(event, ctx); return undefined; });
 
   pi.on("session_start", async (_event, ctx) => {
-    if (process.env.ORB_AUTO_START === "1" || process.env.ORB_AUTO_START === "true") {
+    // Auto-start is on by default; opt out via the `autoStartVoice` config key
+    // (or `ORB_AUTO_START=false`). Consulted before any session exists, so it
+    // never requires provider API keys.
+    if (await resolveAutoStartVoice(ctx.cwd)) {
       try { await controller.start(ctx); } catch (error) { ctx.ui.notify(`Orb auto-start failed: ${error instanceof Error ? error.message : String(error)}`, "error"); }
     }
   });

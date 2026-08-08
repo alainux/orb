@@ -239,9 +239,12 @@ The voice system prompt is a simple two-layer model: a **single authoritative de
 
 Example:
 
+Orb also starts voice automatically when a Pi session begins (on by default). Set `autoStartVoice` to `false` to opt out, or `ORB_AUTO_START=false`.
+
 ```json
 {
   "provider": "gemini",
+  "autoStartVoice": true,
   "voice": {
     "temperature": 0.83,
     "promptFile": ".orb/voice-prompt.md"

@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { loadVoiceConfig } from "../src/config.js";
+import { isHerdrSubAgent, loadVoiceConfig, resolveAutoStartVoice } from "../src/config.js";
 
 async function withEnv(values:Record<string,string|undefined>,run:()=>Promise<void>):Promise<void>{
   const prev:Record<string,string|undefined>={};
@@ -52,3 +52,60 @@ test("Pi controls, audio recovery and scratchpad are configurable",async()=>{
 });
 
 test("missing selected provider key is rejected",async()=>withEnv({GEMINI_API_KEY:undefined,GOOGLE_API_KEY:undefined,ORB_CONFIG:undefined},async()=>{await assert.rejects(()=>loadVoiceConfig("gemini",tmpdir()),/GEMINI_API_KEY/);}));
+
+test("autoStartVoice defaults to true and is exposed by the config loader",async()=>withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_AUTO_START:undefined},async()=>{
+  const config=await loadVoiceConfig("gemini",tmpdir());
+  assert.equal(config.autoStartVoice,true);
+  assert.equal(await resolveAutoStartVoice(tmpdir()),true);
+}));
+
+test("autoStartVoice=false in config.json opts out",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"orb-autostart-"));
+  const configFile=join(root,"config.json");
+  await writeFile(configFile,JSON.stringify({autoStartVoice:false}),"utf8");
+  await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:configFile,ORB_AUTO_START:undefined},async()=>{
+    assert.equal((await loadVoiceConfig("gemini",root)).autoStartVoice,false);
+    assert.equal(await resolveAutoStartVoice(root),false);
+  });
+});
+
+test("ORB_AUTO_START env overrides config.json autoStartVoice",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"orb-auto-start-env-"));
+  const configFile=join(root,"config.json");
+  await writeFile(configFile,JSON.stringify({autoStartVoice:true}),"utf8");
+  await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:configFile,ORB_AUTO_START:"false"},async()=>{
+    assert.equal(await resolveAutoStartVoice(root),false);
+    assert.equal((await loadVoiceConfig("gemini",root)).autoStartVoice,false);
+  });
+});
+
+test("isHerdrSubAgent: top-level bash has no signal; any Herdr pane counts as a sub-agent",async()=>{
+  // A top-level instance launched directly from bash inherits no HERDR_* and no
+  // PI_SUBAGENT_*.
+  await withEnv({PI_SUBAGENT_ID:undefined,PI_SUBAGENT_NAME:undefined,PI_SUBAGENT_SESSION:undefined,PI_SUBAGENT_SURFACE:undefined,HERDR_ENV:undefined},async()=>{
+    assert.equal(isHerdrSubAgent(),false,"a top-level process launched from bash is not a sub-agent");
+  });
+  // Every process in a Herdr pane gets HERDR_ENV=1, including workers spawned via
+  // the Factory's `herdr agent start --kind pi` (no PI_SUBAGENT_*).
+  await withEnv({PI_SUBAGENT_ID:undefined,PI_SUBAGENT_NAME:undefined,PI_SUBAGENT_SESSION:undefined,PI_SUBAGENT_SURFACE:undefined,HERDR_ENV:"1"},async()=>{
+    assert.equal(isHerdrSubAgent(),true,"HERDR_ENV=1 marks a sub-agent tab");
+  });
+  // pi-herdr-subagents adds PI_SUBAGENT_ID on top; also true.
+  await withEnv({HERDR_ENV:"1",PI_SUBAGENT_ID:"abc",PI_SUBAGENT_NAME:"Scout: Auth",PI_SUBAGENT_SESSION:"child.jsonl",PI_SUBAGENT_SURFACE:"w1:p1"},async()=>{
+    assert.equal(isHerdrSubAgent(),true);
+  });
+});
+
+test("top-level instance launched directly from bash keeps voice auto-start",async()=>withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_AUTO_START:undefined,HERDR_ENV:undefined,PI_SUBAGENT_ID:undefined},async()=>{
+  assert.equal(await resolveAutoStartVoice(tmpdir()),true);
+  assert.equal((await loadVoiceConfig("gemini",tmpdir())).autoStartVoice,true);
+}));
+
+test("autoStartVoice is off by default in a Herdr sub-agent tab",async()=>withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_AUTO_START:undefined,HERDR_ENV:"1",PI_SUBAGENT_ID:"1",PI_SUBAGENT_NAME:"worker"},async()=>{
+  assert.equal((await loadVoiceConfig("gemini",tmpdir())).autoStartVoice,false);
+  assert.equal(await resolveAutoStartVoice(tmpdir()),false);
+}));
+
+test("ORB_AUTO_START=true still opts a sub-agent tab back in",async()=>withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_AUTO_START:"true",HERDR_ENV:"1",PI_SUBAGENT_ID:"1"},async()=>{
+  assert.equal(await resolveAutoStartVoice(tmpdir()),true);
+}));
