@@ -89,7 +89,13 @@ export class PiLogMirror {
     if (this.condition(afterRevision, until)) return;
     await new Promise<void>((resolve) => {
       const waiter: Waiter = { after: afterRevision, until, resolve: () => { if (waiter.timer) clearTimeout(waiter.timer); this.waiters.delete(waiter); resolve(); } };
-      waiter.timer = setTimeout(waiter.resolve, timeoutMs); waiter.timer.unref?.(); this.waiters.add(waiter);
+      // The timeout timer must stay **ref'd**: the promise it resolves only
+      // ever drives an awaited `observe()`, so it must be able to settle even
+      // when nothing else keeps the event loop alive. An unref'd timer made
+      // `await observe(…)` hang (and node:test cancel the whole file with
+      // “Promise resolution is still pending but the event loop has already
+      // resolved”) whenever the loop drained before the timeout fired.
+      waiter.timer = setTimeout(waiter.resolve, timeoutMs); this.waiters.add(waiter);
     });
   }
 

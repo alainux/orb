@@ -25,6 +25,16 @@ export class RunLog {
     return this.write("ERROR", message, error);
   }
 
+  /**
+   * Deterministically drain every write queued so far. Awaiting this after a
+   * batch of fire-and-forget `info`/`error` calls (e.g. from the controller's
+   * feed observer) resolves once all appended lines have hit disk, so callers
+   * never have to guess a sleep time and tests stop racing the event loop.
+   */
+  async flush(): Promise<void> {
+    await this.chain;
+  }
+
   private write(level: string, message: string, details?: unknown): Promise<void> {
     const suffix = details === undefined ? "" : ` ${safeJson(details)}`;
     const line = `${new Date().toISOString()} ${level} ${message}${suffix}\n`;

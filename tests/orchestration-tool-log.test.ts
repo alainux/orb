@@ -61,15 +61,17 @@ test("no configuration tools survive: control_pi only cancels, set_voice is gone
 
 test("durable log captures spoken turns (conversation) and orchestration tool usage", async () => {
   const { c, logDir } = setup();
-  controllerSeam(c).log = await RunLog.create(logDir);
+  const log = await RunLog.create(logDir);
+  controllerSeam(c).log = log;
 
   const sink = controllerSeam(c).createProviderSink();
   sink.onInputTranscript("debug the failing test", true);   // committed user turn
   sink.onOutputTranscript("Let me direct Pi to investigate it.", true); // committed orb turn
   await controllerSeam(c).handleToolCall({ id: "t1", name: "read_pi_log", arguments: { max_entries: 4 } });
   await controllerSeam(c).handleToolCall({ id: "t2", name: "observe_pi", arguments: { until: "activity", timeout_ms: 60 } });
-  // Let the RunLog append-chain flush before reading the file back.
-  await new Promise((r) => setTimeout(r, 80));
+  // Drain the append-chain deterministically (no timer guess) so this test
+  // never races the event loop under CI load.
+  await log.flush();
 
   const text = latestLogText(logDir);
   // Spoken exchange is now durable.
@@ -84,7 +86,8 @@ test("durable log captures spoken turns (conversation) and orchestration tool us
 
 test("voice-turn-actions logs pi_dispatches so a talk-without-delegation turn is visible", async () => {
   const { c, logDir } = setup();
-  controllerSeam(c).log = await RunLog.create(logDir);
+  const log = await RunLog.create(logDir);
+  controllerSeam(c).log = log;
   const sink = controllerSeam(c).createProviderSink();
 
   // A voice turn that *claims* work but delegates nothing must log
@@ -92,7 +95,9 @@ test("voice-turn-actions logs pi_dispatches so a talk-without-delegation turn is
   sink.onInputTranscript("remove the greeting cues from the policy", true);
   sink.onOutputTranscript("Got it. Running that now.", true);
 
-  await new Promise((r) => setTimeout(r, 80));
+  // Drain the append-chain deterministically (no timer guess) so this test
+  // never races the event loop under CI load.
+  await log.flush();
   const text = latestLogText(logDir);
 
   const lines = text.split("\n").filter((l) => l.includes("voice-turn-actions"));
