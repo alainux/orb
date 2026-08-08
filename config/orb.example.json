@@ -31,10 +31,6 @@
   },
   "permissions": {
     "cancelPi": true,
-    "setModel": true,
-    "setThinking": true,
-    "setTools": true,
-    "shell": true,
     "scratchpadRead": true,
     "scratchpadWrite": true,
     "scratchpadOutsideProject": false

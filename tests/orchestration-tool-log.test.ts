@@ -41,6 +41,23 @@ test("every direct project tool (bash/read/write/edit/grep/find/ls) is rejected 
   assert.doesNotMatch(text, /voice native tool/, "no native tool may be logged as executed");
 });
 
+test("no configuration tools survive: control_pi only cancels, set_voice is gone", async () => {
+  const { c, logDir } = setup();
+  (c as any).log = await RunLog.create(logDir);
+
+  // The agent can only orchestrate: cancelling is allowed via control_pi, but
+  // every config knob and self-config (set_voice) is rejected as unknown.
+  const allowed = await (c as any).handleToolCall({ id: "a1", name: "control_pi", arguments: { action: "cancel" } });
+  assert.equal(allowed.ok, false, "cancel needs a live ctx, but it must DISPATCH, not be Unknown");
+  assert.doesNotMatch(allowed.error, /Unknown tool/, "control_pi cancel remains a recognized orchestration tool");
+
+  for (const name of ["set_voice", "shell", "set_thinking", "list_tools", "set_tools", "list_models", "set_model"]) {
+    const result = await (c as any).handleToolCall({ id: "a2", name, arguments: {} });
+    assert.equal(result.ok, false, `${name} must be rejected`);
+    assert.match(result.error, /Unknown tool/, `expected Unknown tool for ${name}`);
+  }
+});
+
 test("durable log captures spoken turns (conversation) and orchestration tool usage", async () => {
   const { c, logDir } = setup();
   (c as any).log = await RunLog.create(logDir);

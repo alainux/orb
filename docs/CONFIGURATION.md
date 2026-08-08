@@ -46,10 +46,6 @@ API keys intentionally stay in environment variables.
   },
   "permissions": {
     "cancelPi": true,
-    "setModel": true,
-    "setThinking": true,
-    "setTools": true,
-    "shell": true,
     "scratchpadRead": true,
     "scratchpadWrite": true,
     "scratchpadOutsideProject": false
@@ -100,16 +96,14 @@ Orb no longer injects an opening cue when a session starts (the randomized `GREE
 
 All Pi-management and scratchpad filesystem capabilities can be disabled independently:
 
-- `permissions.cancelPi` — allow `ctx.abort()` of active Pi work.
-- `permissions.setModel` — allow listing/switching Pi models.
-- `permissions.setThinking` — allow changing Pi's thinking level.
-- `permissions.setTools` — allow changing Pi's active tool set.
-- `permissions.shell` — allow direct shell commands through `pi.exec()`.
+- `permissions.cancelPi` — allow `ctx.abort()` to cancel active Pi work (the only Pi-control action the voice agent has; it cannot configure the model/tools/shell).
 - `permissions.scratchpadRead` — allow loading project files into the scratchpad.
 - `permissions.scratchpadWrite` — allow saving the scratchpad.
 - `permissions.scratchpadOutsideProject` — allow scratchpad file access outside Pi's current project. Defaults to `false`.
 
-Environment equivalents are `ORB_ALLOW_CANCEL_PI`, `ORB_ALLOW_SET_MODEL`, `ORB_ALLOW_SET_THINKING`, `ORB_ALLOW_SET_TOOLS`, `ORB_ALLOW_SHELL`, `ORB_ALLOW_SCRATCHPAD_READ`, `ORB_ALLOW_SCRATCHPAD_WRITE`, and `ORB_ALLOW_SCRATCHPAD_OUTSIDE_PROJECT`.
+There are deliberately no runtime configuration permissions: the voice agent cannot change Pi's model, thinking level, toolset, or run shell, and it cannot change its own voice. Those are set by the config file only (`voice.model`/`voice.voice` and Pi's own settings), not available as tools.
+
+Environment equivalents are `ORB_ALLOW_CANCEL_PI`, `ORB_ALLOW_SCRATCHPAD_READ`, `ORB_ALLOW_SCRATCHPAD_WRITE`, and `ORB_ALLOW_SCRATCHPAD_OUTSIDE_PROJECT`.
 
 ## Audio recovery
 

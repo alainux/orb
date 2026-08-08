@@ -224,10 +224,6 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
     geminiThinkingHoldMs: Math.round(numberValue(envFirst("ORB_GEMINI_THINKING_HOLD_MS") ?? sessionConfig.geminiThinkingHoldMs, 380, 0, 5000, "session.geminiThinkingHoldMs")),
     permissions: {
       cancelPi: boolValue(envFirst("ORB_ALLOW_CANCEL_PI") ?? permissionConfig.cancelPi, true, "permissions.cancelPi"),
-      setModel: boolValue(envFirst("ORB_ALLOW_SET_MODEL") ?? permissionConfig.setModel, true, "permissions.setModel"),
-      setThinking: boolValue(envFirst("ORB_ALLOW_SET_THINKING") ?? permissionConfig.setThinking, true, "permissions.setThinking"),
-      setTools: boolValue(envFirst("ORB_ALLOW_SET_TOOLS") ?? permissionConfig.setTools, true, "permissions.setTools"),
-      shell: boolValue(envFirst("ORB_ALLOW_SHELL") ?? permissionConfig.shell, true, "permissions.shell"),
       scratchpadRead: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_READ") ?? permissionConfig.scratchpadRead, true, "permissions.scratchpadRead"),
       scratchpadWrite: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_WRITE") ?? permissionConfig.scratchpadWrite, true, "permissions.scratchpadWrite"),
       scratchpadOutsideProject: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_OUTSIDE_PROJECT") ?? permissionConfig.scratchpadOutsideProject, false, "permissions.scratchpadOutsideProject"),

@@ -78,25 +78,6 @@ test("controller.setVoice lists options and rejects unknown names", async () => 
   assert.ok(notify.some((m) => m.toLowerCase().includes("unknown voice")), "rejected bogus voice");
 });
 
-test("set_voice tool switches the voice and updates config", async () => {
-  const c = new VoiceController({} as any);
-  const calls: string[] = [];
-  (c as any).provider = { setVoice: async (v: string) => { calls.push(v); } };
-  (c as any).config = { provider: "gemini", voice: "Kore" };
-  const ok = await (c as any).toolSetVoice({ name: "set_voice", id: "c1", arguments: { voice: "zephyr" } });
-  assert.equal(ok.ok, true);
-  assert.equal(ok.voice, "Zephyr");
-  assert.deepEqual(calls, ["Zephyr"]);
-  assert.equal((c as any).config.voice, "Zephyr");
-});
-
-test("set_voice tool rejects an unknown voice name", async () => {
-  const c = new VoiceController({} as any);
-  const calls: string[] = [];
-  (c as any).provider = { setVoice: async (v: string) => { calls.push(v); } };
-  (c as any).config = { provider: "gemini", voice: "Kore" };
-  const ok = await (c as any).toolSetVoice({ name: "set_voice", id: "c2", arguments: { voice: "wrong" } });
-  assert.equal(ok.ok, false);
-  assert.match(String(ok.error), /Unknown voice/);
-  assert.deepEqual(calls, [], "must not change the voice on a bad name");
-});
+// The `set_voice` agent tool was removed: the voice can only be configured via
+// the config file (or the human-driven /voice command), never by the agent.
+// controller.setVoice above remains the human-facing path.

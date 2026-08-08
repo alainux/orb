@@ -13,10 +13,6 @@ export type ThinkingDisplay = "full" | "minimized" | "hidden";
 
 export interface OrbPermissions {
   cancelPi: boolean;
-  setModel: boolean;
-  setThinking: boolean;
-  setTools: boolean;
-  shell: boolean;
   scratchpadRead: boolean;
   scratchpadWrite: boolean;
   scratchpadOutsideProject: boolean;

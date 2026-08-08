@@ -49,7 +49,10 @@ test("voice policy is a pure interpreter/director that delegates and stays preci
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /the current agent/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /model name/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /control_pi\(action="cancel"\)/);
-  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /change the current agent's model, thinking level, active tools/);
+  // No configuration capability at runtime: no model/thinking/tools/shell switches,
+  // no set_voice. The companion is configured solely by the config file.
+  assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /change the current agent's model, thinking level, active tools/);
+  assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /set_voice\(/);
   // Expand, don't compress; ask clarifying questions.
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /EXPAND, DON'T COMPRESS/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /CLARIFY BEFORE YOU GUESS/);

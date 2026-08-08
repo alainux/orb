@@ -137,32 +137,26 @@ Commands:
 
 ## Pi control
 
-Orb can manage the active Pi harness through Pi's extension APIs instead of pretending slash commands are text:
+Orb can direct the active Pi harness through Pi's extension APIs instead of pretending slash commands are text. Deliberately, the voice companion only exercises the orchestration surface of the harness — it never configures Pi. So it can:
 
 - cancel the active generation/tool run;
-- switch Pi models;
-- change Pi's thinking level;
-- enable/disable Pi tools;
-- run direct shell commands for `!`-style requests;
 - delegate every real coding task to Pi — the companion never edits the project itself (it holds no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` tools); it translates your requirements and directs the background agent;
 - wait for visible Pi activity or completion and inspect results.
 
-This makes sequences such as **cancel → change model → retry** possible entirely by voice.
+Anything that would *configure* Pi or the companion — switching Pi's model, changing its thinking level, enabling/disabling its tools, running shell, or changing the voice agent's own voice — is deliberately **not** a tool. Those are set by the config file, not changed at runtime or by voice.
+
+This makes sequences such as **cancel → delegate something else** possible entirely by voice.
 
 Direct user `!` commands and their visible output are observed as part of Orb's internal Pi context when Pi exposes them. Pi's `!!` form stays deliberately excluded from model context. Orb does not duplicate Pi's own log in its panel because you can already see it on screen.
 
 ### Permissions
 
-These capabilities are independently configurable. Defaults enable Pi control while keeping scratchpad file access inside the current project:
+These capabilities are independently configurable, scoped to orchestration only (cancel) and the scratchpad. There are deliberately no runtime configuration knobs — the model, thinking level, tools, shell, and the voice model's own voice are set by the config file, not changed by voice:
 
 ```json
 {
   "permissions": {
     "cancelPi": true,
-    "setModel": true,
-    "setThinking": true,
-    "setTools": true,
-    "shell": true,
     "scratchpadRead": true,
     "scratchpadWrite": true,
     "scratchpadOutsideProject": false
@@ -170,7 +164,7 @@ These capabilities are independently configurable. Defaults enable Pi control wh
 }
 ```
 
-Disable anything you do not want the realtime voice model to use. The companion never holds a coding agent's project tools — there is no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls`. It can only talk to the human, delegate to the current agent (`run_pi_task`/`observe_pi`/`read_pi_log`/`control_pi`), switch its own voice (`set_voice`), and manage its ephemeral scratchpad. The system prompt can be overridden with `ORB_SYSTEM_PROMPT` / `PI_VOICE_SYSTEM_PROMPT` or a `voice.systemPromptFile`; the per-tool permission gates (`shell`, `scratchpadRead`, etc.) still apply to the delegation tools.
+Disable anything you do not want the realtime voice model to use. The companion never holds a coding agent's project tools — there is no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` — and it cannot configure itself or Pi (no model/thinking/tools/shell switching, no `set_voice`). It can only talk to the human, delegate to the current agent (`run_pi_task`/`observe_pi`/`read_pi_log`), cancel a run (`control_pi` → `cancel`), and manage its ephemeral scratchpad. The system prompt can be overridden with `ORB_SYSTEM_PROMPT` / `PI_VOICE_SYSTEM_PROMPT` or a `voice.systemPromptFile`; the per-tool permission gates (`cancelPi`, `scratchpadRead`, etc.) still apply.
 
 ## Scratchpad
 

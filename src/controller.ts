@@ -455,7 +455,6 @@ export class VoiceController {
       } else if (call.name === "observe_pi") result = await this.toolObservePi(call);
       else if (call.name === "control_pi") result = await this.toolControlPi(call);
       else if (call.name === "scratchpad") result = await this.toolScratchpad(call);
-      else if (call.name === "set_voice") result = await this.toolSetVoice(call);
       else result = { ok: false, error: `Unknown tool ${call.name}` };
     } catch (error) {
       result = { ok: false, error: asError(error).message };
@@ -556,27 +555,6 @@ export class VoiceController {
       characters: snapshot.content.length,
     });
     return { ...result, scratchpad: { ...snapshot, content: snapshot.content.slice(0, 120_000) } };
-  }
-
-  /** set_voice tool: let the agent switch the live voice (robust config-equivalent). */
-  private async toolSetVoice(call: ToolCall): Promise<Record<string, unknown>> {
-    const provider = this.provider;
-    const config = this.config;
-    if (!provider || !config) return { ok: false, error: "Voice session is unavailable" };
-    const raw = String(call.arguments.voice ?? "").trim();
-    if (!raw) {
-      const opts = voiceOptions(config.provider);
-      return { ok: false, error: `Which voice? Available: ${opts.join(", ")}` };
-    }
-    const target = resolveVoice(config.provider, raw);
-    if (!target) {
-      const opts = voiceOptions(config.provider);
-      return { ok: false, error: `Unknown voice "${raw}". Available: ${opts.join(", ")}` };
-    }
-    await provider.setVoice(target);
-    config.voice = target;
-    void this.log?.info("voice switched via tool", { voice: target });
-    return { ok: true, voice: target, provider: config.provider };
   }
 
   private syncScratchpad(): void {
@@ -719,14 +697,8 @@ function toolLabel(call: ToolCall): string {
   if (call.name === "run_pi_task") return `delegate to Pi${typeof call.arguments.summary === "string" && call.arguments.summary.trim() ? ` · ${call.arguments.summary.trim().slice(0, 80)}` : ""}`;
   if (call.name === "read_pi_log") return "check Pi result";
   if (call.name === "observe_pi") return `wait for Pi · ${call.arguments.until ?? "settled"}`;
-  if (call.name === "control_pi") {
-    const action = String(call.arguments.action ?? "control");
-    if (action === "shell") return `shell · ${String(call.arguments.command ?? "").slice(0, 90)}`;
-    if (action === "set_model") return `model · ${String(call.arguments.model ?? "")}`;
-    return `Pi ${action.replaceAll("_", " ")}`;
-  }
+  if (call.name === "control_pi") return "cancel Pi";
   if (call.name === "scratchpad") return `scratchpad · ${String(call.arguments.action ?? "read")}`;
-  if (call.name === "set_voice") return `voice → ${String(call.arguments.voice ?? "next")}`;
   return call.name;
 }
 function toolResultLabel(name: string, result: Record<string, unknown>): string {
@@ -734,9 +706,8 @@ function toolResultLabel(name: string, result: Record<string, unknown>): string 
   if (name === "run_pi_task") return result.queued ? "Pi task queued" : "Pi task started";
   if (name === "observe_pi") return `Pi ${String(result.status ?? "observed")}`;
   if (name === "read_pi_log") return "Pi result checked";
-  if (name === "control_pi") return "Pi control applied";
+  if (name === "control_pi") return "Pi cancelled";
   if (name === "scratchpad") return "scratchpad updated";
-  if (name === "set_voice") return `voice → ${String(result.voice ?? "")}`;
   return name;
 }
 function bounded(value: unknown, fallback: number, min: number, max: number): number {

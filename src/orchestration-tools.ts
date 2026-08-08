@@ -1,7 +1,10 @@
 /**
- * The voice agent's orchestration tools: control-plane hooks into the Pi
- * harness (delegate/observe/control/read), plus Orb's own scratchpad and
- * voice switching. These are the voice agent's ONLY tools. There are
+ * The voice agent's orchestration tools: delegate/observe/read hooks into the
+ * Pi harness, an orchestration-cancel, and the scratchpad. These are the voice
+ * agent's ONLY tools. There are deliberately NO configuration capabilities
+ * (no control_pi model/thinking/tools/shell switches, no set_voice) — the voice
+ * companion cannot re-configure itself or the agent at runtime; it is configured
+ * solely by the config file. There are
  * deliberately NO native project tools (no bash/write/read/edit/grep/find/ls)
  * — the voice companion can only talk to the human and direct the background
  * agent; it can never directly edit the project tree. Its one special,
@@ -67,19 +70,12 @@ const ORCHESTRATION_CATALOG: readonly OrchestrationTool[] = [
   {
     name: "control_pi",
     description:
-      "Control the Pi background agent (the coding harness running underneath Orb) directly: cancel an active run, list or set its model, change ITS thinking level, list or set its active tools, or run a shell command where permissions allow. Note: set_thinking only changes the background agent's reasoning level — it does NOT affect the Orb voice model's thinking or the visible Thinking indicator. Cancel the background agent immediately when the human changes direction.",
+      "Cancel the background Pi agent's currently running turn when the human changes direction. Orchestration-only: no model/thinking/tools/shell configuration is exposed here (those are controlled by the voice config file, not by you).",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        action: {
-          type: "string",
-          enum: ["cancel", "list_models", "set_model", "set_thinking", "list_tools", "set_tools", "shell"],
-        },
-        model: { type: "string" },
-        level: { type: "string" },
-        tools: { type: "array", items: { type: "string" } },
-        command: { type: "string" },
+        action: { type: "string", enum: ["cancel"] },
         timeout_ms: { type: "number" },
       },
       required: ["action"],
@@ -100,18 +96,6 @@ const ORCHESTRATION_CATALOG: readonly OrchestrationTool[] = [
         summary: { type: "string" },
       },
       required: ["action"],
-    },
-  },
-  {
-    name: "set_voice",
-    description: "Change Orb's active spoken voice to audition or pick a different sound.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        voice: { type: "string", description: "Exact voice name available on the active provider." },
-      },
-      required: ["voice"],
     },
   },
 ];
