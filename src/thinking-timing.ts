@@ -75,10 +75,28 @@ export function thinkingLabel(provider: string, model: string): string {
  * (default `orb-thinking.log`) instead of the main console, so the detailed
  * per-transition records stay out of the UI/output stream.
  */
-export function createFileLog(dir: string, filename = "orb-thinking.log"): (line: string) => void {
+/**
+ * A line-sink that is also a plain function, plus a `flush()` that resolves once
+ * every text queued so far has been written to disk (`await log.flush()` is the
+ * deterministic way to read what's in the file). Keeping it a function subtype
+ * lets it be passed directly where a `(line) => void` is expected, e.g. the
+ * unstable tracking top-level `log` option.
+ */
+export type FileLog = ((line: string) => void) & { flush(): Promise<void> };
+
+/**
+ * Build a line-appender that persists each trace line to a dedicated log file
+ * (default `orb-thinking.log`) instead of the main console, so the detailed
+ * per-transition records stay out of the UI/output stream.
+ */
+export function createFileLog(dir: string, filename = "orb-thinking.log"): FileLog {
   const path = join(dir, filename);
   let chain: Promise<void> = mkdir(dir, { recursive: true }).then(() => undefined);
-  return (line: string) => {
-    chain = chain.then(() => appendFile(path, `${line}\n`, "utf8")).catch(() => undefined);
-  };
+  const appender = Object.assign(
+    (line: string) => {
+      chain = chain.then(() => appendFile(path, `${line}\n`, "utf8")).catch(() => undefined);
+    },
+    { flush: () => chain as Promise<void> },
+  ) as FileLog;
+  return appender;
 }

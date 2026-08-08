@@ -110,10 +110,21 @@ test("createFileLog persists trace lines to a dedicated file, not the console", 
   const log = createFileLog(dir);
   log("[orb-thinking] start seq=1 at=… model=gemini·m");
   log("[orb-thinking] stop seq=2 at=… held=30ms model=gemini·m");
-  // Chained writes flush asynchronously; give the event loop a tick.
-  await new Promise((r) => setTimeout(r, 30));
+  // Wait deterministically on the chained flush (no timer guess) so this test
+  // isn't racy under load.
+  await log.flush();
   const content = await readFile(join(dir, "orb-thinking.log"), "utf8");
   assert.equal(content, "[orb-thinking] start seq=1 at=… model=gemini·m\n[orb-thinking] stop seq=2 at=… held=30ms model=gemini·m\n");
+});
+
+test("createFileLog flush() retains order under a heavy burst of writes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orb-think-burst-"));
+  const log = createFileLog(dir);
+  const expected: string[] = [];
+  for (let i = 0; i < 500; i++) { const line = `[orb-thinking] line ${i}`; expected.push(line); log(line); }
+  await log.flush();
+  const content = await readFile(join(dir, "orb-thinking.log"), "utf8");
+  assert.equal(content, `${expected.join("\n")}\n`);
 });
 
 // ---------------------------------------------------------------------------
