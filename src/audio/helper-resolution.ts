@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
+import type { ExecFileOptions } from "node:child_process";
 import type { RunLog } from "../log.js";
 
 export interface HelperResolution {
@@ -208,14 +209,14 @@ async function existsExecutable(path: string): Promise<boolean> {
 async function ensureExecutable(path: string): Promise<void> {
   await access(path, process.platform === "win32" ? fsConstants.F_OK : fsConstants.X_OK);
 }
-function execFileAsync(file: string, args: string[], options: Record<string, unknown>): Promise<void> {
-  return new Promise((resolve, reject) => execFile(file, args, options as any, (error, _stdout, stderr) => {
+function execFileAsync(file: string, args: string[], options: ExecFileOptions): Promise<void> {
+  return new Promise((resolve, reject) => execFile(file, args, options, (error, _stdout, stderr) => {
     if (error) reject(new Error(`${basename(file)} failed: ${String(stderr || error.message).trim()}`));
     else resolve();
   }));
 }
-function execFileText(file: string, args: string[], options: Record<string, unknown>): Promise<string> {
-  return new Promise((resolve, reject) => execFile(file, args, options as any, (error, stdout, stderr) => {
+function execFileText(file: string, args: string[], options: ExecFileOptions): Promise<string> {
+  return new Promise((resolve, reject) => execFile(file, args, options, (error, stdout, stderr) => {
     if (error) reject(new Error(`${basename(file)} failed: ${String(stderr || error.message).trim()}`));
     else resolve(String(stdout));
   }));

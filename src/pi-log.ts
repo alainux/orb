@@ -1,9 +1,13 @@
+// Wire-boundary exception: this mirror consumes untyped Pi lifecycle events and
+// session-branch payloads straight off the harness. Fields are read with nullable
+// access and coerced to string/bool at the leaf; none are passed onward unsafely.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { PiAgentStatus } from "./types.js";
 
 export interface PiLogContextLike { sessionManager?: { getBranch(): unknown[] } }
 export interface PiVisibleEvent { kind: "pi" | "pi-tool" | "system"; text: string; final?: boolean }
 interface LiveRecord { revision: number; time: number; kind: string; text: string }
-interface Waiter { after: number; until: "activity" | "settled"; resolve: () => void; timer: NodeJS.Timeout }
+interface Waiter { after: number; until: "activity" | "settled"; resolve: () => void; timer?: NodeJS.Timeout }
 
 export class PiLogMirror {
   private records: LiveRecord[] = [];
@@ -84,7 +88,7 @@ export class PiLogMirror {
   async observe(afterRevision: number, until: "activity" | "settled", timeoutMs: number): Promise<void> {
     if (this.condition(afterRevision, until)) return;
     await new Promise<void>((resolve) => {
-      const waiter: Waiter = { after: afterRevision, until, resolve: () => { clearTimeout(waiter.timer); this.waiters.delete(waiter); resolve(); }, timer: undefined as any };
+      const waiter: Waiter = { after: afterRevision, until, resolve: () => { if (waiter.timer) clearTimeout(waiter.timer); this.waiters.delete(waiter); resolve(); } };
       waiter.timer = setTimeout(waiter.resolve, timeoutMs); waiter.timer.unref?.(); this.waiters.add(waiter);
     });
   }

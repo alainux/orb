@@ -44,6 +44,22 @@ If a new feature can cancel work, execute a command, change Pi state, or access 
 - Update `CHANGELOG.md` for user-visible changes.
 - Update website screenshots when the actual interface changes.
 
+## Type-safety & `any` policy
+
+Orb keeps the type system honest. `eslint` (`npm run lint`) enforces this:
+
+- **No `as any` casts anywhere.** Unbound in `src/`, `tests/`, and `extensions/`.
+  For untyped input, use `unknown` and narrow with guards; for fakes use
+  `as unknown as SomeType` (never bare `as any`). In tests, reach private
+  provider/controller internals only through the typed seams in
+  `tests/support/seams.ts` (`providerSeam` / `controllerSeam`, `fakePi`), not by
+  `(x as any).member`.
+- **No explicit `any` annotations** except at true wire/SDK boundaries
+  (`src/providers/gemini.ts`, `src/pi-log.ts`), each covered by a
+  `/* eslint-disable @typescript-eslint/no-explicit-any */` file directive
+  with an adjacent one-line reason. If you add an `any` elsewhere, convert it
+  to `unknown` + a guard.
+
 Run before opening a PR:
 
 ```bash

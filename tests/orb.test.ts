@@ -193,7 +193,7 @@ test("size variants adapt the surface density", () => {
 
 test("the base wave clock keeps traveling even while muted", () => {
   const motion = new OrbMotion();
-  let now = 1_000;
+  const now = 1_000;
   const a = motion.step(now, 0.1, 0, false);
   const b = motion.step(now + 16, 0.1, 0, false);
   assert.ok((b.t ?? 0) > (a.t ?? 0), "clock advances while live");

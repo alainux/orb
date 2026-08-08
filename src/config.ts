@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { composeSystemPrompt } from "./policy.js";
 import type { VoiceConfig, VoiceProviderName, ThinkingDisplay } from "./types.js";
 
-type JsonObject = Record<string, any>;
+type JsonObject = Record<string, unknown>;
 
 function envFirst(...names: string[]): string | undefined {
   for (const name of names) {
@@ -254,8 +254,9 @@ async function readJsonIfPresent(path: string): Promise<JsonObject | undefined> 
     const parsed = JSON.parse(await readFile(path, "utf8"));
     if (!isObject(parsed)) throw new Error("root must be an object");
     return parsed;
-  } catch (error: any) {
-    if (error?.code === "ENOENT") return undefined;
+  } catch (error: unknown) {
+    const code = (error as { code?: string } | null)?.code;
+    if (code === "ENOENT") return undefined;
     throw new Error(`Could not load Orb config ${path}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

@@ -13,8 +13,9 @@ test("delegated work tracker distinguishes user Pi activity from voice-delegated
 });
 
 test("Pi tasks submit immediately when idle and queue when Pi is working",async()=>{
-  const calls:any[]=[];const pi={sendUserMessage:(content:string,options?:any)=>{calls.push({content,options});}};
+  const calls: Array<{ content: string; options?: { deliverAs?: string } | undefined }> = [];
+  const pi = { sendUserMessage: (content: string, options?: { deliverAs?: string }) => { calls.push({ content, options }); } };
   assert.deepEqual(await sendPiTask(pi,{isIdle:()=>true},"explore"),{queued:false});
   assert.deepEqual(await sendPiTask(pi,{isIdle:()=>false},"fix tests"),{queued:true});
-  assert.equal(calls[0].options,undefined);assert.deepEqual(calls[1].options,{deliverAs:"followUp"});
+  assert.equal(calls[0]?.options,undefined);assert.deepEqual(calls[1]?.options,{deliverAs:"followUp"});
 });

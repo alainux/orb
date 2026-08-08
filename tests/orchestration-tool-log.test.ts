@@ -4,13 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { VoiceController } from "../src/controller.js";
+import { controllerSeam, fakePi } from "./support/seams.js";
 import { RunLog } from "../src/log.js";
 
 function setup() {
   const cwd = mkdtempSync(join(tmpdir(), "orb-tool-log-cwd-"));
   const logDir = mkdtempSync(join(tmpdir(), "orb-tool-log-logs-"));
-  const c = new VoiceController({} as any);
-  (c as any).config = {};
+  const c = new VoiceController(fakePi());
+  controllerSeam(c).config = {};
   return { c, cwd, logDir };
 }
 
@@ -23,16 +24,16 @@ function latestLogText(logDir: string): string {
 
 test("every direct project tool (bash/read/write/edit/grep/find/ls) is rejected as unknown", async () => {
   const { c, logDir } = setup();
-  (c as any).log = await RunLog.create(logDir);
+  controllerSeam(c).log = await RunLog.create(logDir);
 
   for (const name of ["bash", "read", "write", "edit", "grep", "find", "ls"]) {
-    const result = await (c as any).handleToolCall({
+    const result = await controllerSeam(c).handleToolCall({
       id: "c1",
       name,
       arguments: { path: "/tmp/x", command: "rm -rf /" },
     });
-    assert.equal(result.ok, false, `${name} must not be offered to the voice model`);
-    assert.match(result.error, /Unknown tool/, `expected Unknown tool for ${name}`);
+    assert.equal(Boolean(result.ok), false, `${name} must not be offered to the voice model`);
+    assert.match(String(result.error), /Unknown tool/, `expected Unknown tool for ${name}`);
   }
 
   // None of these can ever be executed, so the durable audit never records a
@@ -43,30 +44,30 @@ test("every direct project tool (bash/read/write/edit/grep/find/ls) is rejected 
 
 test("no configuration tools survive: control_pi only cancels, set_voice is gone", async () => {
   const { c, logDir } = setup();
-  (c as any).log = await RunLog.create(logDir);
+  controllerSeam(c).log = await RunLog.create(logDir);
 
   // The agent can only orchestrate: cancelling is allowed via control_pi, but
   // every config knob and self-config (set_voice) is rejected as unknown.
-  const allowed = await (c as any).handleToolCall({ id: "a1", name: "control_pi", arguments: { action: "cancel" } });
-  assert.equal(allowed.ok, false, "cancel needs a live ctx, but it must DISPATCH, not be Unknown");
-  assert.doesNotMatch(allowed.error, /Unknown tool/, "control_pi cancel remains a recognized orchestration tool");
+  const allowed = await controllerSeam(c).handleToolCall({ id: "a1", name: "control_pi", arguments: { action: "cancel" } });
+  assert.equal(Boolean(allowed.ok), false, "cancel needs a live ctx, but it must DISPATCH, not be Unknown");
+  assert.doesNotMatch(String(allowed.error), /Unknown tool/, "control_pi cancel remains a recognized orchestration tool");
 
   for (const name of ["set_voice", "shell", "set_thinking", "list_tools", "set_tools", "list_models", "set_model"]) {
-    const result = await (c as any).handleToolCall({ id: "a2", name, arguments: {} });
-    assert.equal(result.ok, false, `${name} must be rejected`);
-    assert.match(result.error, /Unknown tool/, `expected Unknown tool for ${name}`);
+    const result = await controllerSeam(c).handleToolCall({ id: "a2", name, arguments: {} });
+    assert.equal(Boolean(result.ok), false, `${name} must be rejected`);
+    assert.match(String(result.error), /Unknown tool/, `expected Unknown tool for ${name}`);
   }
 });
 
 test("durable log captures spoken turns (conversation) and orchestration tool usage", async () => {
   const { c, logDir } = setup();
-  (c as any).log = await RunLog.create(logDir);
+  controllerSeam(c).log = await RunLog.create(logDir);
 
-  const sink = (c as any).createProviderSink();
+  const sink = controllerSeam(c).createProviderSink();
   sink.onInputTranscript("debug the failing test", true);   // committed user turn
   sink.onOutputTranscript("Let me direct Pi to investigate it.", true); // committed orb turn
-  await (c as any).handleToolCall({ id: "t1", name: "read_pi_log", arguments: { max_entries: 4 } });
-  await (c as any).handleToolCall({ id: "t2", name: "observe_pi", arguments: { until: "activity", timeout_ms: 60 } });
+  await controllerSeam(c).handleToolCall({ id: "t1", name: "read_pi_log", arguments: { max_entries: 4 } });
+  await controllerSeam(c).handleToolCall({ id: "t2", name: "observe_pi", arguments: { until: "activity", timeout_ms: 60 } });
   // Let the RunLog append-chain flush before reading the file back.
   await new Promise((r) => setTimeout(r, 80));
 
@@ -83,8 +84,8 @@ test("durable log captures spoken turns (conversation) and orchestration tool us
 
 test("voice-turn-actions logs pi_dispatches so a talk-without-delegation turn is visible", async () => {
   const { c, logDir } = setup();
-  (c as any).log = await RunLog.create(logDir);
-  const sink = (c as any).createProviderSink();
+  controllerSeam(c).log = await RunLog.create(logDir);
+  const sink = controllerSeam(c).createProviderSink();
 
   // A voice turn that *claims* work but delegates nothing must log
   // pi_dispatches:0 — the false-confirmation gap becomes greppable.

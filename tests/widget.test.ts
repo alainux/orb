@@ -303,13 +303,6 @@ function orbGlyphs(lines: string[], width: number): ColoredGlyph[] {
   const leftWidth = Math.min(39, Math.max(25, Math.floor(width * 0.31)));
   return lines.slice(1, Math.max(1, lines.length - 2)).flatMap((line) => scanColors(line).filter((g) => g.x < leftWidth));
 }
-function averageViolet(glyphs: ColoredGlyph[], predicate: (g: ColoredGlyph) => boolean): number {
-  const picked = glyphs.filter(predicate);
-  if (picked.length === 0) return 0;
-  const avg = picked.reduce((acc, g) => ({ r: acc.r + g.c.r, g: acc.g + g.c.g, b: acc.b + g.c.b }), { r: 0, g: 0, b: 0 });
-  const n = picked.length;
-  return (avg.b / n) - (avg.r / n); // violet reads as b > r
-}
 
 test("the identity field surfaces the theme's two energy anchors across the orb", () => {
   const tui = { requestRender: () => {} } as unknown as TUI;

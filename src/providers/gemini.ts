@@ -1,3 +1,10 @@
+// Wire-boundary exception: the Google GenAI Live SDK (and its onmessage/onerror/
+// onclose callbacks) types everything as `any`, and the sampled server payloads
+// (thought parts, inline audio chunks, transcriptions, tool calls) arrive
+// untyped. This provider deliberately keeps those reads as `any` at this ONE
+// boundary rather than fabricating a fake schema; nothing derived from them is
+// passed onward unsafely -- every leaf is coerced via String/Boolean/typeof.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { GoogleGenAI } from "@google/genai";
 import { geminiOrchestrationTools } from "../orchestration-tools.js";
 import type { RunLog } from "../log.js";
@@ -5,6 +12,23 @@ import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderSink, VoiceSess
 import { BaseProvider } from "./base.js";
 import { isExpectedGeminiRotationError, mergeTranscript } from "./util.js";
 import { buildGeminiLiveConfig } from "./gemini-config.js";
+
+/**
+ * Extract an Orb ToolCall from an untyped Gemini function-call payload. The
+ * wire object is structurally validated here (defensive: the SDK's types don't
+ * flow through the message handler), where it can be narrowed once instead of
+ * field the payload piecemeal at each read.
+ */
+function toToolCall(raw: unknown): ToolCall {
+  if (raw === null || typeof raw !== "object") return { id: "", name: "", arguments: {} };
+  const r = raw as Record<string, unknown>;
+  const args = r.args;
+  return {
+    id: String(r.id ?? r.callId ?? ""),
+    name: String(r.name ?? ""),
+    arguments: args && typeof args === "object" ? (args as Record<string, unknown>) : {},
+  };
+}
 
 export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
   readonly name = "gemini" as const;
@@ -329,11 +353,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
   private async processToolCalls(calls: unknown): Promise<void> {
     if (Array.isArray(calls) && calls.length > 0) this.emitThinking(false);
     for (const raw of Array.isArray(calls) ? calls : []) {
-      const call: ToolCall = {
-        id: String((raw as any)?.id ?? (raw as any)?.callId ?? ""),
-        name: String((raw as any)?.name ?? ""),
-        arguments: (raw as any)?.args && typeof (raw as any).args === "object" ? (raw as any).args : {},
-      };
+      const call = toToolCall(raw);
       // Guard against re-delivery across a GoAway/reconnect/resume: executing
       // an idempotent dispatch twice is worse than skipping a repeat.
       if (call.id) {

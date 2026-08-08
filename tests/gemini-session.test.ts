@@ -4,41 +4,49 @@ import { buildGeminiLiveConfig } from "../src/providers/gemini-config.js";
 import { isExpectedGeminiRotationError } from "../src/providers/util.js";
 import type { VoiceConfig } from "../src/types.js";
 
+/** A typed view of the wire config for the assertions the tests inspect. */
+type GeminiLiveView = {
+  sessionResumption?: { handle?: string };
+  thinkingConfig?: { thinkingBudget?: number; includeThoughts?: boolean };
+};
+function live(config: VoiceConfig, handle = ""): GeminiLiveView {
+  return buildGeminiLiveConfig(config, handle) as unknown as GeminiLiveView;
+}
+
 test("Gemini GoAway/session-duration closures are classified as expected rotations",()=>{
   assert.equal(isExpectedGeminiRotationError("Connection aborted after receiving a GoAway signal once the session duration elapsed"),true);
   assert.equal(isExpectedGeminiRotationError("ordinary authentication error"),false);
 });
 
-test("Gemini Developer API resumption config never sends Enterprise-only transparent",()=>{
+test("Gemini resumption config never sends Enterprise-only transparent",()=>{
   const config = geminiConfig();
-  const initial = buildGeminiLiveConfig(config) as any;
+  const initial = live(config);
   assert.deepEqual(initial.sessionResumption, {});
-  assert.equal("transparent" in initial.sessionResumption, false);
+  assert.equal(JSON.stringify(initial).includes("transparent"), false);
 
-  const resumed = buildGeminiLiveConfig(config, "resume-token") as any;
+  const resumed = live(config, "resume-token");
   assert.deepEqual(resumed.sessionResumption, { handle: "resume-token" });
-  assert.equal("transparent" in resumed.sessionResumption, false);
   assert.equal(JSON.stringify(resumed).includes("transparent"), false);
 });
 
 test("Gemini resumption can be disabled without emitting sessionResumption",()=>{
   const config = geminiConfig();
   config.geminiSessionResumption = false;
-  const live = buildGeminiLiveConfig(config, "ignored") as any;
-  assert.equal("sessionResumption" in live, false);
+  const seen = live(config, "ignored");
+  assert.equal("sessionResumption" in seen, false);
 });
 
 test("Gemini voice thinking config is emitted top-level and honours the budget",()=>{
   // Default budget (-1 automatic) enables thinking with includeThoughts on the
   // Live connection's top-level thinkingConfig (NOT generationConfig).
-  const enabled = buildGeminiLiveConfig(geminiConfig()) as any;
+  const enabled = live(geminiConfig());
   assert.equal(enabled.thinkingConfig?.includeThoughts, true, "includeThoughts surfaces the model's reasoning");
   assert.equal(enabled.thinkingConfig?.thinkingBudget, -1, "-1 requests the model's automatic budget");
 
   // An explicit positive budget passes straight through.
   const capped = geminiConfig();
   capped.geminiThinkingBudget = 2048;
-  assert.equal((buildGeminiLiveConfig(capped) as any).thinkingConfig?.thinkingBudget, 2048);
+  assert.equal(live(capped).thinkingConfig?.thinkingBudget, 2048);
 
   // A zero budget fully disables thinking (no thinkingConfig sent).
   const off = geminiConfig();

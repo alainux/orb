@@ -25,7 +25,7 @@ export class PcmInputAdapter {
   reset(): void { this.pending = Buffer.alloc(0); this.resamplePending = Buffer.alloc(0); }
 
   private resample24To16(input: Buffer): Buffer {
-    let bytes = this.resamplePending.length ? Buffer.concat([this.resamplePending, input]) : input;
+    const bytes = this.resamplePending.length ? Buffer.concat([this.resamplePending, input]) : input;
     const sampleCount = Math.floor(bytes.length / 2);
     const groups = Math.floor(sampleCount / 3);
     if (!groups) { this.resamplePending = Buffer.from(bytes); return Buffer.alloc(0); }

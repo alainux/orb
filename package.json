@@ -65,13 +65,15 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/ws": "^8.18.1",
-    "typescript": "^5.8.3"
+    "eslint": "^10.8.1",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.66.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build:test": "node scripts/clean.mjs .test-dist && tsc -p tsconfig.test.json",
     "test": "npm run build:test && node --test .test-dist/tests/*.test.js",
-    "check": "npm run typecheck && npm test && npm run test:audio-helper && npm run build && npm run smoke && node scripts/verify-package.mjs",
+    "check": "npm run typecheck && npm run lint && npm test && npm run test:audio-helper && npm run build && npm run smoke && node scripts/verify-package.mjs",
     "pack:check": "npm pack --dry-run --ignore-scripts",
     "prepack": "npm run check",
     "build": "npm run build:ts",
@@ -81,6 +83,7 @@
     "test:audio-helper": "cd audio-helper && go test ./internal/...",
     "postinstall": "node scripts/build-audio-helper.mjs --if-needed --soft",
     "build:ts": "node scripts/clean.mjs dist && tsc -p tsconfig.build.json",
-    "build:all": "npm run build:ts && npm run build:audio"
+    "build:all": "npm run build:ts && npm run build:audio",
+    "lint": "eslint src tests extensions scripts"
   }
 }

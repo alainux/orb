@@ -9,6 +9,7 @@ import { GeminiLiveProvider } from "../src/providers/gemini.js";
 import { OpenAIRealtimeProvider } from "../src/providers/openai.js";
 import { createFileLog, ThinkingTracker, thinkingLabel } from "../src/thinking-timing.js";
 import type { VoiceProviderSink, VoiceConfig } from "../src/types.js";
+import { providerSeam } from "./support/seams.js";
 
 /** Build a tracker wired to a fake clock and a captured log array. */
 function makeTracker(label = "gemini·gemini-3.1-flash-live-preview") {
@@ -144,8 +145,8 @@ async function driveProvider(provider: "gemini" | "openai", send: (h: (m: unknow
     onStatus: () => {}, onError: () => {}, onSessionEnded: () => {}, onToolCall: async () => ({}),
     onThinking: (v: boolean) => tracker.observe(v),
   };
-  (inst as any).sink = sink;
-  await send((m) => (inst as any).handleMessage(m));
+  providerSeam(inst).sink = sink;
+  await send((m) => providerSeam(inst).handleMessage(m));
   return { lines, tracker };
 }
 

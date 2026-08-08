@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Removed every bare `as any` cast from `src/` and the test suite; typed test seams now live in `tests/support/seams.ts`. Added an ESLint gate (no-explicit-any, no-unused-vars) wired into `npm run check` and the `lint` script, and documented the type-safety standard in `CONTRIBUTING.md`. The only remaining `any` is at genuine wire/SDK boundaries (`gemini.ts`, `pi-log.ts`) with a documented per-file exception.
+
 ## 0.6.0 — Pi control, scratchpad, turn logs and adaptive audio recovery
 
 - Added permission-gated Pi management for cancelling active work, switching models, changing thinking level, and direct shell/`!`-style commands.

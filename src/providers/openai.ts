@@ -122,7 +122,16 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
 
   private async handleMessage(raw: string): Promise<void> {
     try {
-      const event: any = JSON.parse(raw);
+      // The OpenAI realtime wire payloads are untyped; read only the fields we
+      // use, keeping the rest unknown so nothing unsafe slips through.
+      const event = JSON.parse(raw) as {
+        type?: string;
+        delta?: unknown;
+        transcript?: unknown;
+        response?: { output?: Array<Record<string, unknown>> };
+        error?: { message?: unknown };
+        item?: { type?: string; call_id?: unknown; name?: unknown };
+      } & Record<string, unknown>;
       switch (event.type) {
         case "session.created":
         case "session.updated":
@@ -193,7 +202,7 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           this.sink?.onStatus("live · listening");
           break;
         case "error":
-          throw new Error(event.error?.message ?? "OpenAI Realtime error");
+          throw new Error(String(event.error?.message ?? "OpenAI Realtime error"));
       }
     } catch (error) {
       const normalized = error instanceof Error ? error : new Error(String(error));

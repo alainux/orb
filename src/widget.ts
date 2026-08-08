@@ -1,7 +1,7 @@
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { ActivityEntry } from "./activity.js";
 import { OrbMotion, OrbRenderer, rasterAt, type OrbCell, type OrbFrame, type OrbMode } from "./orb.js";
-import { createOrbPalette, mix, type OrbPalette, type OrbThemeColor, type Rgb, type ThemeLike } from "./theme.js";
+import { createOrbPalette, mix, type OrbPalette, type Rgb, type ThemeLike } from "./theme.js";
 import { feedRowStyle, clipThoughtForDisplay, wrapFeed, wrapPlain } from "./feed-text.js";
 import type { VoiceViewState } from "./types.js";
 

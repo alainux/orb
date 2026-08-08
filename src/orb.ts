@@ -586,7 +586,6 @@ export class OrbRenderer {
         // Two-light shading (the labs' listening lighting).
         const kd = Math.max(0, dot3(normal, key));
         const fd = Math.max(0, dot3(normal, fill));
-        const rim = Math.pow(1 - Math.max(0, normal[2]), 1.65);
         const spec = Math.pow(Math.max(0, dot3(normal, specDir)), 20);
         const zc = clamp(z, 0, 1);
 

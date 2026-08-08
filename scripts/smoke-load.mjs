@@ -41,9 +41,10 @@ try {
     sendUserMessage() {},
   });
   if (registered.commands[0]?.[0] !== "voice") throw new Error("voice command was not registered");
-  if (registered.shortcuts.length !== 2) throw new Error("voice shortcuts were not registered (expected ctrl+alt+v and ctrl+alt+m)");
+  if (registered.shortcuts.length !== 3) throw new Error("voice shortcuts were not registered (expected ctrl+alt+v, ctrl+alt+m, ctrl+alt+t)");
   if (!registered.shortcuts.some(([key]) => key === "ctrl+alt+v")) throw new Error("ctrl+alt+v voice shortcut was not registered");
   if (!registered.shortcuts.some(([key]) => key === "ctrl+alt+m")) throw new Error("ctrl+alt+m mute shortcut was not registered");
+  if (!registered.shortcuts.some(([key]) => key === "ctrl+alt+t")) throw new Error("ctrl+alt+t thinking-display shortcut was not registered");
   if (!registered.events.some(([name]) => name === "session_start")) throw new Error("session start hook was not registered");
   if (!registered.events.some(([name]) => name === "session_shutdown")) throw new Error("shutdown hook was not registered");
   for (const required of ["agent_start", "agent_end", "message_update", "message_end", "tool_execution_start", "tool_execution_end"]) {
