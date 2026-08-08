@@ -235,7 +235,7 @@ Orb merges, in order:
 3. `ORB_CONFIG=/some/config.json`
 4. environment overrides
 
-The voice system prompt has two layers: a fixed, non-overridable base (identity and invariants, in `src/base-prompt.ts`) plus an overridable layer. The default layer ships at [`prompts/default.md`](prompts/default.md); the base is always kept and the layer can be replaced with `voice.promptFile`, `ORB_PROMPT_FILE`, or an inline `voice.systemPrompt`.
+The voice system prompt is a simple two-layer model: a **single authoritative default** at [`prompts/default.md`](prompts/default.md) (identity, invariants, persona, tool guidance, and delegation behavior), plus an **optional user override**. An override — `voice.promptFile`, `ORB_PROMPT_FILE`, or an inline `voice.systemPrompt` — replaces the default wholesale.
 
 Example:
 

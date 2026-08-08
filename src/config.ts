@@ -75,9 +75,10 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
 
   const promptFile = envFirst("ORB_PROMPT_FILE", "PI_VOICE_PROMPT_FILE") ?? voiceConfig.promptFile;
   const inlinePrompt = envFirst("ORB_SYSTEM_PROMPT", "PI_VOICE_SYSTEM_PROMPT") ?? voiceConfig.systemPrompt;
-  // Compose the final prompt: BASE_ORB_PROMPT is non-overridable and always kept;
-  // a prompt file or inline override replaces only the overridable layer. With
-  // neither, the shipped prompts/default.md is the default layer.
+  // Compose the final prompt with the simple two-layer model: the shipped
+  // prompts/default.md is the authoritative default; a prompt file or inline
+  // override (ORB_SYSTEM_PROMPT / voice.systemPrompt) replaces it entirely. With
+  // neither, default.md is used as-is.
   let systemPrompt: string;
   if (typeof promptFile === "string" && promptFile.trim()) {
     const resolved = expandPath(promptFile, cwd);

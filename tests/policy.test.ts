@@ -1,21 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BASE_ORB_PROMPT } from "../src/base-prompt.js";
 import { composeSystemPrompt, DEFAULT_VOICE_SYSTEM_PROMPT } from "../src/policy.js";
 
-test("the persona/style invariants are in the non-overridable base (survive user overrides)", () => {
-  // Even when a user overrides the layer (or default.md goes missing), the
-  // friendly + concise persona must still load because it lives in the base.
-  assert.match(BASE_ORB_PROMPT, /warm, friendly/);
-  assert.match(BASE_ORB_PROMPT, /be concise|Do not narrate mechanics/);
-  assert.match(BASE_ORB_PROMPT, /Do not narrate|narrate mechanics/);
-  assert.match(BASE_ORB_PROMPT, /Do not repeatedly ask|permission/);
-  assert.match(BASE_ORB_PROMPT, /Silence is fine/);
-  // And a bare user override still carries that persona via the base.
+test("the style/invariant persona lives in the authoritative default prompt", () => {
+  // The single default (prompts/default.md) carries the identity + invariants.
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /warm, friendly/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /be concise|Do not narrate mechanics/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Do not narrate|narrate mechanics/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Do not repeatedly ask|permission/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Silence is fine/);
+});
+
+test("an override replaces the default wholesale (two-layer model)", () => {
+  // An override is the whole system prompt; the default is not appended.
   const overridden = composeSystemPrompt("Be terse.");
-  assert.match(overridden, /warm, friendly/);
-  assert.match(overridden, /Silence is fine/);
-  assert.match(overridden, /narrate mechanics/);
+  assert.equal(overridden, "Be terse.");
+  assert.doesNotMatch(overridden, /narrate mechanics/);
+  assert.doesNotMatch(overridden, /Silence is fine/);
+  // With no override, composeSystemPrompt() returns the shipped default.
+  assert.equal(composeSystemPrompt(), DEFAULT_VOICE_SYSTEM_PROMPT);
 });
 
 test("voice policy is a warm native coder that delegates big work and stays precise", () => {
@@ -24,7 +27,7 @@ test("voice policy is a warm native coder that delegates big work and stays prec
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /owns the whole interface/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /same seven filesystem\/code tools/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /NATIVE CODING TOOLS/);
-  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /DO IT YOURSELF vs DELEGATE/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /DISPATCH THE AGENT BY DEFAULT/);
   // Delegation by tool name, but the agent is never called "Pi".
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /run_pi_task\(instruction, summary\?\)/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Never call the delegation target "Pi"/);

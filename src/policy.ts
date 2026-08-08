@@ -1,14 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BASE_ORB_PROMPT } from "./base-prompt.js";
 
-// The user-overridable default layer. It lives in the shipped
-// `prompts/default.md` file, which is the single source of truth for the
-// default layer. That file, a prompt file, or an inline override are the ways
-// to customize it. The fixed base (BASE_ORB_PROMPT) is always composed on top
-// of whatever the layer is.
-function readDefaultPromptLayer(): string {
+// The single authoritative default system prompt. It lives in the shipped
+// `prompts/default.md` file, which carries the whole default: identity,
+// invariants, persona, tool guidance, and delegation behavior.
+function readDefaultPrompt(): string {
   // The shipped prompts/default.md sits at the package root. The compiled
   // module may live in dist/src/, .test-dist/src/, or src/, so walk up from
   // this module until we find the "prompts/default.md" directory.
@@ -26,24 +23,24 @@ function readDefaultPromptLayer(): string {
     dir = parent;
   }
   // The package always ships prompts/default.md; if it is ever missing we
-  // degrade to the base prompt alone rather than crash.
+  // degrade to an empty string rather than crash.
   if (!raw) return "";
 
-  // Strip the leading document header (explanation for the human) up to the
-  // first '---' separator so only the actual prompt body reaches the model.
+  // Strip the document header (explanation for the human) up to the first
+  // '---' separator so only the actual prompt body reaches the model.
   const sep = raw.indexOf("\n---\n");
   return (sep >= 0 ? raw.slice(sep + 5) : raw).trim();
 }
 
-const DEFAULT_PROMPT_LAYER = readDefaultPromptLayer();
+const DEFAULT_PROMPT = readDefaultPrompt();
 
-// Compose the final system prompt: the fixed base, then the layer. A
-// user-supplied layer (inline string) replaces the default layer; the base is
-// never replaceable.
+// Two-layer model: the single default prompt, plus an optional user override.
+// An override — a prompt file, ORB_SYSTEM_PROMPT, or voice.systemPrompt inline
+// string — replaces the default entirely. With no override, the shipped
+// prompts/default.md is used as-is.
 export function composeSystemPrompt(layer?: string): string {
-  const body = (layer === undefined ? DEFAULT_PROMPT_LAYER : layer).trim();
-  return body ? `${BASE_ORB_PROMPT}\n\n${body}` : BASE_ORB_PROMPT;
+  return (layer === undefined ? DEFAULT_PROMPT : layer).trim();
 }
 
-// Backward-compatible alias for the full default prompt (base + default layer).
+// The full default prompt (used when no override is configured).
 export const DEFAULT_VOICE_SYSTEM_PROMPT = composeSystemPrompt();

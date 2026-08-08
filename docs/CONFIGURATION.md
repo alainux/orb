@@ -70,10 +70,10 @@ A copy ships at `config/orb.example.json`.
 
 ## Prompt customization
 
-The voice prompt is composed of two layers:
+The voice prompt is a simple two-layer model: a single authoritative **default** plus an optional **override**.
 
-- A **fixed, non-overridable base** (`src/base-prompt.ts`) — identity and the core persona invariants: never expose hidden chain-of-thought, base reports on observable output, the human's direct actions are authoritative, and the conversational norms (warm, friendly, concise; narrate visible mechanics; don't pepper the human with permission prompts; silence is fine while work runs). These load in every path and cannot be removed, replaced, or overridden by a custom prompt. The base is always prepended.
-- A **user-overridable layer** on top of it — the default is [`prompts/default.md`](../prompts/default.md), which you can replace with a prompt file or an inline string. Your override replaces only this layer; the base (including the persona) still applies.
+- **Default** — the shipped [`prompts/default.md`](../prompts/default.md) is the canonical system prompt. It carries the identity and invariants (never expose hidden chain-of-thought, base reports on observable output, the human's direct actions are authoritative, an action isn't real until its tool runs), the conversational norms (warm, friendly, concise; don't narrate visible mechanics; don't pepper the human with permission prompts; silence is fine while work runs), and all tool/delegation/scratchpad guidance.
+- **Optional override** — a prompt file or an inline string. When provided, your override **replaces the entire default prompt** (nothing else is appended). With no override, the shipped `prompts/default.md` is used as-is.
 
 ```json
 {
@@ -89,11 +89,11 @@ or:
 export ORB_PROMPT_FILE="$HOME/prompts/my-orb.md"
 ```
 
-An inline `voice.systemPrompt` is also supported; a prompt file takes precedence. Either way, only the overridable layer is replaced — the non-overridable base is always present.
+An inline `voice.systemPrompt` is also supported; a prompt file takes precedence (both are read via `ORB_SYSTEM_PROMPT` / `ORB_PROMPT_FILE` too). Either way, your override replaces the default prompt wholesale.
 
 ### Brevity & no auto-greeting
 
-Orb no longer injects a greeting or an opening cue when a session starts (the randomized `GREETING_CUES` / `greetingCue` were removed from `src/policy.ts`). Conversations default to a terse, conversational style — one short clause or fragment (a result, then at most a single next question). The base prompt forbids re-introducing yourself (re-greeting) mid-session, so a running session never says "hello again" unless a new `/voice` conversation starts.
+Orb no longer injects an opening cue when a session starts (the randomized `GREETING_CUES` / `greetingCue` were removed from `src/policy.ts`). Conversations default to a terse, conversational style — one short clause or fragment (a result, then at most a single next question). The default prompt explains the greeting-at-most-once rule, so a running session never says "hello again" unless a new `/voice` conversation starts.
 
 ## Permissions
 
