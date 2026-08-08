@@ -3,6 +3,6 @@
     "geminiThinkingBudget": 0
   },
   "ui": {
-    "thinkingDisplay": "full"
+    "thinkingDisplay": "hidden"
   }
 }

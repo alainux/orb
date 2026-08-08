@@ -164,6 +164,29 @@ test("openai interruption (server barge-in) clears thinking", async () => {
 // Gemini Live: there is no "response.created", so thinking is approximated as
 // the window between a model turn starting and the first delivered content.
 // ---------------------------------------------------------------------------
+test("gemini suppress thinking indicator entirely when budget is 0", async () => {
+  const cfg = config("gemini");
+  cfg.geminiThinkingBudget = 0; // disabled: Gemini sends no thought parts
+  const log = await logger();
+  const provider = new GeminiLiveProvider(cfg, log);
+  const { sink, thinking, timeline } = captureSink();
+  (provider as any).sink = sink;
+
+  // A contentless model turn (tool call) normally asserts thinking; with a
+  // zero budget it must never surface the indicator.
+  await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ functionCall: {} }] } } });
+  assert.deepEqual(thinking, [], "budget 0 suppresses the Thinking indicator on turn open");
+
+  // Even a turn-opening audio chunk stays silent — no flash at all.
+  await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ inlineData: { data: "QUJD" } }] } } });
+  assert.deepEqual(thinking, [], "no Thinking on→off pair fires while thinking is disabled");
+
+  // Boundary/clear signals are harmless no-ops (nothing to clear).
+  await (provider as any).handleMessage({ serverContent: { turnComplete: true } });
+  assert.deepEqual(thinking, [], "budget 0 leaves the indicator untouched through boundaries");
+  report("gemini: budget 0 (disabled) keeps Thinking off", timeline);
+});
+
 test("gemini shows thinking for a turn that delivers no content, then clears on content", async () => {
   const log = await logger();
   const provider = new GeminiLiveProvider(config("gemini"), log);

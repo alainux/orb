@@ -283,6 +283,14 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
 
   private emitThinking(value: boolean): void {
     if (this.thinking === value) return;
+    if (value && this.config.geminiThinkingBudget === 0) {
+      // Thinking is disabled (budget 0 → Gemini sends no thought parts), so the
+      // "Thinking…" indicator must never be shown. Suppress the open signal but
+      // still clear any hold state so a previously-open indicator can be torn
+      // down cleanly if the budget flips at runtime.
+      this.clearThinkHold();
+      return;
+    }
     if (value) {
       // Opening the indicator: record the minimum-visible hold so a model that
       // delivers its first audio in the same event batch (flash-live) cannot
