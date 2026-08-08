@@ -3,7 +3,32 @@ import test from "node:test";
 import type { TUI } from "@earendil-works/pi-tui";
 import { createOrbPalette, mix, rgbToAnsi256, type ColorMode, type Rgb, type ThemeLike } from "../src/theme.js";
 import type { VoiceViewState } from "../src/types.js";
-import { statusForDisplay, VoiceWidget } from "../src/widget.js";
+import { piStatusTag, statusForDisplay, VoiceWidget } from "../src/widget.js";
+
+test("piStatusTag appends the Pi indicator only when the status hasn't named Pi", () => {
+  // Statuses that already read "Pi…" get no redundant tag.
+  assert.equal(piStatusTag("working", "Pi working · listening"), "");
+  assert.equal(piStatusTag("working", "Pi task queued · listening"), "");
+  assert.equal(piStatusTag("working", "waiting for Pi · listening"), "");
+  assert.equal(piStatusTag("working", "watching Pi · listening"), "");
+  // Idle status adds the agent signal; the reasoning line suppresses it.
+  assert.equal(piStatusTag("idle", "live · listening"), " · Pi idle");
+  assert.equal(piStatusTag("working", "live · listening"), " · Pi working");
+  assert.equal(piStatusTag("idle", "Thinking…", true), "");
+  assert.equal(piStatusTag("", "live · listening"), "");
+});
+
+test("the widget title renders one clean status line with no duplicate Pi working", () => {
+  const tui = { requestRender: () => {} } as unknown as TUI;
+  const state = viewState();
+  Object.assign(state, { status: "Pi working · listening", piAgentStatus: "working" });
+  const widget = new VoiceWidget(tui, fakeTheme({ ...DARK_THEME }), () => state, {
+    orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 10, activityLines: 6, scratchpadPanelHeight: 8,
+  });
+  const plain = widget.render(80)[0]!.replace(/\x1b\[[0-9;]*m/g, "");
+  const count = (plain.match(/Pi working/g) || []).length;
+  assert.equal(count, 1, `"Pi working" must appear once, got: "${plain}"`);
+});
 
 test("status shows muted in place of listening while the microphone is muted", () => {
   // Not muted: status passes through unchanged.

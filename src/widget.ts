@@ -109,9 +109,15 @@ export class VoiceWidget implements Component {
     // Title bar: "ORB" in the theme's primary accent, the live status
     // indicator (listening / thinking / waiting for Pi…) in the secondary
     // violet accent, and the Pi agent indicator in a theme-blue token.
+    // Title is a single clean status line. `state.status` often already names
+    // Pi's activity ("Pi working · listening", "waiting for Pi · …"); the
+    // agent tag here only adds the Pi idle/working signal when the status
+    // text hasn't already stated it, so "Pi working" never renders twice.
+    const baseStatus=statusForDisplay(state.status,state.muted,state.thinking);
+    const piTag=piStatusTag(state.piAgentStatus,baseStatus,state.thinking);
     const title=this.theme.fg("accent"," ORB ")
-      +this.palette.secondaryText(`· ${statusForDisplay(state.status,state.muted,state.thinking)}`)
-      +this.theme.fg("mdLink",` · Pi ${state.piAgentStatus}`);
+      +this.palette.secondaryText(`· ${baseStatus}`)
+      +this.theme.fg("mdLink",piTag);
     const lines=[title+this.theme.fg("dim","─".repeat(Math.max(0,width-stripAnsi(title).length)))];
     const body=Math.max(left.length,rightLines.length);
     for(let i=0;i<body;i++)lines.push(`${padVisible(left[i]??"",leftWidth)}${" ".repeat(gap)}${rightLines[i]??""}`);
@@ -293,6 +299,23 @@ export function statusForDisplay(status: string, muted: boolean, thinking = fals
   if (thinking) return "Thinking…";
   return muted ? status.replace(/\blistening\b/g, "muted") : status;
 }
+
+/**
+ * The trailing Pi-agent indicator (" · Pi working" / " · Pi idle"). Many
+ * status strings already name what Pi is doing ("Pi working · listening",
+ * "Pi task queued · listening", "waiting for Pi · listening", …), so a
+ * naive append would show "Pi working" twice. Return the tag only when the
+ * status text hasn't already stated Pi's activity, and skip it entirely
+ * while the model is thinking (the line reads just "Thinking…").
+ */
+export function piStatusTag(agentStatus: string, statusText: string, thinking = false): string {
+  if (thinking || !agentStatus) return "";
+  // Statuses that already name Pi's activity need no trailing tag, otherwise
+  // "Pi working · listening" would render as "· Pi working · listening · Pi working".
+  if (/^(Pi|waiting for Pi|watching Pi)\b/.test(statusText)) return "";
+  return ` · Pi ${agentStatus}`;
+}
+
 
 function barText(value:number,count:number):string{
   // Perceptual (sqrt) scale for the audio meters: loudness is roughly
