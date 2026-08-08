@@ -29,6 +29,7 @@ function config(provider: "gemini" | "openai"): VoiceConfig {
     geminiContextCompression: false,
     geminiCompressionTriggerTokens: 18000,
     geminiCompressionTargetTokens: 9000,
+    geminiThinkingBudget: -1,
     permissions: { cancelPi: true, setModel: true, setThinking: true, setTools: true, shell: true, nativeTools: true, scratchpadRead: true, scratchpadWrite: true, scratchpadOutsideProject: false },
     audio: { bufferMs: 140, maxBufferMs: 380, recoveryStepMs: 40, interruptionStormCount: 3, interruptionStormWindowMs: 1800, interruptionRecoveryMuteMs: 320, choppinessWindowRecoveries: 3, choppinessWindowMs: 1500, choppinessRecoverSilenceMs: 1500, inputResyncDrops: 3, inputResyncWindowMs: 1500, inputResyncCooldownMs: 4000 },
     scratchpad: { panelHeight: 12, maxBytes: 524288 },
@@ -121,6 +122,43 @@ test("gemini shows thinking for a turn that delivers no content, then clears on 
   // The next delivered audio content clears it.
   await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ inlineData: { data: "QUJD" } }] } } });
   assert.equal(thinking.at(-1), false, "delivered audio clears thinking");
+});
+
+test("gemini turn that opens already carrying content still surfaces thinking, then clears next message", async () => {
+  const log = await logger();
+  const provider = new GeminiLiveProvider(config("gemini"), log);
+  const { sink, thinking } = captureSink();
+  (provider as any).sink = sink;
+
+  // Gemini streams the opening audio chunk in the turn-starting serverContent.
+  // This must still paint "Thinking" and hold it a beat rather than collapsing
+  // on→off in the same message (which left `thinking=false` for every paint).
+  await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ inlineData: { data: "QUJD" } }] } } });
+  assert.deepEqual(thinking, [true], "turn-opening content surfaces Thinking and holds");
+
+  // The following message (continued output) ends the reasoning window.
+  await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ inlineData: { data: "REVG" } }] } } });
+  assert.deepEqual(thinking, [true, false], "later content clears the held Thinking");
+});
+
+test("gemini holds Thinking through real thought parts stream, clears on first audio", async () => {
+  const log = await logger();
+  const provider = new GeminiLiveProvider(config("gemini"), log);
+  const { sink, thinking } = captureSink();
+  (provider as any).sink = sink;
+
+  // With thinkingConfig/includeThoughts enabled, the model narrates its reasoning
+  // as parts marked thought:true before any audio. Those must stay Thinking.
+  await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ thought: true, text: "reasoning…" }] } } });
+  assert.deepEqual(thinking, [true], "a thought part opens the Thinking indicator");
+
+  // Another thought part while still no audio: indicator is held, not re-emitted.
+  await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ thought: true, text: "more…" }] } } });
+  assert.deepEqual(thinking, [true], "sustained thoughts hold Thinking");
+
+  // The first spoken audio ends the reasoning window and clears the indicator.
+  await (provider as any).handleMessage({ serverContent: { modelTurn: { parts: [{ inlineData: { data: "QUJD" } }] } } });
+  assert.deepEqual(thinking, [true, false], "first spoken content clears Thinking");
 });
 
 test("gemini user-only transcription never flashes thinking", async () => {

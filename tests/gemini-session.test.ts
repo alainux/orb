@@ -28,6 +28,24 @@ test("Gemini resumption can be disabled without emitting sessionResumption",()=>
   assert.equal("sessionResumption" in live, false);
 });
 
+test("Gemini voice thinking config is emitted top-level and honours the budget",()=>{
+  // Default budget (-1 automatic) enables thinking with includeThoughts on the
+  // Live connection's top-level thinkingConfig (NOT generationConfig).
+  const enabled = buildGeminiLiveConfig(geminiConfig()) as any;
+  assert.equal(enabled.thinkingConfig?.includeThoughts, true, "includeThoughts surfaces the model's reasoning");
+  assert.equal(enabled.thinkingConfig?.thinkingBudget, -1, "-1 requests the model's automatic budget");
+
+  // An explicit positive budget passes straight through.
+  const capped = geminiConfig();
+  capped.geminiThinkingBudget = 2048;
+  assert.equal((buildGeminiLiveConfig(capped) as any).thinkingConfig?.thinkingBudget, 2048);
+
+  // A zero budget fully disables thinking (no thinkingConfig sent).
+  const off = geminiConfig();
+  off.geminiThinkingBudget = 0;
+  assert.equal("thinkingConfig" in buildGeminiLiveConfig(off), false, "0 budget suppresses thinkingConfig");
+});
+
 function geminiConfig(): VoiceConfig {
   return {
     provider: "gemini",
@@ -49,6 +67,7 @@ function geminiConfig(): VoiceConfig {
     geminiContextCompression: true,
     geminiCompressionTriggerTokens: 18000,
     geminiCompressionTargetTokens: 9000,
+    geminiThinkingBudget: -1,
     permissions: { cancelPi: true, setModel: true, setThinking: true, setTools: true, shell: true, nativeTools: true, scratchpadRead: true, scratchpadWrite: true, scratchpadOutsideProject: false },
     audio: { bufferMs: 140, maxBufferMs: 380, recoveryStepMs: 40, interruptionStormCount: 3, interruptionStormWindowMs: 1800, interruptionRecoveryMuteMs: 320, choppinessWindowRecoveries: 3, choppinessWindowMs: 1500, choppinessRecoverSilenceMs: 1500, inputResyncDrops: 3, inputResyncWindowMs: 1500, inputResyncCooldownMs: 4000 },
     scratchpad: { panelHeight: 18, maxBytes: 524288 },

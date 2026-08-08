@@ -64,7 +64,7 @@ const ORCHESTRATION_CATALOG: readonly OrchestrationTool[] = [
   {
     name: "control_pi",
     description:
-      "Control the Pi harness directly: cancel an active run, list or set the model, change the thinking level, list or set active tools, or run a shell command where permissions allow. Cancel immediately when the human changes direction.",
+      "Control the Pi background agent (the coding harness running underneath Orb) directly: cancel an active run, list or set its model, change ITS thinking level, list or set its active tools, or run a shell command where permissions allow. Note: set_thinking only changes the background agent's reasoning level — it does NOT affect the Orb voice model's thinking or the visible Thinking indicator. Cancel the background agent immediately when the human changes direction.",
     parameters: {
       type: "object",
       additionalProperties: false,

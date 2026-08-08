@@ -162,21 +162,38 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
       const boundary = Boolean(server?.turnComplete || server?.generationComplete);
 
       // Gemini Live publishes no dedicated "generation started" event, so the
-      // thinking indicator approximates the reasoning window as the gap between
-      // a model turn beginning and the first delivered output (audio/transcript).
-      // User-only transcription messages never open a model turn, so they never
-      // flash "Thinking".
-      const modelActivity = Boolean(server?.modelTurn) || typeof server?.outputTranscription?.text === "string";
+      // thinking indicator is driven by the model's actual reasoning output: when
+      // thinking ((`thinkingConfig`/`includeThoughts`) is enabled the server surfaces
+      // `thought` parts (part.thought === true) at the start of a reply, and we hold
+      // "Thinking" until the first real output chunk. User-only transcription
+      // messages never open a model turn, so they never flash "Thinking".
+      const modelThought = Boolean(server?.modelTurn?.parts?.some((p: any) => p?.thought === true));
+      const modelActivity = Boolean(server?.modelTurn) || typeof server?.outputTranscription?.text === "string" || modelThought;
       const deliversContent = Boolean(server?.modelTurn?.parts?.some((p: any) => typeof p?.inlineData?.data === "string" && p.inlineData.data.length > 0)) || typeof server?.outputTranscription?.text === "string";
       if (interrupted || boundary) {
         this.orbInTurn = false;
         this.emitThinking(false);
       } else if (modelActivity) {
         if (!this.orbInTurn) {
+          // A model turn is opening. Always surface the thinking indicator
+          // immediately, and hold it for at least a beat — even when this
+          // first message already carries output (Gemini streams the opening
+          // audio chunk in the turn-starting serverContent). Previously the
+          // on→off pair fired in this same message, so the controller landed
+          // on `thinking=false` before the widget ever painted, and an ordinary
+          // immediate reply to a human never showed "Thinking…".
           this.orbInTurn = true;
           this.emitThinking(true);
+        } else if (modelThought) {
+          // Reasoning is still in progress (thought parts, no audio yet): hold the
+          // indicator until the first audio/transcript content in a later message.
+          this.orbInTurn = true;
+          this.emitThinking(true);
+        } else if (deliversContent) {
+          // Turn is already open and is now delivering output: the reasoning
+          // window ends (spared the very message that opened the indicator).
+          this.emitThinking(false);
         }
-        if (deliversContent) this.emitThinking(false);
       }
 
       if (interrupted) {

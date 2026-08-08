@@ -63,6 +63,15 @@ export interface VoiceConfig {
   geminiContextCompression: boolean;
   geminiCompressionTriggerTokens: number;
   geminiCompressionTargetTokens: number;
+  /**
+   * Voice-model thinking budget in tokens for the Gemini Live session. This is
+   * the setting that actually governs the Orb's "Thinking…" indicator (the
+   * reasoning window before the first audio chunk). Values: `0` disables
+   * thinking entirely (no `thinkingConfig` sent), a positive integer caps the
+   * budget in tokens, and `-1` uses the model's automatic/dynamic budget. Read
+   * at session start; a change takes effect on the next voice connection.
+   */
+  geminiThinkingBudget: number;
   permissions: OrbPermissions;
   audio: AudioConfig;
   scratchpad: ScratchpadConfig;
