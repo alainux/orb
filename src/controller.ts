@@ -338,7 +338,7 @@ export class VoiceController {
       },
       onStatus: (status: string) => { this.state.status = status; this.widget?.tick(); },
       onError: (error: Error) => this.reportError(error, "provider"),
-      onSessionEnded: (reason: string) => { void this.handleFriendlySessionEnd(reason); },
+      onSessionEnded: (reason: string) => { void this.handleFriendlySessionEnd(reason).catch((error) => this.reportError(asError(error), "session end")); },
       onToolCall: (call: ToolCall) => this.handleToolCall(call),
     };
   }
@@ -657,7 +657,7 @@ function toolLabel(call: ToolCall): string {
   }
   if (call.name === "scratchpad") return `scratchpad · ${String(call.arguments.action ?? "read")}`;
   if (call.name === "set_voice") return `voice → ${String(call.arguments.voice ?? "next")}`;
-  if (AgentToolbox.isCodingTool(call.name)) return `${call.name} · ${nativeLabel(call)}`;
+  if (AgentToolbox.isCodingTool(call.name)) return `${call.name} · ${nativeToolLabel(call)}`;
   return call.name;
 }
 function toolResultLabel(name: string, result: Record<string, unknown>): string {
@@ -670,9 +670,6 @@ function toolResultLabel(name: string, result: Record<string, unknown>): string 
   if (name === "set_voice") return `voice → ${String(result.voice ?? "")}`;
   if (AgentToolbox.isCodingTool(name)) return "tool result";
   return name;
-}
-function nativeLabel(call: ToolCall): string {
-  return nativeToolLabel(call);
 }
 
 /**

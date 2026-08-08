@@ -208,7 +208,15 @@ export function geminiCodingTools(): Array<Record<string, unknown>> {
   });
 }
 
-function convertToGemini(schema: Record<string, unknown>): Record<string, unknown> {
+/**
+ * Convert a canonical (JSON-schema-style, lower-case) parameter schema into a
+ * Gemini function-declaration schema. Shared by the native coding tools and
+ * the orchestration tools so both providers get the same single source of
+ * truth. Preserves `description`, `enum`, nested `properties`/`items`, and
+ * `required`; `additionalProperties`/`minimum`/`maximum` are deliberately not
+ * carried through (Gemini declarations don't need them).
+ */
+export function convertToGemini(schema: Record<string, unknown>): Record<string, unknown> {
   const typeMap: Record<string, string> = {
     string: "STRING",
     number: "NUMBER",
@@ -219,6 +227,8 @@ function convertToGemini(schema: Record<string, unknown>): Record<string, unknow
   };
   const convert = (node: Record<string, unknown>): Record<string, unknown> => {
     const out: Record<string, unknown> = { type: typeMap[String(node.type).toLowerCase()] ?? "OBJECT" };
+    if (typeof node.description === "string") out.description = node.description;
+    if (Array.isArray(node.enum)) out.enum = node.enum;
     const props = node.properties;
     if (props && typeof props === "object" && !Array.isArray(props)) {
       const converted: Record<string, unknown> = {};

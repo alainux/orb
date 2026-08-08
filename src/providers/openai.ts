@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { openAICodingTools } from "../agent-tools.js";
+import { openAIOrchestrationTools } from "../orchestration-tools.js";
 import type { RunLog } from "../log.js";
 import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderSink, VoiceSessionContext } from "../types.js";
 import { BaseProvider } from "./base.js";
@@ -70,73 +71,7 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           output: { format: { type: "audio/pcm" }, voice: this.config.voice },
         },
         tools: [
-          {
-            type: "function",
-            name: "run_pi_task",
-            description: "Delegate a complete coding task directly to Pi. Use this proactively for exploration, implementation, debugging, tests, refactoring, documentation, specs, and other engineering work.",
-            parameters: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                instruction: { type: "string", description: "Complete autonomous engineering instruction for Pi." },
-                summary: { type: "string", description: "Optional short label for the task." },
-              },
-              required: ["instruction"],
-            },
-          },
-          {
-            type: "function",
-            name: "read_pi_log",
-            description: "Read recent visible Pi conversation and tool results. Hidden thinking is excluded.",
-            parameters: { type: "object", additionalProperties: false, properties: { max_entries: { type: "number", minimum: 1, maximum: 40 } } },
-          },
-          {
-            type: "function",
-            name: "observe_pi",
-            description: "Wait for meaningful visible activity from Pi or until Pi settles after delegated work.",
-            parameters: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                after_revision: { type: "number", minimum: 0 },
-                until: { type: "string", enum: ["activity", "settled"] },
-                timeout_ms: { type: "number", minimum: 100, maximum: 60000 },
-                max_entries: { type: "number", minimum: 1, maximum: 40 },
-              },
-            },
-          },
-          {
-            type: "function",
-            name: "control_pi",
-            description: "Control the Pi harness directly: cancel an active run, list/set the model, change thinking level, or run a shell command when permissions allow it. Cancel immediately when the human changes direction.",
-            parameters: {
-              type: "object", additionalProperties: false,
-              properties: {
-                action: { type: "string", enum: ["cancel", "list_models", "set_model", "set_thinking", "list_tools", "set_tools", "shell"] },
-                model: { type: "string" }, level: { type: "string" }, tools: { type: "array", items: { type: "string" } }, command: { type: "string" }, timeout_ms: { type: "number" },
-              }, required: ["action"],
-            },
-          },
-          {
-            type: "function",
-            name: "scratchpad",
-            description: "Manage Orb's ephemeral collaborative scratchpad. Open/read/edit/load/save it, surface it as a viewer overlay (open on view), or dispatch selected/all scratchpad content to Pi.",
-            parameters: {
-              type: "object", additionalProperties: false,
-              properties: { action: { type: "string", enum: ["open", "view", "read", "replace", "append", "load", "save", "dispatch", "close"] }, title: { type: "string" }, content: { type: "string" }, path: { type: "string" }, summary: { type: "string" } },
-              required: ["action"],
-            },
-          },
-          {
-            type: "function",
-            name: "set_voice",
-            description: "Change Orb's active spoken OpenAI Realtime voice to audition a different sound.",
-            parameters: {
-              type: "object", additionalProperties: false,
-              properties: { voice: { type: "string", description: "Exact voice name, e.g. alloy, ash, ballad, coral, echo, sage, shimmer, verse." } },
-              required: ["voice"],
-            },
-          },
+          ...openAIOrchestrationTools(),
           ...(this.config.permissions.nativeTools ? openAICodingTools() : []),
         ],
         tool_choice: "auto",
@@ -243,11 +178,15 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           this.sink?.onAudioEnd();
           for (const item of event.response?.output ?? []) {
             if (item?.type !== "function_call") continue;
-            await this.handleToolCallOnce({
-              id: String(item.call_id ?? ""),
-              name: String(item.name ?? ""),
-              arguments: safeJsonParse(String(item.arguments ?? "{}")),
-            });
+            try {
+              await this.handleToolCallOnce({
+                id: String(item.call_id ?? ""),
+                name: String(item.name ?? ""),
+                arguments: safeJsonParse(String(item.arguments ?? "{}")),
+              });
+            } catch (error) {
+              await this.log.error("OpenAI response.done tool call failed", error instanceof Error ? error : new Error(String(error)));
+            }
           }
           this.sink?.onStatus("live · listening");
           break;
@@ -264,11 +203,17 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
   private async handleToolCallOnce(call: ToolCall): Promise<void> {
     if (!call.id || this.handledCalls.has(call.id)) return;
     this.handledCalls.add(call.id);
-    const output = await this.sink!.onToolCall(call);
-    this.sendEvent({
-      type: "conversation.item.create",
-      item: { type: "function_call_output", call_id: call.id, output: JSON.stringify(output) },
-    });
+    let output: Record<string, unknown>;
+    try {
+      output = await this.sink!.onToolCall(call);
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      output = { ok: false, error: normalized.message };
+      await this.log.error("OpenAI tool call failed", normalized);
+    }
+    // Always send the result back so the model never stalls waiting on it.
+    try { this.sendEvent({ type: "conversation.item.create", item: { type: "function_call_output", call_id: call.id, output: JSON.stringify(output) } }); }
+    catch { /* session already closing; nothing to respond to */ }
     this.sendEvent({ type: "response.create" });
     this.functionNames.delete(call.id);
     if (this.handledCalls.size > 256) {

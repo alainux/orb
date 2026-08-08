@@ -17,6 +17,21 @@ try {
   await writeFile(join(ws, "package.json"), JSON.stringify({ name: "ws", type: "module", exports: "./index.js" }));
   await writeFile(join(ws, "index.js"), 'export default class WebSocket { static OPEN=1; }\n');
 
+  // The dist extension statically imports the pi-axis peer deps (native tool
+  // factories and TUI components). They are only ever invoked lazily inside
+  // the running extension, so loading the bundle needs value bindings, not
+  // working implementations. Stub them just like genai/ws above.
+  const agent = join(temp, "node_modules", "@earendil-works", "pi-coding-agent");
+  const tui = join(temp, "node_modules", "@earendil-works", "pi-tui");
+  await mkdir(agent, { recursive: true });
+  await mkdir(tui, { recursive: true });
+  const toolNames = ["createBashTool", "createBashToolDefinition", "createEditTool", "createEditToolDefinition", "createFindTool", "createFindToolDefinition", "createGrepTool", "createGrepToolDefinition", "createLsTool", "createLsToolDefinition", "createReadTool", "createReadToolDefinition", "createWriteTool", "createWriteToolDefinition"].map((n) => `export const ${n}=()=>({});`).join('\n');
+  await writeFile(join(agent, "package.json"), JSON.stringify({ name: "@earendil-works/pi-coding-agent", type: "module", exports: "./index.js" }));
+  await writeFile(join(agent, "index.js"), `${toolNames}\n`);
+  await writeFile(join(tui, "package.json"), JSON.stringify({ name: "@earendil-works/pi-tui", type: "module", exports: "./index.js" }));
+  await writeFile(join(tui, "index.js"), 'export const Markdown=()=>null; export const ScrollView=()=>null; export const matchesKey=()=>false; export const truncateToWidth=(t)=>t; export const visibleWidth=(t)=>t?.length??0;\n');
+
+
   const extension = (await import(pathToFileURL(join(temp, "dist", "extensions", "voice.js")).href)).default;
   const registered = { commands: [], shortcuts: [], events: [] };
   extension({

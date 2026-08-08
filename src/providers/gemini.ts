@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { geminiCodingTools } from "../agent-tools.js";
+import { geminiOrchestrationTools } from "../orchestration-tools.js";
 import type { RunLog } from "../log.js";
 import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderSink, VoiceSessionContext } from "../types.js";
 import { BaseProvider } from "./base.js";
@@ -15,6 +16,8 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
   private resumeHandle = "";
   private epoch = 0;
   private reconnecting: Promise<void> | undefined;
+  /** Deduplicate function calls re-delivered across a GoAway/reconnect/resume. */
+  private readonly handledCalls = new Set<string>();
 
   constructor(private readonly config: VoiceConfig, private readonly log: RunLog) { super(); }
 
@@ -86,8 +89,8 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
         onclose: (event: any) => {
           if (epoch !== this.epoch || this.closed) return;
           const reason = String(event?.reason ?? "");
-          if (this.reconnecting || isExpectedGeminiRotationError(reason)) { void this.reconnect("connection rotation"); return; }
-          if (this.config.geminiSessionResumption && this.resumeHandle) { void this.reconnect("unexpected connection close"); return; }
+          if (this.reconnecting || isExpectedGeminiRotationError(reason)) { this.triggerReconnect("connection rotation"); return; }
+          if (this.config.geminiSessionResumption && this.resumeHandle) { this.triggerReconnect("unexpected connection close"); return; }
           this.endFriendly(reason || "The realtime provider closed the session.");
         },
       },
@@ -128,16 +131,26 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
   }
 
   private async handleMessage(message: any): Promise<void> {
+    // A spoken commitment ("dispatching now") and its own function call can
+    // arrive in the same message (or adjacent messages). A failure while
+    // translating transcripts/audio must NEVER swallow the already-emitted
+    // tool calls — that is exactly how a verbal commitment is left with nothing
+    // executed. Each zone below is fenced, and function calls always run last
+    // no matter what earlier zones hit.
     try {
       const update = message?.sessionResumptionUpdate;
       if (update?.resumable && typeof update?.newHandle === "string" && update.newHandle) {
         this.resumeHandle = update.newHandle;
       }
       if (message?.goAway) {
-        await this.log.info("Gemini GoAway received", { timeLeft: message.goAway?.timeLeft ?? null, resumable: Boolean(this.resumeHandle) });
-        void this.reconnect("server GoAway");
+        await this.log.info("gemini GoAway received", { timeLeft: message.goAway?.timeLeft ?? null, resumable: Boolean(this.resumeHandle) });
+        this.triggerReconnect("server GoAway");
       }
+    } catch (error) {
+      await this.log.error("Gemini GoAway/update failed", asError(error));
+    }
 
+    try {
       const server = message?.serverContent;
       const interrupted = Boolean(server?.interrupted);
       const boundary = Boolean(server?.turnComplete || server?.generationComplete);
@@ -175,9 +188,9 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
         }
       }
 
-      // Gemini can send turnComplete in a separate message from the final
-      // transcription fragment. Flush both transcript accumulators here so a
-      // later human/Orb turn can never be appended to the previous paragraph.
+      // turnComplete can arrive in a separate message from the final transcript
+      // fragment. Flush accumulators here so a later human/Orb turn is never
+      // appended to the previous paragraph.
       if (boundary) {
         if (this.inputTranscript.trim()) this.sink?.onInputTranscript(this.inputTranscript, true);
         if (this.outputTranscript.trim()) this.sink?.onOutputTranscript(this.outputTranscript, true);
@@ -185,19 +198,60 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
         this.outputTranscript = "";
         this.sink?.onAudioEnd();
       }
-
-      const calls = message?.toolCall?.functionCalls ?? [];
-      for (const raw of Array.isArray(calls) ? calls : []) {
-        const call: ToolCall = { id: String(raw.id ?? raw.callId ?? ""), name: String(raw.name ?? ""), arguments: raw.args && typeof raw.args === "object" ? raw.args : {} };
-        const response = await this.sink!.onToolCall(call);
-        this.session?.sendToolResponse({ functionResponses: [{ id: call.id, name: call.name, response }] });
-      }
     } catch (error) {
+      // A transcript/audio hiccup must not drop an already-emitted tool call:
+      // log it and continue on to process function calls.
       const normalized = asError(error);
+      await this.log.error("Gemini transcript/audio update failed", normalized);
       if (!this.reconnecting) this.sink?.onError(normalized);
-      await this.log.error("Gemini message handler failed", normalized);
+    }
+
+    // Tool calls always execute, per-message, even if a sibling call or the
+    // transcript/audio fence above threw.
+    await this.processToolCalls(message?.toolCall?.functionCalls);
+  }
+
+  private async processToolCalls(calls: unknown): Promise<void> {
+    for (const raw of Array.isArray(calls) ? calls : []) {
+      const call: ToolCall = {
+        id: String((raw as any)?.id ?? (raw as any)?.callId ?? ""),
+        name: String((raw as any)?.name ?? ""),
+        arguments: (raw as any)?.args && typeof (raw as any).args === "object" ? (raw as any).args : {},
+      };
+      // Guard against re-delivery across a GoAway/reconnect/resume: executing
+      // an idempotent dispatch twice is worse than skipping a repeat.
+      if (call.id) {
+        if (this.handledCalls.has(call.id)) continue;
+        this.handledCalls.add(call.id);
+        if (this.handledCalls.size > 256) { const v = this.handledCalls.values().next().value; if (typeof v === "string") this.handledCalls.delete(v); }
+      }
+      try {
+        const result = await this.sink!.onToolCall(call);
+        this.sendToolResponse(call, result);
+      } catch (error) {
+        const normalized = asError(error);
+        await this.log.error("Gemini tool call execution failed", normalized);
+        // Answer the model so it never stalls waiting for a tool result.
+        this.sendToolResponse(call, { ok: false, error: normalized.message });
+      }
     }
   }
+
+  /** Best-effort send of the tool result; session may have rotated mid-call. */
+  private sendToolResponse(call: ToolCall, response: Record<string, unknown>): void {
+    try { this.session?.sendToolResponse({ functionResponses: [{ id: call.id, name: call.name, response }] }); }
+    catch (error) { if (this.closed) return; const n = asError(error); this.sink?.onError(n); void this.log.error("Gemini tool response failed", n); }
+  }
+
+  /** Fire-and-forget reconnect that logs instead of surfacing an unhandled rejection. */
+  private triggerReconnect(reason: string): void {
+    Promise.resolve(this.reconnect(reason)).catch((error) => {
+      const normalized = asError(error);
+      if (!this.closed) this.sink?.onError(normalized);
+      void this.log.error("Gemini reconnect failed", normalized);
+    });
+  }
+
 
   private endFriendly(reason: string): void {
     if (this.closed) return;
@@ -209,28 +263,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
 
 function geminiTools(config: VoiceConfig): Record<string, unknown>[] {
   return [
-    {
-      name: "run_pi_task",
-      description: "Delegate a complete coding task directly to Pi. Use proactively for project exploration, implementation, debugging, tests, refactoring, documentation, specs, and other engineering work.",
-      parameters: { type: "OBJECT", properties: { instruction: { type: "STRING", description: "Complete, autonomous engineering instruction for Pi." }, summary: { type: "STRING", description: "Optional short human-readable label for the delegated task." } }, required: ["instruction"] },
-    },
-    { name: "read_pi_log", description: "Read recent visible Pi conversation and tool results when factual project state is needed. Hidden reasoning is excluded.", parameters: { type: "OBJECT", properties: { max_entries: { type: "NUMBER" } } } },
-    { name: "observe_pi", description: "Wait for Pi activity or until Pi settles. Use after delegating work instead of asking the human to tell you when it is done.", parameters: { type: "OBJECT", properties: { after_revision: { type: "NUMBER" }, until: { type: "STRING" }, timeout_ms: { type: "NUMBER" }, max_entries: { type: "NUMBER" } } } },
-    {
-      name: "control_pi",
-      description: "Control the Pi harness directly. Actions: cancel an active run, list/set the Pi model, change thinking level, or run a shell command when permissions allow it. Use cancel immediately when the human changes direction.",
-      parameters: { type: "OBJECT", properties: { action: { type: "STRING", description: "cancel | list_models | set_model | set_thinking | list_tools | set_tools | shell" }, model: { type: "STRING" }, level: { type: "STRING" }, tools: { type: "ARRAY", items: { type: "STRING" } }, command: { type: "STRING" }, timeout_ms: { type: "NUMBER" } }, required: ["action"] },
-    },
-    {
-      name: "scratchpad",
-      description: "Manage Orb's ephemeral collaborative scratchpad. Actions: open, view, read, replace, append, load, save, dispatch, close. open/view surface the scrollable viewer overlay. Dispatch sends either provided content or the whole scratchpad to Pi as a task.",
-      parameters: { type: "OBJECT", properties: { action: { type: "STRING" }, title: { type: "STRING" }, content: { type: "STRING" }, path: { type: "STRING" }, summary: { type: "STRING" } }, required: ["action"] },
-    },
-    {
-      name: "set_voice",
-      description: "Change Orb's active spoken voice (Gemini prebuilt TTS voice) to audition or pick a different sound. Use with the voice name.",
-      parameters: { type: "OBJECT", properties: { voice: { type: "STRING", description: "Exact voice name, e.g. Kore, Aoede, Puck, Charon, Fenrir, Atlas, Zephyr, Echo." } }, required: ["voice"] },
-    },
+    ...geminiOrchestrationTools(),
     ...(config?.permissions?.nativeTools ? geminiCodingTools() : []),
   ];
 }
