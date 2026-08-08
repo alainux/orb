@@ -1,6 +1,7 @@
 /**
  * The voice agent's orchestration tools: delegate/observe/read hooks into the
- * Pi harness, an orchestration-cancel, and the scratchpad. These are the voice
+ * Pi harness, an orchestration-cancel, read-only access to open herdr panes,
+ * and the scratchpad. These are the voice
  * agent's ONLY tools. There are deliberately NO configuration capabilities
  * (no control_pi model/thinking/tools/shell switches, no set_voice) — the voice
  * companion cannot re-configure itself or the agent at runtime; it is configured
@@ -20,7 +21,15 @@
  *    with the canonical `parameters` used as-is (keeps `additionalProperties`).
  *  - Gemini Live: `{ name, description, parameters }` where `parameters` is
  *    derived via the shared `convertToGemini`.
+ *
+ * `read_herdr_pane` is registered only when herdr is actually detected in the
+ * environment (see `herdrInstalled`). When herdr is missing the tool is simply
+ * omitted from both providers' registrations — silently, never throwing and
+ * never preventing startup.
  */
+import { herdrInstalled } from "./herdr.js";
+import type { RunLog } from "./log.js";
+
 type OrchestrationTool = {
   name: string;
   description: string;
@@ -82,6 +91,20 @@ const ORCHESTRATION_CATALOG: readonly OrchestrationTool[] = [
     },
   },
   {
+    name: "read_herdr_pane",
+    description:
+      "Read the recent terminal output (log) of an open herdr pane. Herdr is a terminal multiplexer (like tmux) for running terminals/agents; use this when you need the actual output a concurrent terminal produced. Reads the pane's unwrapped recent scrollback (best for logs). Requires herdr to be installed and running. Omit pane_id to list the open panes to choose from; sends a run of `herdr pane read <pane_id> --source recent-unwrapped --lines N`.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        pane_id: { type: "string", description: "herdr pane id (e.g. w1:p3) to read. Omit to list open panes." },
+        lines: { type: "number", minimum: 1, maximum: 2000, description: "Number of recent terminal rows to read (default 120)." },
+        source: { type: "string", enum: ["visible", "recent", "recent-unwrapped", "detection"], description: "Read source; recent-unwrapped is best for logs." },
+      },
+    },
+  },
+  {
     name: "scratchpad",
     description:
       "Manage Orb's ephemeral collaborative scratchpad: open/view it as an overlay, read/replace/append its content, load/save it to a file, or dispatch selected content to Pi as a task.",
@@ -101,8 +124,9 @@ const ORCHESTRATION_CATALOG: readonly OrchestrationTool[] = [
 ];
 
 /** Tool registrations for the OpenAI Realtime provider (JSON-schema style). */
-export function openAIOrchestrationTools(): Array<Record<string, unknown>> {
-  return ORCHESTRATION_CATALOG.map((tool) => ({
+export async function openAIOrchestrationTools(log?: RunLog): Promise<Array<Record<string, unknown>>> {
+  const catalog = await availableTools(log);
+  return catalog.map((tool) => ({
     type: "function",
     name: tool.name,
     description: tool.description,
@@ -111,12 +135,28 @@ export function openAIOrchestrationTools(): Array<Record<string, unknown>> {
 }
 
 /** Tool registrations for the Gemini Live provider (function-declaration style). */
-export function geminiOrchestrationTools(): Array<Record<string, unknown>> {
-  return ORCHESTRATION_CATALOG.map((tool) => ({
+export async function geminiOrchestrationTools(log?: RunLog): Promise<Array<Record<string, unknown>>> {
+  const catalog = await availableTools(log);
+  return catalog.map((tool) => ({
     name: tool.name,
     description: tool.description,
     parameters: convertToGemini(tool.parameters),
   }));
+}
+
+/** Which tools are available right now. The herdr pane reader is served only when herdr is detected. */
+async function availableTools(log?: RunLog): Promise<readonly OrchestrationTool[]> {
+  // herdrInstalled never throws (returns false on a missing/broken herdr), so a
+  // missing herdr simply omits the tool — no error output, no startup impact.
+  const herdrReady = await herdrInstalled();
+  // Discreet internal observability only: records whether the herdr pane reader
+  // was wired up or left out, for debugging session logs. Never shown to users.
+  if (log) {
+    void log.debug("read_herdr_pane tool", { initialized: herdrReady, herdrPresent: herdrReady });
+  }
+  return herdrReady
+    ? ORCHESTRATION_CATALOG
+    : ORCHESTRATION_CATALOG.filter((tool) => tool.name !== "read_herdr_pane");
 }
 
 /**

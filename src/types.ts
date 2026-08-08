@@ -98,7 +98,7 @@ export interface VoiceSessionContext {
 
 export interface ToolCall {
   id: string;
-  name: "run_pi_task" | "read_pi_log" | "observe_pi" | "control_pi" | "scratchpad" | string;
+  name: "run_pi_task" | "read_pi_log" | "observe_pi" | "control_pi" | "read_herdr_pane" | "scratchpad" | string;
   arguments: Record<string, unknown>;
 }
 

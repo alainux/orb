@@ -8,6 +8,7 @@ import { DelegatedWorkTracker, sendPiTask } from "./delegation.js";
 import { RunLog } from "./log.js";
 import { PiControl } from "./pi-control.js";
 import { PiLogMirror } from "./pi-log.js";
+import { HERDR_READ_SOURCES, HERDR_DEFAULT_LINES, HERDR_MAX_LINES, listHerdrPanes, readHerdrPane, type HerdrReadSource } from "./herdr.js";
 import { createProvider } from "./providers/index.js";
 import { Scratchpad } from "./scratchpad.js";
 import { ScratchpadViewer } from "./scratchpad-view.js";
@@ -473,6 +474,7 @@ export class VoiceController {
         result = { ok: true, status: snapshot.status, revision: snapshot.revision, log: snapshot.text };
       } else if (call.name === "observe_pi") result = await this.toolObservePi(call);
       else if (call.name === "control_pi") result = await this.toolControlPi(call);
+      else if (call.name === "read_herdr_pane") result = await this.toolHerdrPane(call);
       else if (call.name === "scratchpad") result = await this.toolScratchpad(call);
       else result = { ok: false, error: `Unknown tool ${call.name}` };
     } catch (error) {
@@ -574,6 +576,51 @@ export class VoiceController {
       characters: snapshot.content.length,
     });
     return { ...result, scratchpad: { ...snapshot, content: snapshot.content.slice(0, 120_000) } };
+  }
+
+  /**
+   * Read recent output of an open herdr pane (convenient log retrieval). When
+   * no pane_id is given, first lists the open panes so the voice agent can
+   * confirm which pane the human means. Availability is contingent on herdr
+   * being installed — a missing/unreachable binary is reported as such rather
+   * than a generic failure, so the companion can tell the human exactly why.
+   */
+  private async toolHerdrPane(call: ToolCall): Promise<Record<string, unknown>> {
+    const paneId = stringArg(call, "pane_id").trim();
+    const rawSource = stringArg(call, "source");
+    const source: HerdrReadSource = (HERDR_READ_SOURCES as readonly string[]).includes(rawSource)
+      ? (rawSource as HerdrReadSource)
+      : "recent-unwrapped";
+    const lines = bounded(call.arguments.lines, HERDR_DEFAULT_LINES, 1, HERDR_MAX_LINES);
+
+    // With no pane selected, hand the agent the pane catalog so it can choose.
+    if (!paneId) {
+      const listed = await listHerdrPanes();
+      if (!listed.ok) {
+        return { ok: false, ...(listed.installed ? {} : { installed: false }), error: listed.error ?? "could not list herdr panes", ...(listed.installed ? {} : { hint: "Install or start herdr, then ask again." }) };
+      }
+      void this.log?.info("voice tool read_herdr_pane", { action: "list", panes: listed.panes.length });
+      return {
+        ok: true,
+        action: "list",
+        panes: listed.panes.map((p) => ({ pane_id: p.pane_id, tab_id: p.tab_id, workspace_id: p.workspace_id, agent: p.agent, cwd: p.cwd, terminal_title: p.terminal_title ?? p.terminal_title_stripped })),
+      };
+    }
+
+    const read = await readHerdrPane(paneId, { lines, source });
+    void this.log?.info("voice tool read_herdr_pane", {
+      pane_id: read.pane_id, source: read.source, lines: read.lines, ok: read.ok,
+      chars: read.log.length, truncated: read.truncated, installed: read.installed,
+    });
+    if (!read.ok) {
+      return {
+        ok: false,
+        pane_id: read.pane_id,
+        ...(read.installed ? {} : { installed: false, hint: "Install herdr, then re-run." }),
+        error: read.error ?? "could not read herdr pane",
+      };
+    }
+    return { ok: true, pane_id: read.pane_id, source: read.source, lines: read.lines, truncated: read.truncated, log: read.log };
   }
 
   private syncScratchpad(): void {
@@ -724,6 +771,7 @@ function toolLabel(call: ToolCall): string {
   if (call.name === "read_pi_log") return "check Pi result";
   if (call.name === "observe_pi") return `wait for Pi · ${call.arguments.until ?? "settled"}`;
   if (call.name === "control_pi") return "cancel Pi";
+  if (call.name === "read_herdr_pane") return typeof call.arguments.pane_id === "string" && String(call.arguments.pane_id).trim() ? `read herdr ${String(call.arguments.pane_id)}` : "list herdr panes";
   if (call.name === "scratchpad") return `scratchpad · ${String(call.arguments.action ?? "read")}`;
   return call.name;
 }
@@ -733,6 +781,7 @@ function toolResultLabel(name: string, result: Record<string, unknown>): string 
   if (name === "observe_pi") return `Pi ${String(result.status ?? "observed")}`;
   if (name === "read_pi_log") return "Pi result checked";
   if (name === "control_pi") return "Pi cancelled";
+  if (name === "read_herdr_pane") return result.ok === false ? `herdr ${String(result.error ?? "failed")}` : "herdr pane read";
   if (name === "scratchpad") return "scratchpad updated";
   return name;
 }

@@ -132,7 +132,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
           this.endFriendly(reason || "The realtime provider closed the session.");
         },
       },
-      config: buildGeminiLiveConfig(this.config, handle, geminiTools()),
+      config: buildGeminiLiveConfig(this.config, handle, await geminiTools(this.log)),
     });
     if (epoch !== this.epoch || this.closed) { try { session.close(); } catch {} return; }
     this.session = session;
@@ -396,8 +396,8 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
   }
 }
 
-function geminiTools(): Record<string, unknown>[] {
-  return [...geminiOrchestrationTools()];
+function geminiTools(log: RunLog): Promise<Record<string, unknown>[]> {
+  return geminiOrchestrationTools(log);
 }
 
 

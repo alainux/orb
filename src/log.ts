@@ -21,6 +21,11 @@ export class RunLog {
     return this.write("INFO", message, details);
   }
 
+  /** Lower-priority internal observability (never rendered in the UI). */
+  debug(message: string, details?: unknown): Promise<void> {
+    return this.write("DEBUG", message, details);
+  }
+
   error(message: string, error?: unknown): Promise<void> {
     return this.write("ERROR", message, error);
   }

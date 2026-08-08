@@ -70,7 +70,7 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           },
           output: { format: { type: "audio/pcm" }, voice: this.config.voice },
         },
-        tools: [...openAIOrchestrationTools()],
+        tools: await openAIOrchestrationTools(this.log),
         tool_choice: "auto",
       },
     });
