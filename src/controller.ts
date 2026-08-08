@@ -3,6 +3,7 @@ import { ActivityFeed } from "./activity.js";
 import { AgentToolbox } from "./agent-tools.js";
 import { GoAudioBridge, type AudioLevels } from "./audio/bridge.js";
 import { PcmInputAdapter } from "./audio/input-adapter.js";
+import { PlayoutMonitor } from "./audio/playout.js";
 import { loadVoiceConfig } from "./config.js";
 import { DelegatedWorkTracker, sendPiTask } from "./delegation.js";
 import { RunLog } from "./log.js";
@@ -37,8 +38,8 @@ export class VoiceController {
     void this.log?.info("pi-activity", event);
   });
   private state: VoiceViewState = {
-    active: false, status: "off", source: "idle", muted: false, inputTranscript: "", outputTranscript: "",
-    inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0,
+    active: false, status: "off", source: "idle", muted: false, inputTranscript: "", outputTranscript: "", thinking: false,
+    inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0, audioPhase: "healthy",
     piAgentStatus: "idle", activity: [], scratchpad: { open: false, title: "Scratchpad", content: "", dirty: false }, error: undefined,
   };
   private ctx: ExtensionContext | undefined;
@@ -66,6 +67,7 @@ export class VoiceController {
   private interruptionTimes: number[] = [];
   private inputSuppressedUntil = 0;
   private lastAudioRecoveries = 0;
+  private playoutMonitor: PlayoutMonitor | undefined;
 
   constructor(private readonly pi: ExtensionAPI) {}
   get active(): boolean { return this.state.active; }
@@ -87,9 +89,11 @@ export class VoiceController {
       this.interruptionTimes = [];
       this.inputSuppressedUntil = 0;
       this.lastAudioRecoveries = 0;
+      this.playoutMonitor = this.createPlayoutMonitor();
+      this.playoutMonitor.reset();
       this.state = {
         ...this.state, active: true, status: `starting · ${this.config.provider}`, source: "idle", muted: false, inputTranscript: "", outputTranscript: "",
-        inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0,
+        inputRms: 0, outputRms: 0, audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0, audioPhase: "healthy",
         piAgentStatus: this.piLog.agentStatus, scratchpad: this.scratchpad.snapshot(), error: undefined, activity: [],
       };
       this.mountWidget(ctx);
@@ -337,6 +341,7 @@ export class VoiceController {
         this.widget?.tick();
       },
       onStatus: (status: string) => { this.state.status = status; this.widget?.tick(); },
+      onThinking: (thinking: boolean) => { this.state.thinking = thinking; this.widget?.tick(); },
       onError: (error: Error) => this.reportError(error, "provider"),
       onSessionEnded: (reason: string) => { void this.handleFriendlySessionEnd(reason).catch((error) => this.reportError(asError(error), "session end")); },
       onToolCall: (call: ToolCall) => this.handleToolCall(call),
@@ -603,16 +608,69 @@ export class VoiceController {
     this.state.audioCaptureDrops = levels.captureDrops;
     this.state.audioQueuedMs = Math.round(levels.queuedBytes / (24_000 * 2) * 1000);
     this.state.audioRecoveries = levels.recoveries;
-    if (levels.recoveries > this.lastAudioRecoveries) {
-      void this.log?.info("audio playout recovered from underrun", { recoveries: levels.recoveries, queuedMs: this.state.audioQueuedMs });
-      this.lastAudioRecoveries = levels.recoveries;
-    }
+    if (levels.recoveries > this.lastAudioRecoveries) this.lastAudioRecoveries = levels.recoveries;
     this.state.source = levels.outputRms > inputRms && levels.outputRms > 0.01 ? "agent" : inputRms > 0.01 ? "user" : "idle";
+    // Auto-detection of sustained choppiness and (when the mic starves with the
+    // speaker) automatic input resync. Pure observability + scheduled recovery;
+    // the graphic playout fix lives in the Go sidecar's adaptive buffer.
+    this.playoutMonitor?.publish(levels);
+    this.state.audioPhase = this.playoutMonitor?.snapshot().phase ?? "healthy";
+  }
+
+  /**
+   * Build the sustained-choppiness monitor. The detector watches the sidecar's
+   * underrun-recovery counter: one recovery is a normal transient stall, a
+   * cluster inside the window is choppiness. Recovery functions via three
+   * levers: (1) the Go buffer itself accelerates re-prime and relaxes inflated
+   * latency; (2) on ChoppyStart we surface the state + durable log; (3) if the
+   * microphone dropped frames during the same trade, we resync the input path
+   * so the next human turn starts clean.
+   */
+  private createPlayoutMonitor(): PlayoutMonitor {
+    const audio = this.config?.audio;
+    return new PlayoutMonitor(
+      {
+        onChoppyStart: (episode, queuedMs) => {
+          this.feed.add("system", `Audio choppy · auto-recovering`);
+          this.state.status = "audio choppy · adjusting";
+          void this.log?.info("audio choppiness detected", { episode, queuedMs, recoveries: this.lastAudioRecoveries });
+          this.widget?.tick();
+        },
+        onRecovered: (episode, lagMs) => {
+          void this.log?.info("audio playout recovered", { episode, lagMs, queuedMs: this.state.audioQueuedMs });
+          this.state.status = "live · listening";
+          this.widget?.tick();
+        },
+        onAutoResyncInput: (reason) => this.autoResyncInput(reason),
+      },
+      {
+        windowRecoveries: audio?.choppinessWindowRecoveries ?? 3,
+        windowMs: audio?.choppinessWindowMs ?? 1500,
+        recoverSilenceMs: audio?.choppinessRecoverSilenceMs ?? 1500,
+        inputResyncDrops: audio?.inputResyncDrops ?? 3,
+        inputResyncWindowMs: audio?.inputResyncWindowMs ?? 1500,
+        inputResyncCooldownMs: audio?.inputResyncCooldownMs ?? 4000,
+      },
+    );
+  }
+
+  /**
+   * Automatic input-path recovery: the mic dropped frames while output was
+   * choppy (the same main-thread stall starved both). Reset the resampler to a
+   * fresh partial-frame boundary and flush stale pending input so the next
+   * human turn starts from clean audio instead of a garbled half-sentence.
+   */
+  private autoResyncInput(reason: string): void {
+    this.inputAdapter?.reset();
+    this.feed.add("system", "Microphone resynced · audio continuity restored");
+    void this.log?.info("audio input resynced", { reason, captureDrops: this.state.audioCaptureDrops });
+    this.widget?.tick();
   }
 
   private reportError(error: Error, area: string): void {
     this.state.error = `${area}: ${error.message}`;
     this.state.status = "error · see diagnostics";
+    this.state.thinking = false;
     this.feed.add("error", `${area}: ${error.message}`);
     this.ctx?.ui.notify(`Orb ${area} error: ${error.message}${this.log?.path ? `\nLog: ${this.log.path}` : ""}`, "error");
     void this.log?.error(`${area} error`, error);
@@ -635,7 +693,7 @@ export class VoiceController {
     this.provider = undefined;
     this.audio = undefined;
     await Promise.allSettled([provider?.close(), audio?.close()]);
-    this.state = { ...this.state, active: false, status: options.keepError ? "stopped after error" : "off", source: "idle", muted: false, inputTranscript: "", outputTranscript: "", inputRms: 0, outputRms: 0, error: options.keepError };
+    this.state = { ...this.state, active: false, status: options.keepError ? "stopped after error" : "off", source: "idle", muted: false, thinking: false, inputTranscript: "", outputTranscript: "", inputRms: 0, outputRms: 0, error: options.keepError };
     ctx?.ui.setStatus("orb-voice", undefined);
     ctx?.ui.setWidget("orb-voice", undefined);
     this.widget = undefined;

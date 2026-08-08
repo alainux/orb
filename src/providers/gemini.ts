@@ -18,6 +18,9 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
   private reconnecting: Promise<void> | undefined;
   /** Deduplicate function calls re-delivered across a GoAway/reconnect/resume. */
   private readonly handledCalls = new Set<string>();
+  private thinking = false;
+  /** True once the current model turn has begun generating (used for the thinking indicator). */
+  private orbInTurn = false;
 
   constructor(private readonly config: VoiceConfig, private readonly log: RunLog) { super(); }
 
@@ -74,6 +77,9 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
     const client = this.client;
     if (!client) throw new Error("Gemini client is unavailable");
     const epoch = ++this.epoch;
+    this.thinking = false;
+    this.orbInTurn = false;
+    this.sink?.onThinking?.(false);
     const session = await client.live.connect({
       model: this.config.model,
       callbacks: {
@@ -154,6 +160,25 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
       const server = message?.serverContent;
       const interrupted = Boolean(server?.interrupted);
       const boundary = Boolean(server?.turnComplete || server?.generationComplete);
+
+      // Gemini Live publishes no dedicated "generation started" event, so the
+      // thinking indicator approximates the reasoning window as the gap between
+      // a model turn beginning and the first delivered output (audio/transcript).
+      // User-only transcription messages never open a model turn, so they never
+      // flash "Thinking".
+      const modelActivity = Boolean(server?.modelTurn) || typeof server?.outputTranscription?.text === "string";
+      const deliversContent = Boolean(server?.modelTurn?.parts?.some((p: any) => typeof p?.inlineData?.data === "string" && p.inlineData.data.length > 0)) || typeof server?.outputTranscription?.text === "string";
+      if (interrupted || boundary) {
+        this.orbInTurn = false;
+        this.emitThinking(false);
+      } else if (modelActivity) {
+        if (!this.orbInTurn) {
+          this.orbInTurn = true;
+          this.emitThinking(true);
+        }
+        if (deliversContent) this.emitThinking(false);
+      }
+
       if (interrupted) {
         // Commit the interrupted spoken turn before clearing playback. This
         // keeps the activity transcript as one chronological Orb turn instead
@@ -211,7 +236,14 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
     await this.processToolCalls(message?.toolCall?.functionCalls);
   }
 
+  private emitThinking(value: boolean): void {
+    if (this.thinking === value) return;
+    this.thinking = value;
+    this.sink?.onThinking?.(value);
+  }
+
   private async processToolCalls(calls: unknown): Promise<void> {
+    if (Array.isArray(calls) && calls.length > 0) this.emitThinking(false);
     for (const raw of Array.isArray(calls) ? calls : []) {
       const call: ToolCall = {
         id: String((raw as any)?.id ?? (raw as any)?.callId ?? ""),

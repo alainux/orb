@@ -21,6 +21,30 @@ test("status shows muted in place of listening while the microphone is muted", (
   assert.equal(statusForDisplay("off", true), "off");
 });
 
+test("status shows Thinking while the model reasons and drops it on content", () => {
+  // Thinking overrides both the plain status and the muted variant.
+  assert.equal(statusForDisplay("live · listening", false, true), "Thinking…");
+  assert.equal(statusForDisplay("live · listening", true, true), "Thinking…");
+  assert.equal(statusForDisplay("off", true, true), "Thinking…");
+  // Without thinking the existing behavior is unchanged.
+  assert.equal(statusForDisplay("live · listening", false), "live · listening");
+  assert.equal(statusForDisplay("live · listening", true), "live · muted");
+});
+
+test("the widget title renders the Thinking indicator and clears it on content", () => {
+  const tui = { requestRender: () => {} } as unknown as TUI;
+  const state = viewState();
+  const widget = new VoiceWidget(tui, fakeTheme({ ...DARK_THEME }), () => state, {
+    orbAspect: 2, orbDensity: 1.3, orbReactivity: 0.7, orbBraille: false, panelHeight: 10, activityLines: 6, scratchpadPanelHeight: 8,
+  });
+
+  assert.doesNotMatch(widget.render(80)[0]!, /Thinking/);
+  state.thinking = true;
+  assert.match(widget.render(80)[0]!, /Thinking/);
+  state.thinking = false;
+  assert.doesNotMatch(widget.render(80)[0]!, /Thinking/);
+});
+
 // ---------------------------------------------------------------------------
 // Theme-change compliance: Pi swaps the active theme at runtime and calls
 // component.invalidate(). The widget must rebuild its derived palette so the
@@ -65,8 +89,8 @@ const LIGHT_THEME = {
 function viewState(): VoiceViewState {
   return {
     active: true, status: "live · listening", source: "idle", muted: false,
-    inputTranscript: "", outputTranscript: "", inputRms: 0, outputRms: 0,
-    audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0,
+    inputTranscript: "", outputTranscript: "", thinking: false, inputRms: 0, outputRms: 0,
+    audioCaptureDrops: 0, audioQueuedMs: 0, audioRecoveries: 0, audioPhase: "healthy",
     piAgentStatus: "idle", activity: [], error: undefined,
     scratchpad: { open: false, title: "Scratchpad", content: "", dirty: false },
   };

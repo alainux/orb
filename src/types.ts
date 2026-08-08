@@ -24,6 +24,18 @@ export interface AudioConfig {
   interruptionStormCount: number;
   interruptionStormWindowMs: number;
   interruptionRecoveryMuteMs: number;
+  /** Underrun recoveries (within `choppinessWindowMs`) that mark a choppy episode. */
+  choppinessWindowRecoveries: number;
+  /** Sliding window (ms) over which a choppy episode is detected. */
+  choppinessWindowMs: number;
+  /** Quiet (ms) with no underruns before output is declared recovered. */
+  choppinessRecoverSilenceMs: number;
+  /** Capture-drop counts (within `inputResyncWindowMs`) that auto-resync the microphone path. */
+  inputResyncDrops: number;
+  /** Capture-drop sampling window (ms). */
+  inputResyncWindowMs: number;
+  /** Min gap between automatic input resyncs (ms). */
+  inputResyncCooldownMs: number;
 }
 
 export interface ScratchpadConfig {
@@ -75,6 +87,8 @@ export interface VoiceProviderSink {
   onInputTranscript(text: string, final: boolean): void;
   onOutputTranscript(text: string, final: boolean): void;
   onStatus(status: string): void;
+  /** True while the model is generating but has not yet delivered content. */
+  onThinking(thinking: boolean): void;
   onError(error: Error): void;
   onSessionEnded(reason: string): void;
   onToolCall(call: ToolCall): Promise<Record<string, unknown>>;
@@ -105,11 +119,15 @@ export interface VoiceViewState {
   muted: boolean;
   inputTranscript: string;
   outputTranscript: string;
+  /** True while the voice model is reasoning but has not spoken output yet. */
+  thinking: boolean;
   inputRms: number;
   outputRms: number;
   audioCaptureDrops: number;
   audioQueuedMs: number;
   audioRecoveries: number;
+  /** "healthy" | "choppy" | "recovering" — auto-detected playout health. */
+  audioPhase: string;
   piAgentStatus: PiAgentStatus;
   activity: ActivityEntry[];
   scratchpad: ScratchpadViewState;

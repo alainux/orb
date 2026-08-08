@@ -201,6 +201,13 @@ realtime provider ⇄ TypeScript transport ⇄ Go jitter buffer ⇄ hardware cal
 
 If Pi briefly stalls provider delivery while rendering or running tools, playback now pauses, rebuilds a small lead, and resumes at the hardware clock rather than getting stuck emitting tiny fragments. The buffer never skips or time-compresses PCM. A recovery counter is shown in the Orb footer and diagnostics.
 
+Two safeguards make that recovery *automatic* rather than incidental:
+
+- **Faster re-prime on a choppy spiral.** If a second underrun arrives while the previous rebuild has not yet delivered a healthy lead, the buffer escalates the adaptive lead by a larger step so playback re-buffers in fewer, shorter interruptions (a long tail of single-glitch gaps never forms).
+- **Latency doesn't accumulate.** After delivery has been continuously healthy for a sustained streak (or a response ends naturally), the adaptive lead relaxes back toward its base, so a choppy episode never leaves permanently elevated latency behind for the next turn.
+
+Orb also **auto-detects choppiness onset** from the sidecar's underrun-recovery counter (a lone recovery is a normal transient stall; a cluster inside a short window is real choppiness), surfaces it live (`CHOPPY` in the Orb footer + `audio choppy · adjusting` status), and — when the microphone dropped frames during the same episode — automatically resyncs the capture path so the next human turn starts from clean audio rather than a garbled half-sentence.
+
 Barge-in still clears the old response immediately. Repeated interruption storms are detected and the input path is resynchronized to break speaker→microphone feedback loops.
 
 Audio tuning is configurable:
@@ -213,7 +220,13 @@ Audio tuning is configurable:
     "recoveryStepMs": 40,
     "interruptionStormCount": 3,
     "interruptionStormWindowMs": 1800,
-    "interruptionRecoveryMuteMs": 320
+    "interruptionRecoveryMuteMs": 320,
+    "choppinessWindowRecoveries": 3,
+    "choppinessWindowMs": 1500,
+    "choppinessRecoverSilenceMs": 1500,
+    "inputResyncDrops": 3,
+    "inputResyncWindowMs": 1500,
+    "inputResyncCooldownMs": 4000
   }
 }
 ```

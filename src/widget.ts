@@ -70,7 +70,9 @@ export class VoiceWidget implements Component {
    */
   private resolveMode(state:VoiceViewState):OrbMode {
     if (state.source==="user" || this.frame.userEnergy>0.02) return "composing";
-    if (state.piAgentStatus==="working") return "searching";
+    // Reasoning voice models think before they speak; while no content has
+    // landed the orb takes the calm cognition-pulse look (like Pi working).
+    if (state.thinking || state.piAgentStatus==="working") return "searching";
     return "smoke";
   }
   invalidate():void {
@@ -107,7 +109,7 @@ export class VoiceWidget implements Component {
     // indicator (listening / thinking / waiting for Pi…) in the secondary
     // violet accent, and the Pi agent indicator in a theme-blue token.
     const title=this.theme.fg("accent"," ORB ")
-      +this.palette.secondaryText(`· ${statusForDisplay(state.status,state.muted)}`)
+      +this.palette.secondaryText(`· ${statusForDisplay(state.status,state.muted,state.thinking)}`)
       +this.theme.fg("mdLink",` · Pi ${state.piAgentStatus}`);
     const lines=[title+this.theme.fg("dim","─".repeat(Math.max(0,width-stripAnsi(title).length)))];
     const body=Math.max(left.length,rightLines.length);
@@ -156,7 +158,7 @@ export class VoiceWidget implements Component {
   private renderCompact(width:number,state:VoiceViewState):string[] {
     const h=Math.max(4,Math.min(6,this.options.panelHeight-3));
     const raster=this.renderer.render(width,h,this.options.orbAspect,this.frame,this.mode,this.nowMs||undefined);
-    const lines=[this.theme.fg("accent",`ORB · `)+this.palette.secondaryText(statusForDisplay(state.status,state.muted))];
+    const lines=[this.theme.fg("accent",`ORB · `)+this.palette.secondaryText(statusForDisplay(state.status,state.muted,state.thinking))];
     for(let y=0;y<raster.height;y++){
       let line="";
       for(let x=0;x<raster.width;x++){
@@ -231,9 +233,10 @@ export class VoiceWidget implements Component {
     const f=this.frame;
     const sourceLabel=f.source==="agent"?"ORB":f.source.toUpperCase();
     const stats=`${sourceLabel}  buffer ${state.audioQueuedMs}ms · recoveries ${state.audioRecoveries}`;
-    const plain=`YOU ${barText(f.userEnergy,8)}  ORB ${barText(f.agentEnergy,8)}  ${stats}`;
+    const health= state.audioPhase === "choppy" || state.audioPhase === "recovering" ? this.theme.fg("error",` · ${state.audioPhase.toUpperCase()}`) : "";
+    const plain=`YOU ${barText(f.userEnergy,8)}  ORB ${barText(f.agentEnergy,8)}  ${stats}${stripAnsi(health)}`;
     if(plain.length>width) return this.theme.fg("dim",truncatePlain(plain,width));
-    return `YOU ${this.meterBar(f.userEnergy,8,0.2,0.45)}  ORB ${this.meterBar(f.agentEnergy,8,0.6,0.98)}  ${this.theme.fg("dim",stats)}`;
+    return `YOU ${this.meterBar(f.userEnergy,8,0.2,0.45)}  ORB ${this.meterBar(f.agentEnergy,8,0.6,0.98)}  ${this.theme.fg("dim",stats)}${health}`;
   }
 
   /** One meter's dots on the theme ramp from `lo` to `hi` (sqrt-scaled):
@@ -265,8 +268,13 @@ const WHITE:Rgb={ r:255, g:255, b:255 };
  * status keeps its context ("live", "Pi working", …) but the word
  * "listening" becomes "muted" in the same position, so the mute state is
  * communicated by the status text itself instead of a separate indicator.
+ * While the model is generating a response without any delivered content yet
+ * (after "response.created", before the first audio/transcript) the whole
+ * line reads "Thinking…" so the user sees the voice model reasoning before it
+ * speaks.
  */
-export function statusForDisplay(status: string, muted: boolean): string {
+export function statusForDisplay(status: string, muted: boolean, thinking = false): string {
+  if (thinking) return "Thinking…";
   return muted ? status.replace(/\blistening\b/g, "muted") : status;
 }
 

@@ -121,8 +121,18 @@ The Go sidecar starts with `audio.bufferMs` of queued PCM. If the hardware callb
 - `audio.interruptionStormCount` / `ORB_INTERRUPTION_STORM_COUNT`
 - `audio.interruptionStormWindowMs` / `ORB_INTERRUPTION_STORM_WINDOW_MS`
 - `audio.interruptionRecoveryMuteMs` / `ORB_INTERRUPTION_RECOVERY_MUTE_MS`
+- `audio.choppinessWindowRecoveries` / `ORB_CHOPPINESS_WINDOW_RECOVERIES`
+- `audio.choppinessWindowMs` / `ORB_CHOPPINESS_WINDOW_MS`
+- `audio.choppinessRecoverSilenceMs` / `ORB_CHOPPINESS_RECOVER_SILENCE_MS`
+- `audio.inputResyncDrops` / `ORB_INPUT_RESYNC_DROPS`
+- `audio.inputResyncWindowMs` / `ORB_INPUT_RESYNC_WINDOW_MS`
+- `audio.inputResyncCooldownMs` / `ORB_INPUT_RESYNC_COOLDOWN_MS`
 
-The footer shows the current queued milliseconds and recovery count.
+The footer shows the current queued milliseconds, the recovery count, and (during an episode) a live `CHOPPY` health marker.
+
+## Choppiness auto-detection & recovery
+
+Choppy playback (a silent stutter) is the audible side of the Go buffer repeatedly under-running. Orb detects the *onset* of sustained choppiness from the sidecar's underrun-recovery counter: `windowRecoveries` recoveries within `windowMs` mark choppiness (a single recovery is a normal transient stall). A further under-run that arrives while a rebuild is still pending escalates the adaptive lead faster, so the re-prime finishes in fewer, shorter interruptions; once delivery has been healthy for a sustained streak (or the response ends cleanly), the lead relaxes back toward `bufferMs` so latency never permanently piles up. If the microphone dropped frames during the same episode (`inputResyncDrops` within `inputResyncWindowMs`), Orb auto-resyncs the input path too, throttled by `inputResyncCooldownMs`.
 
 ## Scratchpad
 

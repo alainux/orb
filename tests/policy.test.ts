@@ -61,3 +61,21 @@ test("voice policy is a warm native coder that delegates big work and stays prec
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /direct actions are authoritative/);
   assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /shall I go ahead/i);
 });
+
+test("the persona adapts per turn by intent, not by switching fixed modes", () => {
+  // The five natural registers are phrased as what the intent *is asking for*,
+  // re-derived each turn from natural language, never as modes a dispatcher toggles.
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /SENSE, DON'T SWITCH/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /points on one continuous dial/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /derive from each utterance|derive it each turn/i);
+  // All five registers described, from the resting task default up to orchestration.
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Task register \(default\)/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Human register/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Investigation register/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Anticipatory register/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Orchestration register/);
+  // It must never dress the style up as a fixed off/on selector or announce it.
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Never announce the register/);
+  assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /Conversational Mode|Explanation Mode/);
+  assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /switch \(|case "mode"/i);
+});

@@ -184,6 +184,12 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
       interruptionStormCount: Math.round(numberValue(envFirst("ORB_INTERRUPTION_STORM_COUNT") ?? audioConfig.interruptionStormCount, 3, 2, 10, "audio.interruptionStormCount")),
       interruptionStormWindowMs: Math.round(numberValue(envFirst("ORB_INTERRUPTION_STORM_WINDOW_MS") ?? audioConfig.interruptionStormWindowMs, 1800, 400, 10000, "audio.interruptionStormWindowMs")),
       interruptionRecoveryMuteMs: Math.round(numberValue(envFirst("ORB_INTERRUPTION_RECOVERY_MUTE_MS") ?? audioConfig.interruptionRecoveryMuteMs, 320, 0, 2000, "audio.interruptionRecoveryMuteMs")),
+      choppinessWindowRecoveries: Math.round(numberValue(envFirst("ORB_CHOPPINESS_WINDOW_RECOVERIES") ?? audioConfig.choppinessWindowRecoveries, 3, 2, 20, "audio.choppinessWindowRecoveries")),
+      choppinessWindowMs: Math.round(numberValue(envFirst("ORB_CHOPPINESS_WINDOW_MS") ?? audioConfig.choppinessWindowMs, 1500, 500, 10000, "audio.choppinessWindowMs")),
+      choppinessRecoverSilenceMs: Math.round(numberValue(envFirst("ORB_CHOPPINESS_RECOVER_SILENCE_MS") ?? audioConfig.choppinessRecoverSilenceMs, 1500, 400, 10000, "audio.choppinessRecoverSilenceMs")),
+      inputResyncDrops: Math.round(numberValue(envFirst("ORB_INPUT_RESYNC_DROPS") ?? audioConfig.inputResyncDrops, 3, 1, 20, "audio.inputResyncDrops")),
+      inputResyncWindowMs: Math.round(numberValue(envFirst("ORB_INPUT_RESYNC_WINDOW_MS") ?? audioConfig.inputResyncWindowMs, 1500, 400, 10000, "audio.inputResyncWindowMs")),
+      inputResyncCooldownMs: Math.round(numberValue(envFirst("ORB_INPUT_RESYNC_COOLDOWN_MS") ?? audioConfig.inputResyncCooldownMs, 4000, 500, 30000, "audio.inputResyncCooldownMs")),
     },
     scratchpad: {
       panelHeight: Math.round(numberValue(envFirst("ORB_SCRATCHPAD_PANEL_HEIGHT") ?? scratchpadConfig.panelHeight, 18, 10, 32, "scratchpad.panelHeight")),

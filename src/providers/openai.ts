@@ -14,6 +14,7 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
   private readonly functionNames = new Map<string, string>();
   private readonly handledCalls = new Set<string>();
   private discardInterruptedAudio = false;
+  private thinking = false;
 
   constructor(private readonly config: VoiceConfig, private readonly log: RunLog) {
     super();
@@ -133,11 +134,13 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           break;
         case "input_audio_buffer.speech_started":
           this.discardInterruptedAudio = true;
+          this.emitThinking(false);
           if (this.outputTranscript.trim()) { this.sink?.onOutputTranscript(this.outputTranscript, true); this.outputTranscript = ""; }
           this.sink?.onInterruption("server barge-in");
           break;
         case "response.created":
           this.discardInterruptedAudio = false;
+          this.emitThinking(true);
           break;
         case "conversation.item.input_audio_transcription.delta":
           this.inputTranscript = mergeTranscript(this.inputTranscript, String(event.delta ?? ""));
@@ -149,10 +152,12 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           break;
         case "response.output_audio.delta":
         case "response.audio.delta":
+          this.emitThinking(false);
           if (!this.discardInterruptedAudio && typeof event.delta === "string") this.sink?.onAudio(Buffer.from(event.delta, "base64"));
           break;
         case "response.output_audio_transcript.delta":
         case "response.audio_transcript.delta":
+          this.emitThinking(false);
           this.outputTranscript = mergeTranscript(this.outputTranscript, String(event.delta ?? ""));
           this.sink?.onOutputTranscript(this.outputTranscript, false);
           break;
@@ -174,6 +179,7 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           });
           break;
         case "response.done":
+          this.emitThinking(false);
           if (this.outputTranscript.trim()) { this.sink?.onOutputTranscript(this.outputTranscript, true); this.outputTranscript = ""; }
           this.sink?.onAudioEnd();
           for (const item of event.response?.output ?? []) {
@@ -198,6 +204,12 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
       this.sink?.onError(normalized);
       await this.log.error("OpenAI event handler failed", { error: normalized, raw: raw.slice(0, 2000) });
     }
+  }
+
+  private emitThinking(value: boolean): void {
+    if (this.thinking === value) return;
+    this.thinking = value;
+    this.sink?.onThinking?.(value);
   }
 
   private async handleToolCallOnce(call: ToolCall): Promise<void> {
