@@ -9,7 +9,7 @@ import { RunLog } from "./log.js";
 import { PiControl } from "./pi-control.js";
 import { PiLogMirror } from "./pi-log.js";
 import { createProvider } from "./providers/index.js";
-import { buildPreferences, parseSettingValue, type PrefsView, type SettingDescriptor, type VoicePrefs, type PrefKey } from "./settings.js";
+import { buildSessionToggles, parseSessionToggle, type SettingDescriptor, type SessionPrefs, type PrefKey } from "./settings.js";
 import { Scratchpad } from "./scratchpad.js";
 import { ScratchpadViewer } from "./scratchpad-view.js";
 import { ThinkingTracker, thinkingLabel, createFileLog } from "./thinking-timing.js";
@@ -87,7 +87,7 @@ export class VoiceController {
   private lastAudioRecoveries = 0;
   private playoutMonitor: PlayoutMonitor | undefined;
   /** Live, user-togglable preferences for the current Pi session. */
-  private prefs: VoicePrefs = {};
+  private prefs: SessionPrefs = {};
 
   constructor(private readonly pi: ExtensionAPI) {}
   get active(): boolean { return this.state.active; }
@@ -221,14 +221,7 @@ export class VoiceController {
    * live state via the shared catalog (src/settings.ts).
    */
   getSettings(): SettingDescriptor[] {
-    const view: PrefsView = {
-      prefs: this.prefs,
-      config: this.config,
-      active: this.state.active,
-      activeProvider: this.config?.provider ?? this.providerOverride,
-      currentVoice: this.config?.voice,
-    };
-    return buildPreferences(view);
+    return buildSessionToggles({ prefs: this.prefs, config: this.config });
   }
 
   /**
@@ -237,27 +230,19 @@ export class VoiceController {
    * (reasoning display, active voice) applies it immediately. Session-scoped
    * choices take effect on the next voice start/reconnect.
    */
+  /**
+   * Apply a TEMPORARY session toggle from `/voice settings`. Persisted only to
+   * the Pi session entry (canonical appendEntry, never the config file); a live
+   * side-effect applies immediately. Durable/advanced preferences are not here —
+   * they live in the config file and are read at startup.
+   */
   setPref(id: PrefKey, value: string, ctx?: ExtensionContext): void {
-    const delta = parseSettingValue(id, value);
+    const delta = parseSessionToggle(id, value);
     this.prefs = { ...this.prefs, ...delta };
-    this.applyStoredPrefsToConfig();
     this.persistPrefs();
-
-    const cfg = this.config;
     if (id === "thinking" && delta.thinking) {
       this.applyThinkingDisplay(delta.thinking, ctx, { notify: true, persist: false });
-    } else if (id === "voice" && delta.voice && this.state.active && this.provider && cfg) {
-      cfg.voice = delta.voice;
-      void this.provider.setVoice(delta.voice)
-        .then(() => {
-          ctx?.ui.notify(`Orb voice → ${delta.voice}`, "info");
-          void this.log?.info("voice switched", { voice: delta.voice });
-        })
-        .catch((error: unknown) => ctx?.ui.notify?.(`Voice switch failed: ${error instanceof Error ? error.message : String(error)}`, "error"));
-    } else if (!this.state.active && ctx?.ui?.notify) {
-      ctx.ui.notify("Preference saved — applies to the next voice session.", "info");
     }
-    this.widget?.tick();
   }
 
   /** Apply a reasoning-display preference live, optionally notifying/saving. */
@@ -289,28 +274,19 @@ export class VoiceController {
     this.widget?.tick();
   }
 
-  /** Override loaded config fields with any stored preference. */
+  /** Overlay the session reasoning-display toggle onto the loaded config. */
   private applyStoredPrefsToConfig(): void {
-    const cfg = this.config;
-    if (!cfg) return;
-    const p = this.prefs;
-    if (p.thinking) cfg.thinkingDisplay = p.thinking;
-    if (p.budget !== undefined) cfg.geminiThinkingBudget = p.budget;
-    if (p.provider && p.provider !== "auto") cfg.provider = p.provider;
-    if (p.voice) cfg.voice = p.voice;
-    if (p.compression !== undefined) cfg.geminiContextCompression = p.compression;
-    if (p.resumption !== undefined) cfg.geminiSessionResumption = p.resumption;
-    if (p.braille !== undefined) cfg.orbBraille = p.braille;
-    if (p.autoStart !== undefined) cfg.autoStartVoice = p.autoStart;
+    if (!this.config) return;
+    if (this.prefs.thinking) this.config.thinkingDisplay = this.prefs.thinking;
   }
 
   /** Scans the current branch for the newest Orb preference entry. */
-  private findSavedPrefs(ctx: ExtensionContext | undefined): VoicePrefs | undefined {
+  private findSavedPrefs(ctx: ExtensionContext | undefined): SessionPrefs | undefined {
     try {
       const entries = ctx?.sessionManager?.getBranch?.() ?? [];
       for (let i = entries.length - 1; i >= 0; i--) {
         const entry = entries[i];
-        const e = entry as { type?: string; customType?: string; data?: VoicePrefs } | null;
+        const e = entry as { type?: string; customType?: string; data?: SessionPrefs } | null;
         if (e && e.type === "custom" && e.customType === VOICE_PREFS_ENTRY && e.data && Object.keys(e.data).length) return e.data;
       }
     } catch { /* a fake/unavailable session manager is fine */ }
@@ -320,7 +296,7 @@ export class VoiceController {
   /** Durable-write the current preference map into the Pi session. */
   private persistPrefs(): void {
     try {
-      const piApi = this.pi as ExtensionAPI & { appendEntry?: (customType: string, data: VoicePrefs) => void };
+      const piApi = this.pi as ExtensionAPI & { appendEntry?: (customType: string, data: SessionPrefs) => void };
       piApi.appendEntry?.(VOICE_PREFS_ENTRY, this.prefs);
     } catch (error: unknown) {
       this.log?.error("prefs-persist-failed", error);

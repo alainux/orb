@@ -137,7 +137,7 @@ Commands:
 
 `Ctrl+Alt+V` toggles voice mode; `Ctrl+Alt+M` mutes or unmutes your microphone while voice is active; `Ctrl+Alt+T` cycles the reasoning display.
 
-**Preferences live in the `/voice settings` panel, not the config file.** Every handle – reasoning display & budget, voice/provider, auto-start, context compression, session resumption, braille – toggles from `/voice settings` (or `/voice thinking`, `Ctrl+Alt+T`). Orb persists them through the Pi session (`pi.appendEntry`) and restores them on branch navigation — the canonical extension pattern. They never rewrite your config file, and a fresh Pi launch starts from the defaults again.
+**Two notions of preference, like Pi.** Durable preferences (voice model, provider, voice, auto-start, reasoning budget, context compression, session resumption, braille, audio tuning) live in your config file and are read at startup — nothing rewrites the file. Temporary session adjustments, like how reasoning is revealed, change at `/voice settings`, `/voice thinking`, or `Ctrl+Alt+T`: they persist only for the current Pi session (`pi.appendEntry`), restore on branch navigation, and a fresh launch uses the config defaults again.
 
 ## Pi control
 

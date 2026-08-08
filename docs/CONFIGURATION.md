@@ -10,6 +10,23 @@ Orb merges configuration in this order, with later values winning:
 
 API keys intentionally stay in environment variables.
 
+## Durable config file vs temporary session toggles
+
+Orb separates the two the same way Pi does:
+
+- **Durable preferences live in this config file** and are read once at startup —
+  provider, model, voice, auto-start, reasoning budget, audio tuning, and the
+  rest of the keys below. They are *declared*, not mutated by running: nothing
+  writes this file back.
+- **Temporary session toggles** (the reasoning *reveal*) are changed at runtime
+  with `/voice settings`, `/voice thinking`, or `Ctrl+Alt+T`. They affect only
+  the current Pi session (persisted via the Pi session entry, restored per
+  branch) and a fresh launch starts from the config defaults again. Toggling
+  never writes to the config file.
+
+You can still pin a *default* for a session toggle here — e.g. `ui` →
+`thinkingDisplay` — and the session can override it while you work.
+
 ## Example
 
 ```json
