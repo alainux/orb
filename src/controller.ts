@@ -21,6 +21,15 @@ export class VoiceController {
     // text is emitted here (partials and replays are suppressed), so hidden
     // chain-of-thought never leaks into the run log.
     void this.log?.info("conversation", { speaker: turn.kind, text: turn.text });
+    // Observability: on every spoken turn, record how many native tools and
+    // Pi dispatches actually ran since the last turn boundary. A voice turn
+    // that *claims* action ("Removing X", "Dispatched") but logged
+    // tools:0 / pi_dispatches:0 here is a false confirmation (model talked
+    // without invoking a tool) — exactly the failure mode reported. This
+    // makes the talk-vs-dispatch gap greppable instead of invisible.
+    void this.log?.info("voice-turn-actions", { tools: this.turnNativeTools, pi_dispatches: this.turnDispatches });
+    this.turnNativeTools = 0;
+    this.turnDispatches = 0;
   });
   private readonly piLog = new PiLogMirror((event) => {
     // Durably record Pi's observable activity (final text / tool execs / status)
@@ -50,6 +59,10 @@ export class VoiceController {
   private dismissScratchpadViewer: (() => void) | undefined;
   private piControl: PiControl | undefined;
   private agentTools: AgentToolbox | undefined;
+  /** Native coding tools invoked since the last turn boundary (for turn-action audit). */
+  private turnNativeTools = 0;
+  /** run_pi_task delegations invoked since the last turn boundary (for turn-action audit). */
+  private turnDispatches = 0;
   private interruptionTimes: number[] = [];
   private inputSuppressedUntil = 0;
   private lastAudioRecoveries = 0;
@@ -383,6 +396,7 @@ export class VoiceController {
   private async toolNative(call: ToolCall): Promise<Record<string, unknown>> {
     const toolbox = this.agentTools;
     if (!toolbox) return { ok: false, error: "Native tools are unavailable" };
+    this.turnNativeTools++;
     const out = await toolbox.run(call.name, call.id, call.arguments);
     // Durable audit trail: native coding tools (edit/read/write/bash/grep/...)
     // only used to surface as a transient in-memory feed row, so they were
@@ -448,6 +462,7 @@ export class VoiceController {
     const ctx = this.ctx;
     if (!ctx) throw new Error("Pi context unavailable");
     this.delegated.delegated();
+    this.turnDispatches++;
     const { queued } = await sendPiTask(this.pi, ctx, instruction);
     this.state.status = queued ? "Pi task queued · listening" : "Pi starting · listening";
     await this.log?.info("voice delegated Pi task", { queued, summary, characters: instruction.length });

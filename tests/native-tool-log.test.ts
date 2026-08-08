@@ -137,3 +137,35 @@ test("durable log captures spoken turns (conversation) and Pi activity/tool usag
   assert.match(text, /voice tool read_pi_log/);
   assert.match(text, /voice tool observe_pi/);
 });
+
+test("voice-turn-actions logs tools/dispatched so a confirmed-but-not-invoked turn is visible", async () => {
+  const { c, cwd, logDir } = setup();
+  (c as any).log = await RunLog.create(logDir);
+  (c as any).agentTools = new AgentToolbox(cwd, { nativeTools: true } as any);
+  const sink = (c as any).createProviderSink();
+
+  // A voice turn that *claims/confirms* work but runs no tool must still log
+  // tools:0 / pi_dispatches:0 -> the false-confirmation gap becomes greppable.
+  sink.onInputTranscript("remove the greeting cues from the policy", true);
+  sink.onOutputTranscript("Got it. Removing the greeting cues now.", true);
+
+  // Now an actual native tool runs in the same conversation round.
+  const target = join(cwd, "notes.txt");
+  writeFileSync(target, "x\n");
+  await (c as any).handleToolCall({ id: "cN", name: "edit", arguments: { path: target, edits: [{ oldText: "x", newText: "y" }] } });
+  sink.onOutputTranscript("Updated it.", true);
+
+  await new Promise((r) => setTimeout(r, 80));
+  const text = latestLogText(logDir);
+
+  // Every committed voice turn carries the action telemetry.
+  const lines = text.split("\n").filter((l) => l.includes("voice-turn-actions"));
+  assert.ok(lines.length >= 2, "expected a voice-turn-actions line per voice turn");
+  // Across the whole log, a turn flagged zero (the false-confirmation case)
+  // and a later turn flagged tools:1 (the real-invocation case).
+  assert.match(text, /"tools":0/);
+  assert.match(text, /"pi_dispatches":0/);
+  assert.match(text, /"tools":1/);
+  // The durable line sits alongside the conversation transcript for correlation.
+  assert.match(text, /"speaker":"voice"/);
+});

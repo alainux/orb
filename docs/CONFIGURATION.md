@@ -156,6 +156,7 @@ Each `/voice` session writes a durable log to `ORB_LOG_DIR` (default `~/.cache/o
 
 - `Orb voice starting / stopped` — session lifecycle.
 - `conversation` — each committed spoken turn, `{speaker: "you"|"voice", text}`. Only finalized turns are logged once; partial transcripts and replays are suppressed.
+- `voice-turn-actions` — for every committed Orb speech turn, `{tools, pi_dispatches}` counts how many native tool calls and `run_pi_task` delegations actually ran since the last turn boundary. A voice turn that *claims* an action ("Removing X", "Dispatched") but logs `tools:0` / `pi_dispatches:0` here is a false confirmation — the model talked without invoking any tool. This makes a "confirmed but nothing was invoked" failure greppable and easy to correlate to the matching `conversation` line.
 - `pi-activity` — Pi's observable progress: `{kind system|pi|pi-tool}` (started/finished, final assistant text, `✓/✗ tool`, bash `!` commands, model changes). Reasoning/thinking blocks are never included.
 - `voice native tool` — Orb's own `read/write/edit/bash/grep/find/ls` calls, with the target `file`, sanitized `arguments`, `ok`, and a bounded `preview`.
 - Tool calls: `voice delegated Pi task`, `voice controlled Pi`, `voice switched via tool`, `voice tool read_pi_log / observe_pi / scratchpad`, `microphone mute changed`, `voice switched`, audio/`interruption` recovery.
