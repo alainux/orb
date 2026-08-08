@@ -3,7 +3,7 @@ import { ActivityFeed } from "./activity.js";
 import { GoAudioBridge, type AudioLevels } from "./audio/bridge.js";
 import { PcmInputAdapter } from "./audio/input-adapter.js";
 import { PlayoutMonitor } from "./audio/playout.js";
-import { loadVoiceConfig } from "./config.js";
+import { configuredApiKey, loadVoiceConfig, persistApiKey, readMergedVoiceConfig, resolveProviderName } from "./config.js";
 import { DelegatedWorkTracker, sendPiTask } from "./delegation.js";
 import { RunLog } from "./log.js";
 import { PiControl } from "./pi-control.js";
@@ -79,6 +79,55 @@ export class VoiceController {
 
   constructor(private readonly pi: ExtensionAPI) {}
   get active(): boolean { return this.state.active; }
+
+  /**
+   * Resolve an API key for the effective provider, prompting when it is missing.
+   *
+   * Returns the key to use for the session, or `undefined` when none could be
+   * obtained (in which case startup is aborted gracefully without raising).
+   * Lookup order (highest first): an env var, a key previously persisted to the
+   * user config via `persistApiKey`, then an interactive `ctx.ui.input` prompt
+   * whose entered value is persisted so future sessions reuse it. Interactive
+   * TUI sessions are prompted; non-interactive sessions get an instruction and
+   * return `undefined`. Never crashes the extension on a missing key.
+   */
+  private async ensureApiKey(ctx: ExtensionContext, cwd: string): Promise<string | undefined> {
+    const { merged } = await readMergedVoiceConfig(cwd);
+    const provider = resolveProviderName(this.providerOverride, merged);
+    const envKey = configuredApiKey(provider);
+    if (envKey) return envKey;
+    const rawBlock = merged[provider];
+    const providerBlock = (typeof rawBlock === "object" && rawBlock !== null && !Array.isArray(rawBlock))
+      ? (rawBlock as Record<string, unknown>)
+      : undefined;
+    const persistedKey = typeof providerBlock?.apiKey === "string" ? providerBlock.apiKey.trim() : "";
+    if (persistedKey) return persistedKey;
+
+    const label = provider === "gemini" ? "Gemini" : "OpenAI";
+    const varName = provider === "gemini" ? "GEMINI_API_KEY (or GOOGLE_API_KEY)" : "OPENAI_API_KEY";
+    if (!ctx.hasUI || ctx.mode !== "tui" || !ctx.ui.input) {
+      ctx.ui.notify(`Orb voice needs a ${label} API key. Set ${varName} and run /voice again.`, "warning");
+      return undefined;
+    }
+
+    ctx.ui.notify(`${label} API key required to start Orb voice (Esc to cancel).`, "warning");
+    const entered = await ctx.ui.input(`Orb voice · ${label} API key`, `Paste your ${label} API key`);
+    const key = entered?.trim();
+    if (!key) {
+      ctx.ui.notify(`Orb voice not started — no ${label} API key set. Configure ${varName} and run /voice again.`, "info");
+      return undefined;
+    }
+    let path = "";
+    try {
+      path = await persistApiKey(provider, key, cwd);
+    } catch (error) {
+      ctx.ui.notify(`Could not save the API key (${error instanceof Error ? error.message : String(error)}). Using it for this session only.`, "warning");
+    }
+    ctx.ui.notify(path
+      ? `Saved your ${label} API key to ${path}. It will be reused on future starts.`
+      : `${label} API key set for this session only.`, "info");
+    return key;
+  }
   get viewState(): VoiceViewState { return { ...this.state, activity: this.feed.snapshot(48), scratchpad: { ...this.state.scratchpad } }; }
 
   async start(ctx: ExtensionContext, providerOverride?: VoiceProviderName): Promise<void> {
@@ -87,7 +136,9 @@ export class VoiceController {
     this.ctx = ctx;
     if (providerOverride) this.providerOverride = providerOverride;
     try {
-      this.config = await loadVoiceConfig(this.providerOverride, ctx.cwd);
+      const apiKey = await this.ensureApiKey(ctx, ctx.cwd);
+      if (apiKey === undefined) return; // missing key: prompted/notified, no crash
+      this.config = await loadVoiceConfig(this.providerOverride, ctx.cwd, { apiKey });
       // A preference persisted in the session branch (canonical restore) wins
       // over the configured default for this voice session.
       this.log = await RunLog.create(this.config.logDir);

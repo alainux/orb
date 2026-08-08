@@ -52,7 +52,19 @@ test("Pi controls, audio recovery and scratchpad are configurable",async()=>{
   });
 });
 
-test("missing selected provider key is rejected",async()=>withEnv({GEMINI_API_KEY:undefined,GOOGLE_API_KEY:undefined,ORB_CONFIG:undefined},async()=>{await assert.rejects(()=>loadVoiceConfig("gemini",tmpdir()),/GEMINI_API_KEY/);}));
+test("missing selected provider key is rejected",async()=>{
+  // Isolate the default config base so this never depends on a persisted key
+  // a developer may have in their real ~/.config/orb/config.json.
+  const xdg=await mkdtemp(join(tmpdir(),"orb-xdg-key-"));
+  await withEnv({GEMINI_API_KEY:undefined,GOOGLE_API_KEY:undefined,OPENAI_API_KEY:undefined,ORB_CONFIG:undefined,XDG_CONFIG_HOME:xdg},async()=>{await assert.rejects(()=>loadVoiceConfig("gemini",tmpdir()),/GEMINI_API_KEY/);});
+});
+
+test("a UI-provided API key satisfies loadVoiceConfig without env vars",async()=>withEnv({GEMINI_API_KEY:undefined,GOOGLE_API_KEY:undefined,OPENAI_API_KEY:undefined,ORB_CONFIG:undefined},async()=>{
+  const config=await loadVoiceConfig("gemini",tmpdir(),{apiKey:"ui-collected-key"});
+  assert.equal(config.provider,"gemini");assert.equal(config.apiKey,"ui-collected-key");
+  const openai=await loadVoiceConfig("openai",tmpdir(),{apiKey:"sk-ui-collected"});
+  assert.equal(openai.provider,"openai");assert.equal(openai.apiKey,"sk-ui-collected");
+}));
 
 test("autoStartVoice defaults to true and is exposed by the config loader",async()=>withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_AUTO_START:undefined},async()=>{
   const config=await loadVoiceConfig("gemini",tmpdir());
@@ -159,5 +171,23 @@ test("geminiThinkingBudget defaults to 1024 (minimal real thinking, not none)",a
     await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_GEMINI_THINKING_BUDGET:"-1",XDG_CONFIG_HOME:join(root,"xdg")},async()=>{
       assert.equal((await loadVoiceConfig("gemini",root)).geminiThinkingBudget,-1);
     });
+  });
+});
+
+test("loadVoiceConfig falls back to a persisted provider API key",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"orb-persist-"));
+  const configFile=join(root,"config.json");
+  await writeFile(configFile,JSON.stringify({gemini:{apiKey:"persisted-key"}}),"utf8");
+  await withEnv({GEMINI_API_KEY:undefined,GOOGLE_API_KEY:undefined,OPENAI_API_KEY:undefined,ORB_CONFIG:configFile},async()=>{
+    assert.equal((await loadVoiceConfig("gemini",root)).apiKey,"persisted-key");
+  });
+});
+
+test("an env key wins over a persisted provider key",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"orb-persist-env-"));
+  const configFile=join(root,"config.json");
+  await writeFile(configFile,JSON.stringify({gemini:{apiKey:"persisted-key"}}),"utf8");
+  await withEnv({GEMINI_API_KEY:"env-key",ORB_CONFIG:configFile},async()=>{
+    assert.equal((await loadVoiceConfig("gemini",root)).apiKey,"env-key");
   });
 });

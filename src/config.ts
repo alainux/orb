@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { composeSystemPrompt } from "./policy.js";
@@ -93,21 +93,96 @@ export async function resolveAutoStartVoice(cwd = process.cwd()): Promise<boolea
   return boolValue(merged.autoStartVoice, !isHerdrSubAgent(), "autoStartVoice");
 }
 
-export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd = process.cwd()): Promise<VoiceConfig> {
+export interface MergedVoiceConfig {
+  /** Fully deep-merged config data. */
+  merged: JsonObject;
+  /** The config files that were read, in precedence order. */
+  configFiles: string[];
+}
+
+/** Read and deep-merge the Orb config files for a working directory. */
+export async function readMergedVoiceConfig(cwd = process.cwd()): Promise<MergedVoiceConfig> {
   let merged: JsonObject = {};
-  const loadedFiles: string[] = [];
+  const configFiles: string[] = [];
   const explicit = envFirst("ORB_CONFIG", "PI_VOICE_CONFIG");
   const candidates = [...defaultConfigPaths(cwd), ...(explicit ? [expandPath(explicit, cwd)] : [])];
   for (const path of candidates) {
     const parsed = await readJsonIfPresent(path);
     if (!parsed) continue;
     merged = deepMerge(merged, parsed);
-    loadedFiles.push(path);
+    configFiles.push(path);
   }
+  return { merged, configFiles };
+}
 
-  const providerRaw = (providerOverride ?? envFirst("ORB_PROVIDER", "PI_VOICE_PROVIDER") ?? merged.provider ?? "gemini").toString().toLowerCase();
-  if (providerRaw !== "gemini" && providerRaw !== "openai") throw new Error(`provider must be "gemini" or "openai"; received ${JSON.stringify(providerRaw)}`);
-  const provider = providerRaw as VoiceProviderName;
+/** Resolve the effective provider name (explicit > env > config > "gemini"). */
+export function resolveProviderName(providerOverride: VoiceProviderName | undefined, merged: JsonObject): VoiceProviderName {
+  const raw = (providerOverride ?? envFirst("ORB_PROVIDER", "PI_VOICE_PROVIDER") ?? merged.provider ?? "gemini").toString().toLowerCase();
+  if (raw !== "gemini" && raw !== "openai") throw new Error(`provider must be "gemini" or "openai"; received ${JSON.stringify(raw)}`);
+  return raw as VoiceProviderName;
+}
+
+/** The provider's API key from the environment (empty string when unset). */
+export function configuredApiKey(provider: VoiceProviderName): string {
+  return provider === "gemini"
+    ? (envFirst("GEMINI_API_KEY", "GOOGLE_API_KEY") ?? "")
+    : (envFirst("OPENAI_API_KEY") ?? "");
+}
+
+/**
+ * The config file a UI-collected API key is persisted to: an explicit
+ * `ORB_CONFIG`/`PI_VOICE_CONFIG` when set, otherwise the user-level default
+ * (`~/.config/orb/config.json`, or APPDATA on Windows). Keys stay out of the
+ * project-scoped `.<localProj>/.orb/config.json` so a secret is never checked
+ * in or shared across machines.
+ */
+export function apiKeyConfigPath(cwd = process.cwd()): string {
+  const explicit = envFirst("ORB_CONFIG", "PI_VOICE_CONFIG");
+  return explicit ? expandPath(explicit, cwd) : defaultConfigPaths(cwd)[0] as string;
+}
+
+/**
+ * Persist `provider`'s API key to the user config file so a UI-collected key
+ * survives restarts. Merges into any existing config (stored under the
+ * provider block) and writes atomically (temp file + rename, like the
+ * scratchpad and Go-helper writers). Returns the written path. The persisted
+ * key is a startup fallback only — an env var, or a key passed explicitly to
+ * `loadVoiceConfig`, always wins.
+ */
+export async function persistApiKey(provider: VoiceProviderName, apiKey: string, cwd = process.cwd()): Promise<string> {
+  const target = apiKeyConfigPath(cwd);
+  let existing: JsonObject = {};
+  try {
+    const parsed = JSON.parse(await readFile(target, "utf8"));
+    if (isObject(parsed)) existing = parsed;
+  } catch {
+    // Missing or unreadable config: start from an empty object.
+  }
+  const providerBlock = isObject(existing[provider]) ? existing[provider] : {};
+  const next: JsonObject = { ...existing, [provider]: { ...providerBlock, apiKey } };
+  await mkdir(dirname(target), { recursive: true });
+  const temp = `${target}.orb-${process.pid}-${Date.now()}.tmp`;
+  try {
+    await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    await rename(temp, target);
+  } finally {
+    await rm(temp, { force: true }).catch(() => {});
+  }
+  return target;
+}
+
+export interface LoadVoiceConfigOptions {
+  /** An API key already collected from the user (e.g. via a UI prompt). */
+  apiKey?: string;
+}
+
+export async function loadVoiceConfig(
+  providerOverride?: VoiceProviderName,
+  cwd = process.cwd(),
+  options: LoadVoiceConfigOptions = {},
+): Promise<VoiceConfig> {
+  const { merged, configFiles: loadedFiles } = await readMergedVoiceConfig(cwd);
+  const provider = resolveProviderName(providerOverride, merged);
   const providerConfig = isObject(merged[provider]) ? merged[provider] : {};
   const voiceConfig = isObject(merged.voice) ? merged.voice : {};
   const uiConfig = isObject(merged.ui) ? merged.ui : {};
@@ -117,9 +192,10 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
   const audioConfig = isObject(merged.audio) ? merged.audio : {};
   const scratchpadConfig = isObject(merged.scratchpad) ? merged.scratchpad : {};
 
-  const apiKey = provider === "gemini"
-    ? (envFirst("GEMINI_API_KEY", "GOOGLE_API_KEY") ?? "")
-    : (envFirst("OPENAI_API_KEY") ?? "");
+  // Key precedence: an explicitly collected key > env var > persisted config
+  // (`{ provider: { apiKey } }` written by persistApiKey from the UI prompt).
+  const persistedKey = typeof providerConfig.apiKey === "string" ? providerConfig.apiKey.trim() : "";
+  const apiKey = options.apiKey?.trim() || configuredApiKey(provider) || persistedKey;
   if (!apiKey) throw new Error(provider === "gemini"
     ? "Set GEMINI_API_KEY (or GOOGLE_API_KEY) before starting /voice."
     : "Set OPENAI_API_KEY before starting /voice.");

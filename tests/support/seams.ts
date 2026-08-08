@@ -64,6 +64,8 @@ export interface ControllerSeam {
   toolScratchpad(call: ToolCall): Promise<Record<string, unknown>>;
   scratchpadCommand(action: unknown, argument: unknown, ctx: unknown): Promise<unknown>;
   setVoice(voice: string | undefined, ctx: unknown): void;
+  /** Resolve/collect the session API key (env, or a UI prompt when missing). */
+  ensureApiKey(ctx: unknown, cwd: string): Promise<string | undefined>;
   createProviderSink(): VoiceProviderSink;
 }
 
