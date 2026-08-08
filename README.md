@@ -14,7 +14,7 @@
   <img alt="realtime voice" src="https://img.shields.io/badge/voice-full--duplex-3b82f6">
 </p>
 
-<p align="center"><img src="site/assets/screenshot.png" alt="Orb for Pi" width="100%"></p>
+<p align="center"><img src="site/assets/orb-state-hero.png" alt="Orb for Pi" width="100%"></p>
 
 Orb adds a full-duplex voice layer to [Pi](https://pi.dev). Talk about the project at a high level; Orb turns your intent into useful engineering work, drives Pi while it works, interrupts or redirects it when needed, and comes back with the outcome rather than narrating every command.
 

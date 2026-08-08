@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#11131a" />
+<meta name="description" content="Orb — conversational realtime voice for the Pi coding harness. Full-duplex Gemini Live or OpenAI Realtime audio, hardware-timed, inside your terminal." />
+<title>Orb — Voice for Pi</title>
+<style>
+:root{
+  --bg:#11131a;
+  --bg-deep:#0c0e13;
+  --surface:#171a22;
+  --surface-2:#1c2029;
+  --line:#2a2f3a;
+  --text:#eeeaf3;
+  --muted:#9da4b3;
+  --quiet:#6f7788;
+  --violet:#b9a3ff;
+  --blue:#8db9ff;
+  --cyan:#8bdce8;
+  --green:#98d8ad;
+  --warm:#e2c99d;
+  --shadow:0 24px 80px rgba(0,0,0,.34);
+  --radius:22px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  background:
+    radial-gradient(1100px 620px at 76% 2%, rgba(123,104,238,.09), transparent 62%),
+    radial-gradient(800px 520px at 15% 18%, rgba(92,168,198,.055), transparent 65%),
+    var(--bg);
+  color:var(--text);
+  font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+button{font:inherit}
+.wrap{width:min(1180px,calc(100% - 40px));margin-inline:auto}
+
+/* nav */
+.nav{height:78px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.045)}
+.brand{display:flex;align-items:center;gap:11px;font-weight:650;letter-spacing:-.02em}
+.brand-orb{width:30px;height:30px;border-radius:50%;position:relative;background:linear-gradient(145deg,#c6a9ff 6%,#7ca8f8 50%,#77d7e5 92%);box-shadow:inset -8px -9px 17px rgba(17,19,26,.36), inset 6px 5px 14px rgba(255,255,255,.22)}
+.brand-orb:after{content:"";position:absolute;inset:4px;border-radius:50%;border:1px solid rgba(255,255,255,.2)}
+.navlinks{display:flex;align-items:center;gap:26px;color:var(--muted);font-size:14px}
+.navlinks a:hover{color:var(--text)}
+.navcta{border:1px solid var(--line);background:rgba(255,255,255,.025);padding:9px 13px;border-radius:10px;color:#dcd9e4}
+.navcta:hover{background:rgba(255,255,255,.05)}
+
+/* hero */
+.hero{padding:96px 0 82px;display:grid;grid-template-columns:.9fr 1.25fr;gap:68px;align-items:center}
+.kicker{display:inline-flex;align-items:center;gap:9px;color:#b7becb;font-size:13px;letter-spacing:.02em;margin-bottom:24px}
+.kicker-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(152,216,173,.08)}
+h1{font-size:clamp(48px,6.2vw,78px);line-height:.98;letter-spacing:-.065em;margin:0 0 26px;max-width:760px;font-weight:690}
+.hero p{font-size:20px;line-height:1.6;color:#aab1bf;margin:0 0 32px;max-width:560px;letter-spacing:-.01em}
+.hero strong{color:#e5e2e9;font-weight:560}
+.actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.btn{padding:12px 17px;border-radius:11px;border:1px solid transparent;font-size:14px;font-weight:610;display:inline-flex;align-items:center;gap:9px}
+.btn-primary{background:#e7e2ef;color:#171920;box-shadow:0 7px 22px rgba(0,0,0,.2)}
+.btn-primary:hover{background:white}
+.btn-secondary{border-color:var(--line);color:#d3d7df;background:rgba(255,255,255,.02)}
+.btn-secondary:hover{background:rgba(255,255,255,.045)}
+.hero-note{margin-top:22px;color:var(--quiet);font-size:13px}
+
+.hero-visual{position:relative;padding:28px 0 22px}
+.hero-halo{position:absolute;width:68%;height:78%;left:16%;top:4%;background:radial-gradient(circle,rgba(148,126,225,.15),transparent 67%);filter:blur(28px);pointer-events:none}
+.hero-shot{display:block;width:100%;height:auto;border-radius:20px;border:1px solid #333a48;box-shadow:var(--shadow);transform:rotate(.35deg)}
+.caption{position:absolute;right:2px;bottom:-15px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#7d8595;background:#14171d;border:1px solid #2a2f39;border-radius:9px;padding:9px 11px}
+
+/* quiet trust strip */
+.strip{border-top:1px solid rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.05);padding:24px 0;color:#777f8d}
+.strip-inner{display:flex;align-items:center;justify-content:center;gap:34px;flex-wrap:wrap;font-size:13px}
+.strip b{font-weight:560;color:#abb2bf}
+.strip .dot{width:3px;height:3px;border-radius:50%;background:#555d6c}
+
+/* sections */
+.section{padding:108px 0}
+.eyebrow{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;font-size:11px;letter-spacing:.12em;color:#7f8796;margin-bottom:15px}
+h2{font-size:clamp(36px,4.7vw,58px);line-height:1.04;letter-spacing:-.05em;margin:0 0 18px;font-weight:650}
+.lede{font-size:18px;color:#a1a8b6;max-width:650px;margin:0}
+
+.editorial-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:22px;margin-top:48px}
+.feature{border:1px solid #292e38;border-radius:18px;background:rgba(255,255,255,.018);padding:28px;min-height:230px;position:relative;overflow:hidden}
+.feature.large{grid-row:span 2;min-height:482px}
+.feature h3{margin:0 0 10px;font-size:19px;letter-spacing:-.025em}
+.feature p{margin:0;color:#8e96a5;max-width:470px;font-size:15px;line-height:1.65}
+.feature-tag{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#6f7889;position:absolute;left:28px;bottom:24px}
+
+/* mini voice visualization */
+.wavebox{position:absolute;left:24px;right:24px;bottom:66px;height:205px;border-top:1px solid #252a33;border-bottom:1px solid #252a33;display:flex;align-items:center;justify-content:center}
+.wave{width:82%;height:88px;display:flex;align-items:center;justify-content:center;gap:6px}
+.wave i{display:block;width:4px;border-radius:4px;background:linear-gradient(to bottom,#a694df,#76b7c8);opacity:.8;animation:pulse 1.5s ease-in-out infinite;animation-delay:calc(var(--i)*-.08s)}
+@keyframes pulse{0%,100%{height:13%}50%{height:calc(18% + var(--h)*1%)}}
+
+/* live orb demo (embedded from the site labs) */
+.live-wrap{display:grid;grid-template-columns:1.15fr .85fr;gap:22px;margin-top:48px;align-items:stretch}
+.live-frame{position:relative;border:1px solid #2a2f3a;border-radius:20px;overflow:hidden;background:#0d0f17;box-shadow:0 30px 80px rgba(0,0,0,.35)}
+.live-frame iframe{display:block;width:100%;height:520px;border:0}
+.live-panel{border:1px solid #292e38;border-radius:18px;background:rgba(255,255,255,.018);padding:28px;display:flex;flex-direction:column}
+.live-panel h3{margin:0;font-size:19px;letter-spacing:-.025em}
+.live-panel p{margin:12px 0 0;color:#8e96a5;font-size:14px;line-height:1.65}
+.state-sel{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.state-chip{border:1px solid #2b303a;background:#171a21;color:#9aa2b4;padding:9px 12px;border-radius:9px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer;transition:.18s ease}
+.state-chip:hover{border-color:#4a5070;color:#e6e1f0}
+.state-chip.active{color:#e9e2ff;border-color:#7b6bd6;background:#251f41;box-shadow:0 0 0 1px rgba(139,122,255,.2)}
+.demo-shot{width:100%;height:auto;margin-top:auto;border:1px solid #2a2f3a;border-radius:14px;display:block}
+.live-hint{margin-top:14px;color:var(--quiet);font-size:12.5px}
+.live-hint code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#a7b6d8;background:rgba(255,255,255,.03);padding:1px 5px;border-radius:5px}
+
+/* feature list */
+.rows{margin-top:52px;border-top:1px solid #292e38}
+.row{display:grid;grid-template-columns:58px 220px 1fr;gap:24px;padding:27px 0;border-bottom:1px solid #292e38;align-items:start}
+.row-num{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:#5f6878;padding-top:2px}
+.row-title{font-size:17px;letter-spacing:-.02em}
+.row-copy{color:#929aa8;max-width:670px;font-size:15px;line-height:1.65}
+
+/* install */
+.install{display:grid;grid-template-columns:.85fr 1.15fr;gap:72px;align-items:center}
+.code-window{border:1px solid #2d323d;background:#15181e;border-radius:17px;overflow:hidden;box-shadow:0 20px 55px rgba(0,0,0,.22)}
+.code-top{height:43px;border-bottom:1px solid #272c35;display:flex;align-items:center;padding:0 16px;color:#697181;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;justify-content:space-between}
+.code{padding:24px 26px 26px;font:14px/1.9 ui-monospace,SFMono-Regular,Menlo,monospace;color:#aeb6c4}
+.code .c1{color:#7d8594}.code .c2{color:#a995df}.code .c3{color:#8cc49c}.code .c4{color:#d0ba91}
+.code p{margin:0 0 14px}.code p:last-child{margin:0}
+.code .cap{font-size:11px;color:#6f7889;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
+
+/* CTA */
+.cta{padding:0 0 90px}
+.cta-box{border:1px solid #2e3340;border-radius:24px;padding:58px;display:flex;justify-content:space-between;gap:36px;align-items:center;background:linear-gradient(135deg,rgba(181,161,255,.05),rgba(114,201,217,.025) 48%,transparent 74%)}
+.cta-box h2{font-size:40px;margin-bottom:10px}
+.cta-box p{margin:0;color:#9199a8;max-width:420px}
+
+footer{padding:30px 0 44px;border-top:1px solid rgba(255,255,255,.05);color:#6e7685;font-size:13px}
+.footer-inner{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.footer-links{display:flex;gap:22px}
+
+@media (max-width:960px){
+  .hero,.live-wrap,.install{grid-template-columns:1fr}.hero{padding-top:70px;gap:46px}.hero-visual{max-width:850px}.editorial-grid{grid-template-columns:1fr}.feature.large{grid-row:auto;min-height:auto}.row{grid-template-columns:46px 180px 1fr}.cta-box{align-items:flex-start;flex-direction:column}
+}
+@media (max-width:680px){
+  .wrap{width:min(100% - 28px,1180px)}.navlinks>a:not(.navcta){display:none}.hero{padding:58px 0 62px}.hero p{font-size:17px}.section{padding:82px 0}.editorial-grid{gap:14px}.feature{padding:22px}.feature-tag{left:22px}.row{grid-template-columns:34px 1fr;gap:12px}.row-copy{grid-column:2}.cta-box{padding:34px 28px}.strip-inner{gap:14px}.strip .dot{display:none}.code{padding:20px 20px}
+}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}.wave i,.state-chip{transition:none}.wave i{animation:none}}
+</style>
+</head>
+<body>
+<header class="wrap nav">
+  <a class="brand" href="#top"><span class="brand-orb"></span><span>Orb</span></a>
+  <nav class="navlinks">
+    <a href="#why">Why Orb</a>
+    <a href="#live">Live demo</a>
+    <a href="#install">Install</a>
+    <a class="navcta" href="https://github.com/alainux/orb" target="_blank" rel="noopener">View on GitHub ↗</a>
+  </nav>
+</header>
+
+<main id="top">
+<section class="wrap hero">
+  <div>
+    <div class="kicker"><span class="kicker-dot"></span> Realtime voice for the Pi coding harness</div>
+    <h1>Talk to Pi.<br>Stay in the flow.</h1>
+    <p>Orb is a full-duplex voice layer for Pi. Say what you want at a high level; it keeps the terminal, Pi's editor, and Pi's own output right where they are.</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="#install">Get Orb <span>→</span></a>
+      <a class="btn btn-secondary" href="#live">See it breathe</a>
+    </div>
+    <div class="hero-note">Full duplex · Gemini Live or OpenAI Realtime · hardware-timed audio.</div>
+  </div>
+
+  <div class="hero-visual">
+    <div class="hero-halo"></div>
+    <img class="hero-shot" src="assets/orb-state-hero.png" alt="Orb — the live voice sphere, listening inside a terminal" />
+    <div class="caption">orb · live · listening</div>
+  </div>
+</section>
+
+<div class="strip">
+  <div class="wrap strip-inner">
+    <span><b>Voice first</b>, not voice only</span><span class="dot"></span>
+    <span>Lives in your <b>terminal</b></span><span class="dot"></span>
+    <span>Visual state without <b>visual noise</b></span><span class="dot"></span>
+    <span>Designed around the <b>Pi workflow</b></span>
+  </div>
+</div>
+
+<section id="why" class="wrap section">
+  <div class="eyebrow">Why Orb</div>
+  <h2>A calmer interface for<br>an active agent.</h2>
+  <p class="lede">The terminal already has enough text. Orb adds just enough presence to tell you when it is listening, thinking, working, or waiting — then gets out of the way.</p>
+
+  <div class="editorial-grid">
+    <article class="feature large">
+      <h3>Speak naturally</h3>
+      <p>Use voice while keeping your eyes on code, logs, or the task Pi is running. Orb renders a living braille-and-dots sphere in a compact panel above Pi — one glance tells you the state, and Pi's own screen stays untouched.</p>
+      <div class="wavebox"><div class="wave" aria-hidden="true">
+        <i style="--i:1;--h:22"></i><i style="--i:2;--h:50"></i><i style="--i:3;--h:70"></i><i style="--i:4;--h:38"></i><i style="--i:5;--h:82"></i><i style="--i:6;--h:58"></i><i style="--i:7;--h:92"></i><i style="--i:8;--h:45"></i><i style="--i:9;--h:66"></i><i style="--i:10;--h:30"></i><i style="--i:11;--h:78"></i><i style="--i:12;--h:42"></i><i style="--i:13;--h:64"></i><i style="--i:14;--h:36"></i><i style="--i:15;--h:54"></i><i style="--i:16;--h:24"></i>
+      </div></div>
+      <div class="feature-tag">voice / live interaction</div>
+    </article>
+
+    <article class="feature">
+      <h3>One glance is enough</h3>
+      <p>The sphere changes character with the system state instead of filling another panel with indicators — a quiet presence when idle, crisp two-tone when talking, a calmer sweep while working, gray when muted.</p>
+      <div class="feature-tag">state at a glance</div>
+    </article>
+
+    <article class="feature">
+      <h3>You keep directing</h3>
+      <p>Orb delegates whole tasks, cancels or redirects a wrong turn, switches model or thinking level, and comes back with outcomes — while your keyboard and Pi's output stay independent.</p>
+      <div class="feature-tag">agent-aware / terminal-first</div>
+    </article>
+  </div>
+</section>
+
+<section id="live" class="wrap section" style="padding-top:30px">
+  <div class="eyebrow">The orb, live</div>
+  <h2>Watch it breathe.</h2>
+  <p class="lede">This is the actual presence sphere from the Orb labs, running in your browser. Pick a state — it animates live.</p>
+
+  <div class="live-wrap">
+    <div class="live-frame">
+      <iframe id="orbFrame" src="presence.html" title="Interactive orb presence demo" loading="lazy"></iframe>
+    </div>
+    <div class="live-panel">
+      <h3>Every state, one sphere</h3>
+      <p>The same seeded-noise sphere drives presence, listening, thinking, and speaking — the only two things that change are what it's doing and how it's colored.</p>
+      <div class="state-sel" role="group" aria-label="Orb state">
+        <button class="state-chip active" data-state="presence">presence</button>
+        <button class="state-chip" data-state="listening">listening</button>
+        <button class="state-chip" data-state="thinking">thinking</button>
+        <button class="state-chip" data-state="speaking">speaking</button>
+      </div>
+      <img class="demo-shot" src="assets/orb-state-listening.png" alt="Orb state: listening" />
+      <p class="live-hint">In the terminal this is rendered with your theme's accents, so it inherits the look of the Pi theme you already use.</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap section" style="padding-top:30px">
+  <div class="eyebrow">The useful parts</div>
+  <h2>Presence without a dashboard.</h2>
+  <div class="rows">
+    <div class="row"><div class="row-num">01</div><div class="row-title">Live voice state</div><div class="row-copy">See when Orb is listening, speaking, or muted with a compact visual language that stays legible even in a dense terminal.</div></div>
+    <div class="row"><div class="row-num">02</div><div class="row-title">Agent activity</div><div class="row-copy">Keep track of whether Pi is idle or working without moving attention to a separate application.</div></div>
+    <div class="row"><div class="row-num">03</div><div class="row-title">Tool-aware feedback</div><div class="row-copy">Orb's tool and control actions sit alongside the voice layer, so speech and Pi's terminal output remain one continuous interaction.</div></div>
+    <div class="row"><div class="row-num">04</div><div class="row-title">Terminal character</div><div class="row-copy">Braille and character-cell rendering gives Orb a visual identity that belongs in the CLI instead of looking pasted on top of it — and it inherits your active Pi theme.</div></div>
+  </div>
+</section>
+
+<section id="install" class="wrap section install">
+  <div>
+    <div class="eyebrow">Install</div>
+    <h2>Use it as a Pi package<br>or launch Pi through Orb.</h2>
+    <p class="lede">Open source and MIT-licensed on GitHub. Install as a Pi extension, then open the voice panel inside Pi — or use the convenience launcher to start Pi with Orb attached.</p>
+  </div>
+  <div class="code-window">
+    <div class="code-top"><span>setup · orb</span><span>github.com/alainux/orb</span></div>
+    <div class="code">
+      <p class="cap">As a Pi package</p>
+      <p><span class="c2">pi install</span> <span class="c1">https://github.com/alainux/orb</span><br><span class="c2">pi</span><br><span class="c2">/voice</span></p>
+      <p class="cap">macOS / Linux launcher</p>
+      <p><span class="c1">curl -fsSL</span> <span class="c4">https://raw.githubusercontent.com/alainux/orb/main/scripts/install.sh</span> <span class="c1">| sh</span><br><span class="c2">orb</span></p>
+      <p class="cap">Windows PowerShell</p>
+      <p><span class="c3">iwr</span> <span class="c4">https://raw.githubusercontent.com/alainux/orb/main/scripts/install.ps1</span> <span class="c1">-UseBasicParsing</span> <span class="c3">| iex</span><br><span class="c2">orb</span></p>
+    </div>
+  </div>
+</section>
+
+<section id="get" class="wrap cta">
+  <div class="cta-box">
+    <div><div class="eyebrow">Orb for Pi</div><h2>Give your terminal a voice.</h2><p class="cta-copy">Full duplex. Hardware-timed audio. The sphere stays quiet until it's useful.</p></div>
+    <div class="actions"><a class="btn btn-primary" href="https://github.com/alainux/orb" target="_blank" rel="noopener">View on GitHub ↗</a><a class="btn btn-secondary" href="#install">Read setup</a></div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap footer-inner">
+    <div class="brand"><span class="brand-orb" style="width:23px;height:23px"></span><span>Orb</span></div>
+    <div class="footer-links"><a href="https://github.com/alainux/orb" target="_blank" rel="noopener">GitHub</a><a href="#install">Docs</a><span>Open source · MIT · Pi.</span></div>
+  </div>
+</footer>
+
+<script>
+// Wire the live-orbs demo state buttons to the embedded lab (same origin).
+const frame = document.getElementById('orbFrame');
+const chips = Array.from(document.querySelectorAll('.state-chip'));
+const demo = document.querySelector('.demo-shot');
+const DEMO_SHOT = {
+  presence: 'assets/orb-state-presence.png',
+  listening: 'assets/orb-state-listening.png',
+  thinking: 'assets/orb-state-thinking.png',
+  speaking: 'assets/orb-state-speaking.png',
+};
+chips.forEach(chip => chip.addEventListener('click', () => {
+  chips.forEach(c => c.classList.remove('active'));
+  chip.classList.add('active');
+  const state = chip.dataset.state;
+  try { frame.contentWindow && frame.contentWindow.setOrbState && frame.contentWindow.setOrbState(state); } catch {}
+  if (DEMO_SHOT[state]) demo.src = DEMO_SHOT[state];
+  demo.alt = `Orb state: ${state}`;
+}));
+</script>
+</body>
+</html>
