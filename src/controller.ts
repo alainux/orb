@@ -11,6 +11,7 @@ import { PiLogMirror } from "./pi-log.js";
 import { createProvider } from "./providers/index.js";
 import { Scratchpad } from "./scratchpad.js";
 import { ScratchpadViewer } from "./scratchpad-view.js";
+import { buildVoiceSettings, type EditableSetting, type VoiceSettingsRow } from "./settings.js";
 import { ThinkingTracker, thinkingLabel, createFileLog } from "./thinking-timing.js";
 import type { ThinkingDisplay, ToolCall, VoiceConfig, VoiceProvider, VoiceProviderName, VoiceViewState } from "./types.js";
 import { auditionLine, nextVoice, resolveVoice, voiceOptions } from "./voices.js";
@@ -211,6 +212,22 @@ export class VoiceController {
     const order: ThinkingDisplay[] = ["minimized", "full", "hidden"];
     const next = order[(order.indexOf(this.currentDisplay()) + 1) % order.length] ?? "minimized";
     this.setThinkingDisplay(next, ctx);
+  }
+
+  /**
+   * Rows for the `/voice settings` panel: one editable session toggle plus the
+   * durable config values (read-only) currently in effect.
+   */
+  getVoiceSettings(): VoiceSettingsRow[] {
+    return buildVoiceSettings({ thinking: this.currentDisplay(), config: this.config });
+  }
+
+  /** Apply an editable row chosen in `/voice settings` (only session toggles). */
+  applyVoiceSetting(id: EditableSetting, value: string, ctx?: ExtensionContext): void {
+    if (id === "thinking") {
+      const mode: ThinkingDisplay = value === "full" ? "full" : value === "hidden" ? "hidden" : "minimized";
+      this.setThinkingDisplay(mode, ctx);
+    }
   }
 
   /** Switch the voice live: /voice voice one|list (no name cycles to the next). */  setVoice(voice: string | undefined, ctx: ExtensionContext): void {

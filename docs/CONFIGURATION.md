@@ -24,6 +24,12 @@ the toggle rewrites the running `thinkingDisplay` value in memory only (never a
 file, never a session entry), so a fresh launch starts from this file's setting
 again.
 
+`/voice settings` opens a proper Pi `SettingsList` panel (`tui.md` Pattern 3)
+with two kinds of rows: the **Reveal reasoning** toggle (editable for the
+current session), and your **durable config as read-only reference** (provider,
+model, voice, thinking budget, auto-start, compression, resumption) so you can
+see — and copy — what the file currently declares.
+
 ## Example
 
 ```json

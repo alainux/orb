@@ -124,6 +124,7 @@ Commands:
 /voice voice Zephyr       # set a specific voice by name
 /voice voice list         # show the available voices
 /voice thinking           # reveal reasoning display (minimized / full / hidden)
+/voice settings           # opens the voice settings panel (reveal toggle + durable config, read-only)
 /voice scratchpad
 /voice scratchpad view
 /voice scratchpad edit
@@ -136,7 +137,7 @@ Commands:
 
 `Ctrl+Alt+V` toggles voice mode; `Ctrl+Alt+M` mutes or unmutes your microphone while voice is active; `Ctrl+Alt+T` cycles the reasoning display.
 
-**Preferences (durable vs session).** Durable preferences — provider, model, voice, auto-start, reasoning budget, context compression, session resumption, braille, audio — live in your config file and are read at startup; nothing rewrites the file. The reasoning *display* is the single config option `ui.thinkingDisplay`, honored as the source for how the model's thought is surfaced (`full`/`minimized`/`hidden`). You can still flip that display inline for the current session via `/voice thinking` or `Ctrl+Alt+T` — it edits that same option in memory only, never to a file and never to a session entry, and a fresh launch starts from your config default again. There is no separate settings panel or hidden store.
+**Preferences (durable vs session).** Durable preferences — provider, model, voice, auto-start, reasoning budget, context compression, session resumption, braille, audio — live in your config file and are read at startup; nothing rewrites the file. The reasoning *display* is the single config option `ui.thinkingDisplay`, honored as the source for how the model's thought is surfaced (`full`/`minimized`/`hidden`). You can flip it inline for the current session via `/voice thinking` or `Ctrl+Alt+T` — that edits the same option in memory only, never a file and never a session entry, and a fresh launch starts from the config default again. `/voice settings` opens a proper Pi settings panel showing the reveal-display toggle (editable for the session) alongside your durable config values (read-only reference).
 
 ## Pi control
 

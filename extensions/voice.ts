@@ -1,7 +1,54 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
+import { Container, SettingsList, type SettingItem } from "@earendil-works/pi-tui";
 import { parseVoiceCommand } from "../src/commands.js";
 import { resolveAutoStartVoice, thinkingDisplayValue } from "../src/config.js";
 import { VoiceController } from "../src/controller.js";
+
+/**
+ * `/voice settings` — a Pi SettingsList panel (tui.md Pattern 3). Rows come from
+ * the controller's settings catalog: the reasoning *reveal* is a live session
+ * toggle; durable config values are shown read-only (edit those in the config
+ * file). Nothing is persisted to a file or a session entry.
+ */
+async function showVoiceSettings(controller: VoiceController, ctx: ExtensionCommandContext): Promise<void> {
+  if (!ctx.hasUI || ctx.mode !== "tui") {
+    ctx.ui.notify("Orb settings requires the interactive TUI.", "warning");
+    return;
+  }
+  await ctx.ui.custom((_tui, theme, _kb, done) => {
+    const rows = controller.getVoiceSettings().map((row) => ({
+      id: row.id,
+      label: `${row.group}  ${row.label}`,
+      description: row.description,
+      currentValue: row.currentValue,
+      ...(row.values ? { values: row.values } : {}),
+    })) as SettingItem[];
+
+    const container = new Container();
+    container.addChild(new (class {
+      render(_width: number): string[] { return [theme.fg("accent", theme.bold("Orb Voice Settings")), ""]; }
+      invalidate(): void {}
+    })());
+    const list = new SettingsList(
+      rows,
+      Math.min(rows.length + 2, 16),
+      getSettingsListTheme(),
+      (id: string, newValue: string) => {
+        controller.applyVoiceSetting(id as "thinking", newValue, ctx);
+        list.updateValue(id, newValue);
+      },
+      () => done?.(undefined),
+      { enableSearch: true },
+    );
+    container.addChild(list);
+    return {
+      render: (width: number): string[] => container.render(width),
+      invalidate: (): void => container.invalidate(),
+      handleInput: (data: string): void => { list.handleInput?.(data); },
+    };
+  });
+}
 
 const INSTANCE_KEY = Symbol.for("alainux.orb.voice-extension");
 
@@ -67,7 +114,8 @@ export async function handleVoiceCommand(controller: VoiceController, rawArgs: s
       if (command.value === undefined) controller.cycleThinkingDisplay(ctx);
       else controller.setThinkingDisplay(thinkingDisplayValue(command.value, "minimized", "thinking display"), ctx);
       break;
+    case "settings": await showVoiceSettings(controller, ctx); break;
     case "scratchpad": await controller.scratchpadCommand(command.scratchpadAction, command.argument, ctx); break;
-    case "help": ctx.ui.notify("/voice [start [gemini|openai]] · /voice status · /voice log · /voice provider <name> · /voice mute [on|off] · /voice thinking [full|minimized|hidden] · /voice voice [name|list] · /voice scratchpad [open|view|edit|load|save|dispatch|close] · /voice stop", "info"); break;
+    case "help": ctx.ui.notify("/voice [start [gemini|openai]] · /voice status · /voice log · /voice provider <name> · /voice mute [on|off] · /voice thinking [full|minimized|hidden] · /voice settings · /voice voice [name|list] · /voice scratchpad [open|view|edit|load|save|dispatch|close] · /voice stop", "info"); break;
   }
 }
