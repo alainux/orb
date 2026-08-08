@@ -31,6 +31,8 @@ export interface AudioConfig {
   choppinessWindowMs: number;
   /** Quiet (ms) with no underruns before output is declared recovered. */
   choppinessRecoverSilenceMs: number;
+  /** Gap (ms) between consecutive audio level heartbeats beyond which a stalled/starved stream is flagged. */
+  stallGapMs: number;
   /** Capture-drop counts (within `inputResyncWindowMs`) that auto-resync the microphone path. */
   inputResyncDrops: number;
   /** Capture-drop sampling window (ms). */

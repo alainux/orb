@@ -207,6 +207,7 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
       inputResyncDrops: Math.round(numberValue(envFirst("ORB_INPUT_RESYNC_DROPS") ?? audioConfig.inputResyncDrops, 3, 1, 20, "audio.inputResyncDrops")),
       inputResyncWindowMs: Math.round(numberValue(envFirst("ORB_INPUT_RESYNC_WINDOW_MS") ?? audioConfig.inputResyncWindowMs, 1500, 400, 10000, "audio.inputResyncWindowMs")),
       inputResyncCooldownMs: Math.round(numberValue(envFirst("ORB_INPUT_RESYNC_COOLDOWN_MS") ?? audioConfig.inputResyncCooldownMs, 4000, 500, 30000, "audio.inputResyncCooldownMs")),
+      stallGapMs: Math.round(numberValue(envFirst("ORB_AUDIO_STALL_GAP_MS") ?? audioConfig.stallGapMs, 150, 50, 2000, "audio.stallGapMs")),
     },
     scratchpad: {
       panelHeight: Math.round(numberValue(envFirst("ORB_SCRATCHPAD_PANEL_HEIGHT") ?? scratchpadConfig.panelHeight, 18, 10, 32, "scratchpad.panelHeight")),

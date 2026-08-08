@@ -83,3 +83,37 @@ test("reset clears state back to healthy", () => {
   assert.equal(m.snapshot().phase, "healthy");
   assert.equal(m.snapshot().episodes, 0);
 });
+
+test("peak queuedMs captures the worst latency inside a choppy episode", () => {
+  // Degraded output that reaches 200ms of buffer latency mid-episode and then
+  // stabilizes to a lower level must be reported at its worst, not its onset.
+  const m = new PlayoutMonitor({}, { windowRecoveries: 3, windowMs: 1500, recoverSilenceMs: 2000, stallGapMs: 1e9, inputResyncDrops: 99, inputResyncWindowMs: 1500, inputResyncCooldownMs: 4000 });
+  const word = (rec: number, bytes: number, t: number) => m.publish(levels({ recoveries: rec, queuedBytes: bytes }), t);
+  // 2400 bytes -> 50ms, 4800 -> 100ms, 9600 -> 200ms of output latency.
+  word(0, 0, 0);
+  word(1, 2400, 50);
+  word(2, 4800, 150);
+  word(3, 9600, 250); // third recovery in-window -> onset, peak = 200ms
+  assert.equal(m.snapshot().phase, "choppy");
+  assert.equal(m.snapshot().peakQueuedMs, 200);
+  word(3, 4800, 400); // latency settling but still elevated
+  assert.equal(m.snapshot().peakQueuedMs, 200, "peak is the episode maximum, not the latest");
+  word(3, 4800, 3000); // quiet past recoverSilenceMs -> recovered
+  assert.equal(m.snapshot().phase, "healthy");
+  assert.equal(m.snapshot().peakQueuedMs, 200);
+});
+
+test("a heartbeat gap past stallGapMs emits a factual audio-stall event", () => {
+  // Simulates the audio stream (or the event loop feeding it) stopping its
+  // ~20Hz level publishes for a visible interval without an explicit underrun.
+  const stalls: Array<[number, number]> = [];
+  const m = new PlayoutMonitor({ onAudioStall: (gap, q) => stalls.push([gap, q]) }, { windowRecoveries: 3, windowMs: 1500, recoverSilenceMs: 1500, stallGapMs: 100, inputResyncDrops: 99, inputResyncWindowMs: 1500, inputResyncCooldownMs: 4000 });
+  m.publish(levels({ queuedBytes: 0 }), 0);
+  m.publish(levels({ queuedBytes: 0 }), 30);
+  m.publish(levels({ queuedBytes: 0 }), 60);
+  assert.equal(stalls.length, 0, "normal ~20Hz cadence (30ms gaps) must not stall");
+  m.publish(levels({ queuedBytes: 2400 }), 300); // 240ms gap > stallGapMs
+  assert.deepEqual(stalls, [[240, 50]]);
+  m.publish(levels({ queuedBytes: 2400 }), 320);
+  assert.equal(stalls.length, 1, "a resumed regular cadence emits no second stall");
+});

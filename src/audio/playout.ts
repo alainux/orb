@@ -13,6 +13,8 @@ export interface PlayoutMonitorOptions {
   windowMs: number;
   /** Quiet interval (ms) with no further underruns after which the episode is clean. */
   recoverSilenceMs: number;
+  /** A gap (ms) between consecutive audio heartbeats that indicates a stalled/starved audio stream (distinct from underruns). */
+  stallGapMs: number;
   /** Capture-drop publishes (within `inputResyncWindowMs`) that warrant auto-resyncing the input path. */
   inputResyncDrops: number;
   /** Capture-drop sampling window (ms). */
@@ -27,6 +29,8 @@ export interface PlayoutMonitorSnapshot {
   /** When the most recent episode began (monotonic ms). */
   lastChoppyStartMs: number;
   queuedMs: number;
+  /** Peak output latency (queuedMs) measured during the most recent (or current) choppy episode. */
+  peakQueuedMs: number;
 }
 
 export interface PlayoutMonitorCallbacks {
@@ -34,6 +38,8 @@ export interface PlayoutMonitorCallbacks {
   onChoppyStart?: (episode: number, queuedMs: number) => void;
   /** Emitted once output has been clean for `recoverSilenceMs`. */
   onRecovered?: (episode: number, lagMs: number) => void;
+  /** Emitted when a heartbeat gap past `stallGapMs` is observed (a stalled/starved audio stream). */
+  onAudioStall?: (gapMs: number, queuedMs: number) => void;
   /** Emitted when the Node should resync capture because frames were dropped while output was choppy. */
   onAutoResyncInput?: (reason: string) => void;
 }
@@ -44,6 +50,7 @@ const defaultOptions: Required<PlayoutMonitorOptions> = {
   windowRecoveries: 3,
   windowMs: 1500,
   recoverSilenceMs: 1500,
+  stallGapMs: 150,
   inputResyncDrops: 3,
   inputResyncWindowMs: 1500,
   inputResyncCooldownMs: 4000,
@@ -77,6 +84,9 @@ export class PlayoutMonitor {
   private choppyStartMs = 0;
   private episodeCount = 0;
   private lastInputResyncMs = -Infinity;
+  private lastPublishAtMs = -Infinity;
+  /** Peak output latency (queuedMs) inside the most recent (or current) choppy episode. */
+  private peakQueuedMs = 0;
 
   constructor(
     private readonly callbacks: PlayoutMonitorCallbacks,
@@ -97,15 +107,26 @@ export class PlayoutMonitor {
     this.choppyStartMs = 0;
     this.episodeCount = 0;
     this.lastInputResyncMs = -Infinity;
+    this.lastPublishAtMs = -Infinity;
+    this.peakQueuedMs = 0;
   }
 
   snapshot(): PlayoutMonitorSnapshot {
-    return { phase: this.phase, episodes: this.episodeCount, lastChoppyStartMs: this.choppyStartMs, queuedMs: this.lastQueuedMs };
+    return { phase: this.phase, episodes: this.episodeCount, lastChoppyStartMs: this.choppyStartMs, queuedMs: this.lastQueuedMs, peakQueuedMs: this.peakQueuedMs };
   }
 
   /** Feed one `Levels` frame from the Go sidecar (≈20 Hz). */
   publish(levels: AudioLevels, nowMs = Date.now()): void {
     this.lastQueuedMs = Math.round((levels.queuedBytes / (24_000 * 2)) * 1000);
+
+    // Heartbeat stall detection: a gap between level publishes past the real
+    // cadence means the audio stream (or the main loop feeding it) starved for
+    // a visible interval even before an explicit underrun is counted.
+    const prevPublish = this.lastPublishAtMs;
+    this.lastPublishAtMs = nowMs;
+    if (prevPublish !== -Infinity && nowMs - prevPublish > this.opts.stallGapMs) {
+      this.callbacks.onAudioStall?.(Math.round(nowMs - prevPublish), this.lastQueuedMs);
+    }
 
     if (levels.recoveries !== this.lastRecoveries) {
       const delta = levels.recoveries - this.lastRecoveries;
@@ -136,6 +157,10 @@ export class PlayoutMonitor {
       return;
     }
 
+    // Track the peak latency reached inside the episode so the post-mortem log
+    // records the worst buffer build-up, not just the value at onset.
+    if (this.lastQueuedMs > this.peakQueuedMs) this.peakQueuedMs = this.lastQueuedMs;
+
     if (nowMs - this.lastInputResyncMs >= this.opts.inputResyncCooldownMs) {
       if (this.countRecent(this.captureDropEvents, nowMs, this.opts.inputResyncWindowMs) >= this.opts.inputResyncDrops) {
         this.lastInputResyncMs = nowMs;
@@ -148,12 +173,15 @@ export class PlayoutMonitor {
     this.phase = "choppy";
     this.episodeCount++;
     this.choppyStartMs = nowMs;
+    this.peakQueuedMs = this.lastQueuedMs;
     this.callbacks.onChoppyStart?.(this.episodeCount, this.lastQueuedMs);
   }
 
   private recover(nowMs: number): void {
     this.phase = "healthy";
     this.lastInputResyncMs = -Infinity;
+    // Keep peakQueuedMs as the just-ended episode's worst latency; a fresh
+    // episode resets it at onset().
     const lagMs = nowMs - this.choppyStartMs;
     this.recoveryEvents.length = 0;
     this.callbacks.onRecovered?.(this.episodeCount, lagMs);

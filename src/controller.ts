@@ -641,13 +641,19 @@ export class VoiceController {
         onChoppyStart: (episode, queuedMs) => {
           this.feed.add("system", `Audio choppy · auto-recovering`);
           this.state.status = "audio choppy · adjusting";
-          void this.log?.info("audio choppiness detected", { episode, queuedMs, recoveries: this.lastAudioRecoveries });
+          void this.log?.info("audio choppiness detected", { episode, queuedMs, peakQueuedMs: this.playoutMonitor?.snapshot().peakQueuedMs, recoveries: this.lastAudioRecoveries, captureDrops: this.state.audioCaptureDrops });
           this.widget?.tick();
         },
         onRecovered: (episode, lagMs) => {
-          void this.log?.info("audio playout recovered", { episode, lagMs, queuedMs: this.state.audioQueuedMs });
+          void this.log?.info("audio playout recovered", { episode, lagMs, peakQueuedMs: this.playoutMonitor?.snapshot().peakQueuedMs, recoveries: this.lastAudioRecoveries, queuedMs: this.state.audioQueuedMs });
           this.state.status = "live · listening";
           this.widget?.tick();
+        },
+        onAudioStall: (gapMs, queuedMs) => {
+          // A gap between level heartbeats means the audio stream (or the main
+          // loop) stopped feeding output for a visible interval — factual
+          // evidence of a stall even when no explicit underrun was counted.
+          void this.log?.info("audio stream stall detected", { gapMs, queuedMs });
         },
         onAutoResyncInput: (reason) => this.autoResyncInput(reason),
       },
@@ -655,6 +661,7 @@ export class VoiceController {
         windowRecoveries: audio?.choppinessWindowRecoveries ?? 3,
         windowMs: audio?.choppinessWindowMs ?? 1500,
         recoverSilenceMs: audio?.choppinessRecoverSilenceMs ?? 1500,
+        stallGapMs: audio?.stallGapMs ?? 150,
         inputResyncDrops: audio?.inputResyncDrops ?? 3,
         inputResyncWindowMs: audio?.inputResyncWindowMs ?? 1500,
         inputResyncCooldownMs: audio?.inputResyncCooldownMs ?? 4000,
