@@ -115,6 +115,28 @@ function report(name: string, timeline: Cursor[]) {
 }
 
 // ---------------------------------------------------------------------------
+// Cost guard: constructing a provider must NEVER open a live socket. All real
+// I/O lives behind connect() (client.live.connect → this.session). Every test in
+// this file drives the private handleMessage/processToolCalls path directly with
+// apiKey "test-key", so the automated suite performs zero network calls. This
+// regression pins that down so a future change can't quietly start billing.
+// ---------------------------------------------------------------------------
+test("provider construction is network-free (no session until connect)", async () => {
+  for (const p of ["gemini", "openai"] as const) {
+    const log = await logger();
+    const provider = p === "gemini"
+      ? new GeminiLiveProvider(config(p), log)
+      : new OpenAIRealtimeProvider(config(p), log);
+    // `session`/`socket` are only assigned inside connect(); a fresh instance
+    // must not hold a live socket or have performed any I/O.
+    assert.equal((provider as any).session, undefined, `${p}: no live session at construct time`);
+    assert.equal((provider as any).socket, undefined, `${p}: no live socket at construct time`);
+    // The only escape hatch to the wire is connect(), which the suite never calls.
+    assert.equal(typeof (provider as any).connect, "function", `${p}: connect() is the sole network entry point`);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // OpenAI Realtime: `response.created` is a clean "generation started" signal.
 // Thinking holds until the first content delta, `response.done`, or a server
 // barge-in interruption.
