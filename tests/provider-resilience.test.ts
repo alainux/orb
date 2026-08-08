@@ -31,7 +31,7 @@ function config(): VoiceConfig {
     geminiCompressionTargetTokens: 9000,
     geminiThinkingBudget: -1,
     geminiThinkingHoldMs: 0,
-    permissions: { cancelPi: true, setModel: true, setThinking: true, setTools: true, shell: true, nativeTools: true, scratchpadRead: true, scratchpadWrite: true, scratchpadOutsideProject: false },
+    permissions: { cancelPi: true, setModel: true, setThinking: true, setTools: true, shell: true, scratchpadRead: true, scratchpadWrite: true, scratchpadOutsideProject: false },
     audio: { bufferMs: 140, maxBufferMs: 380, recoveryStepMs: 40, interruptionStormCount: 3, interruptionStormWindowMs: 1800, interruptionRecoveryMuteMs: 320, choppinessWindowRecoveries: 3, choppinessWindowMs: 1500, choppinessRecoverSilenceMs: 1500, inputResyncDrops: 3, inputResyncWindowMs: 1500, inputResyncCooldownMs: 4000 },
     scratchpad: { panelHeight: 12, maxBytes: 524288 },
   } as VoiceConfig;

@@ -17,7 +17,6 @@ export interface OrbPermissions {
   setThinking: boolean;
   setTools: boolean;
   shell: boolean;
-  nativeTools: boolean;
   scratchpadRead: boolean;
   scratchpadWrite: boolean;
   scratchpadOutsideProject: boolean;

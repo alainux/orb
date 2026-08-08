@@ -1,5 +1,4 @@
 import WebSocket from "ws";
-import { openAICodingTools } from "../agent-tools.js";
 import { openAIOrchestrationTools } from "../orchestration-tools.js";
 import type { RunLog } from "../log.js";
 import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderSink, VoiceSessionContext } from "../types.js";
@@ -71,10 +70,7 @@ export class OpenAIRealtimeProvider extends BaseProvider implements VoiceProvide
           },
           output: { format: { type: "audio/pcm" }, voice: this.config.voice },
         },
-        tools: [
-          ...openAIOrchestrationTools(),
-          ...(this.config.permissions.nativeTools ? openAICodingTools() : []),
-        ],
+        tools: [...openAIOrchestrationTools()],
         tool_choice: "auto",
       },
     });

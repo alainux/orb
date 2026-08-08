@@ -1,5 +1,4 @@
 import { GoogleGenAI } from "@google/genai";
-import { geminiCodingTools } from "../agent-tools.js";
 import { geminiOrchestrationTools } from "../orchestration-tools.js";
 import type { RunLog } from "../log.js";
 import type { ToolCall, VoiceConfig, VoiceProvider, VoiceProviderSink, VoiceSessionContext } from "../types.js";
@@ -110,7 +109,7 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
           this.endFriendly(reason || "The realtime provider closed the session.");
         },
       },
-      config: buildGeminiLiveConfig(this.config, handle, geminiTools(this.config)),
+      config: buildGeminiLiveConfig(this.config, handle, geminiTools()),
     });
     if (epoch !== this.epoch || this.closed) { try { session.close(); } catch {} return; }
     this.session = session;
@@ -378,11 +377,8 @@ export class GeminiLiveProvider extends BaseProvider implements VoiceProvider {
   }
 }
 
-function geminiTools(config: VoiceConfig): Record<string, unknown>[] {
-  return [
-    ...geminiOrchestrationTools(),
-    ...(config?.permissions?.nativeTools ? geminiCodingTools() : []),
-  ];
+function geminiTools(): Record<string, unknown>[] {
+  return [...geminiOrchestrationTools()];
 }
 
 function asError(value: unknown): Error { return value instanceof Error ? value : new Error(String(value)); }

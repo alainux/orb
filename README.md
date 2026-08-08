@@ -144,8 +144,7 @@ Orb can manage the active Pi harness through Pi's extension APIs instead of pret
 - change Pi's thinking level;
 - enable/disable Pi tools;
 - run direct shell commands for `!`-style requests;
-- **code directly** for small/quick tasks using Pi's own coding tools (`read`, `bash`, `write`, `edit`, `grep`, `find`, `ls`), executed in-process against the project — the voice agent can fix a line, inspect a file, or run a single test itself without delegating a whole Pi turn;
-- delegate normal coding tasks to Pi;
+- delegate every real coding task to Pi — the companion never edits the project itself (it holds no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` tools); it translates your requirements and directs the background agent;
 - wait for visible Pi activity or completion and inspect results.
 
 This makes sequences such as **cancel → change model → retry** possible entirely by voice.
@@ -164,7 +163,6 @@ These capabilities are independently configurable. Defaults enable Pi control wh
     "setThinking": true,
     "setTools": true,
     "shell": true,
-    "nativeTools": true,
     "scratchpadRead": true,
     "scratchpadWrite": true,
     "scratchpadOutsideProject": false
@@ -172,7 +170,7 @@ These capabilities are independently configurable. Defaults enable Pi control wh
 }
 ```
 
-Disable anything you do not want the realtime voice model to use. `nativeTools` (or `ORB_ALLOW_NATIVE_TOOLS=false`) disables the voice agent's direct coding tools (`read`/`bash`/`write`/`edit`/`grep`/`find`/`ls`) so it can only orchestrate Pi. The system prompt can be overridden with `ORB_SYSTEM_PROMPT` / `PI_VOICE_SYSTEM_PROMPT` or a `voice.systemPromptFile`.
+Disable anything you do not want the realtime voice model to use. The companion never holds a coding agent's project tools — there is no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls`. It can only talk to the human, delegate to the current agent (`run_pi_task`/`observe_pi`/`read_pi_log`/`control_pi`), switch its own voice (`set_voice`), and manage its ephemeral scratchpad. The system prompt can be overridden with `ORB_SYSTEM_PROMPT` / `PI_VOICE_SYSTEM_PROMPT` or a `voice.systemPromptFile`; the per-tool permission gates (`shell`, `scratchpadRead`, etc.) still apply to the delegation tools.
 
 ## Scratchpad
 

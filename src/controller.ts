@@ -1,6 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ActivityFeed } from "./activity.js";
-import { AgentToolbox } from "./agent-tools.js";
 import { GoAudioBridge, type AudioLevels } from "./audio/bridge.js";
 import { PcmInputAdapter } from "./audio/input-adapter.js";
 import { PlayoutMonitor } from "./audio/playout.js";
@@ -31,14 +30,14 @@ export class VoiceController {
     // text is emitted here (partials and replays are suppressed), so hidden
     // chain-of-thought never leaks into the run log.
     void this.log?.info("conversation", { speaker: turn.kind, text: turn.text });
-    // Observability: on every spoken turn, record how many native tools and
-    // Pi dispatches actually ran since the last turn boundary. A voice turn
+    // Observability: record how many Pi dispatches were made since the last
+    // turn boundary. The companion has NO native tools — its only job is to
+    // talk to the human and delegate to the background agent. A voice turn
     // that *claims* action ("Removing X", "Dispatched") but logged
-    // tools:0 / pi_dispatches:0 here is a false confirmation (model talked
-    // without invoking a tool) — exactly the failure mode reported. This
-    // makes the talk-vs-dispatch gap greppable instead of invisible.
-    void this.log?.info("voice-turn-actions", { tools: this.turnNativeTools, pi_dispatches: this.turnDispatches });
-    this.turnNativeTools = 0;
+    // pi_dispatches:0 here is a false confirmation (talked without actually
+    // doing anything) — exactly the failure mode reported. This makes the
+    // talk-vs-dispatch gap greppable instead of invisible.
+    void this.log?.info("voice-turn-actions", { pi_dispatches: this.turnDispatches });
     this.turnDispatches = 0;
   });
   private readonly piLog = new PiLogMirror((event) => {
@@ -68,10 +67,7 @@ export class VoiceController {
   /** Live dismiss handle for the open viewer so close actions can tear it down programmatically. */
   private dismissScratchpadViewer: (() => void) | undefined;
   private piControl: PiControl | undefined;
-  private agentTools: AgentToolbox | undefined;
-  /** Native coding tools invoked since the last turn boundary (for turn-action audit). */
-  private turnNativeTools = 0;
-  /** run_pi_task delegations invoked since the last turn boundary (for turn-action audit). */
+  /** Number of run_pi_task delegations since the last turn boundary (turn-action audit). */
   private turnDispatches = 0;
   private interruptionTimes: number[] = [];
   private inputSuppressedUntil = 0;
@@ -95,7 +91,6 @@ export class VoiceController {
       this.feed.add("system", `Orb voice · ${this.config.provider}`);
       this.scratchpad = new Scratchpad(ctx.cwd, this.config.scratchpad, this.config.permissions.scratchpadOutsideProject);
       this.piControl = new PiControl(this.pi, this.config.permissions);
-      this.agentTools = new AgentToolbox(ctx.cwd, this.config.permissions);
       this.interruptionTimes = [];
       this.inputSuppressedUntil = 0;
       this.lastAudioRecoveries = 0;
@@ -461,8 +456,6 @@ export class VoiceController {
       else if (call.name === "control_pi") result = await this.toolControlPi(call);
       else if (call.name === "scratchpad") result = await this.toolScratchpad(call);
       else if (call.name === "set_voice") result = await this.toolSetVoice(call);
-      else if (this.agentTools?.enabled() && AgentToolbox.isCodingTool(call.name)) result = await this.toolNative(call);
-      else if (AgentToolbox.isCodingTool(call.name)) result = { ok: false, error: "Permission disabled: permissions.nativeTools" };
       else result = { ok: false, error: `Unknown tool ${call.name}` };
     } catch (error) {
       result = { ok: false, error: asError(error).message };
@@ -470,62 +463,6 @@ export class VoiceController {
     this.feed.add("voice-tool", `${result.ok === false ? "✗" : "✓"} ${toolResultLabel(call.name, result)}`);
     this.widget?.tick();
     return result;
-  }
-
-  private async toolNative(call: ToolCall): Promise<Record<string, unknown>> {
-    const toolbox = this.agentTools;
-    if (!toolbox) return { ok: false, error: "Native tools are unavailable" };
-    this.turnNativeTools++;
-    const out = await toolbox.run(call.name, call.id, call.arguments);
-    // Durable audit trail: the read-only native coding tool (read) only used to
-    // surface as a transient in-memory feed row, so it was invisible in the
-    // chat/run logs. Persist name, sanitized args, outcome, and a bounded output
-    // preview to the session run log so execution is reviewable beyond the
-    // current session.
-    const ok = out.ok;
-    const file = this.filePathFrom(call);
-    await this.log?.info("voice native tool", {
-      tool: call.name,
-      ...(file ? { file } : {}),
-      arguments: this.summarizeForLog(call.arguments),
-      ok,
-      ...(ok ? { preview: this.summarizeForLog(out.output, 320) } : { error: out.error }),
-    });
-    return ok ? { ok: true, tool: call.name, output: out.output } : { ok: false, tool: call.name, error: out.error };
-  }
-
-  /**
-   * The file path a tool accesses, surfaced prominently (top-level & first) in
-   * the durable audit log so the file being read/written is obvious at a glance
-   * instead of buried in the nested sanitized arguments. Handles the read-link
-   * family (read, readline) as well as write/edit/ls-by-path via the common
-   * `path`/`file`/`file_path` keys.
-   */
-  private filePathFrom(call: ToolCall): string | undefined {
-    const args = (call.arguments ?? {}) as Record<string, unknown>;
-    for (const key of ["path", "file", "file_path", "filename"]) {
-      const v = args[key];
-      if (typeof v === "string" && v.trim()) return v.trim();
-    }
-    return undefined;
-  }
-
-  /**
-   * Bound/truncate arbitrary tool data for durable logging only — full file
-   * contents and long outputs are never written verbatim to the run log.
-   */
-  private summarizeForLog(value: unknown, maxLen = 200): unknown {
-    if (typeof value === "string") {
-      if (value.length <= maxLen) return value;
-      return `${value.slice(0, maxLen)}…(${value.length} chars)`;
-    }
-    if (Array.isArray(value)) return value.map((v) => this.summarizeForLog(v, maxLen));
-    if (value && typeof value === "object") {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = this.summarizeForLog(v, maxLen);
-      return out;
-    }
-    return value;
   }
 
   private async toolRunPiTask(call: ToolCall): Promise<Record<string, unknown>> {
@@ -790,7 +727,6 @@ function toolLabel(call: ToolCall): string {
   }
   if (call.name === "scratchpad") return `scratchpad · ${String(call.arguments.action ?? "read")}`;
   if (call.name === "set_voice") return `voice → ${String(call.arguments.voice ?? "next")}`;
-  if (AgentToolbox.isCodingTool(call.name)) return `${call.name} · ${nativeToolLabel(call)}`;
   return call.name;
 }
 function toolResultLabel(name: string, result: Record<string, unknown>): string {
@@ -801,34 +737,7 @@ function toolResultLabel(name: string, result: Record<string, unknown>): string 
   if (name === "control_pi") return "Pi control applied";
   if (name === "scratchpad") return "scratchpad updated";
   if (name === "set_voice") return `voice → ${String(result.voice ?? "")}`;
-  if (AgentToolbox.isCodingTool(name)) return "tool result";
   return name;
-}
-
-/**
- * Short label for a native coding tool shown in the Orb panel. File-backed
- * tools (read/write/edit) render a compact trailing file name (basename)
- * rather than a noisy full path; longer paths are trimmed so the row stays
- * readable. Exported so tests can pin the panel presentation.
- */
-export function nativeToolLabel(call: ToolCall): string {
-  if (call.name === "bash") return String(call.arguments.command ?? "").replace(/\s+/g, " ").trim().slice(0, 90) || "shell";
-  if (call.name === "read" || call.name === "write" || call.name === "edit") {
-    return shortFileName(call.arguments.path)
-      || (call.name === "read" ? "read file" : call.name === "write" ? "write file" : "edit file");
-  }
-  if (call.name === "grep") return String(call.arguments.pattern ?? "").slice(0, 60) || "grep";
-  if (call.name === "find") return String(call.arguments.pattern ?? "").slice(0, 60) || "find";
-  if (call.name === "ls") return shortFileName(call.arguments.path) || "list dir";
-  return call.name;
-}
-
-/** Collapse a path to its trailing file name, trimmed for a small panel row. */
-function shortFileName(value: unknown): string {
-  const p = String(value ?? "").trim();
-  if (!p) return "";
-  const base = p.split(/[/\\]/).filter(Boolean).pop() ?? p;
-  return base.length > 50 ? `${base.slice(0, 50)}…` : base;
 }
 function bounded(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = Number(value);

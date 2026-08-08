@@ -33,12 +33,15 @@ test("an override replaces the default wholesale (two-layer model)", () => {
   assert.equal(composeSystemPrompt(), DEFAULT_VOICE_SYSTEM_PROMPT);
 });
 
-test("voice policy is a warm native coder that delegates big work and stays precise", () => {
-  // Role: interpreter + working agent, not just a control layer.
+test("voice policy is a pure interpreter/director that delegates and stays precise", () => {
+  // Role: talk to the human, translate requirements, direct the agent —
+  // never a worker. The scratchpad is its only special tool.
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /good-humored voice companion/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /owns the whole interface/);
-  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /same seven filesystem\/code tools/);
-  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /NATIVE CODING TOOLS/);
+  // The companion holds NO project tools anymore; it only talks to the human,
+  // translates requirements, and directs the agent.
+  assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /seven filesystem\/code tools/);
+  assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /NATIVE CODING TOOLS/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /DISPATCH THE AGENT BY DEFAULT/);
   // Delegation by tool name, but the agent is never called "Pi".
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /run_pi_task\(instruction, summary\?\)/);

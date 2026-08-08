@@ -1,10 +1,13 @@
-import { convertToGemini } from "./agent-tools.js";
-
 /**
  * The voice agent's orchestration tools: control-plane hooks into the Pi
  * harness (delegate/observe/control/read), plus Orb's own scratchpad and
- * voice switching. These mirror the native coding tools in `agent-tools.ts` —
- * ONE authoritative catalog feeding BOTH providers' registrations, so the
+ * voice switching. These are the voice agent's ONLY tools. There are
+ * deliberately NO native project tools (no bash/write/read/edit/grep/find/ls)
+ * — the voice companion can only talk to the human and direct the background
+ * agent; it can never directly edit the project tree. Its one special,
+ * agent-managed working area is the scratchpad (for larger prompts or the
+ * longer explore-and-plan playbooks). This catalog is the single, authoritative
+ * source feeding BOTH providers' registrations, so the
  * descriptions and parameter schemas can never silently drift apart between
  * the OpenAI Realtime and Gemini Live providers.
  *
@@ -130,4 +133,43 @@ export function geminiOrchestrationTools(): Array<Record<string, unknown>> {
     description: tool.description,
     parameters: convertToGemini(tool.parameters),
   }));
+}
+
+/**
+ * Convert a canonical (JSON-schema-style, lower-case) parameter schema into a
+ * Gemini function-declaration schema, shared by every orchestration tool so
+ * both providers get the same single source of truth. Preserves `description`,
+ * `enum`, nested `properties`/`items`, and `required`;
+ * `additionalProperties`/`minimum`/`maximum` are deliberately not carried
+ * through (Gemini declarations don't need them).
+ */
+function convertToGemini(schema: Record<string, unknown>): Record<string, unknown> {
+  const typeMap: Record<string, string> = {
+    string: "STRING",
+    number: "NUMBER",
+    integer: "INTEGER",
+    boolean: "BOOLEAN",
+    object: "OBJECT",
+    array: "ARRAY",
+  };
+  const convert = (node: Record<string, unknown>): Record<string, unknown> => {
+    const out: Record<string, unknown> = { type: typeMap[String(node.type).toLowerCase()] ?? "OBJECT" };
+    if (typeof node.description === "string") out.description = node.description;
+    if (Array.isArray(node.enum)) out.enum = node.enum;
+    const props = node.properties;
+    if (props && typeof props === "object" && !Array.isArray(props)) {
+      const converted: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(props)) {
+        converted[key] = convert(value as Record<string, unknown>);
+      }
+      out.properties = converted;
+    }
+    const items = node.items;
+    if (items && typeof items === "object" && !Array.isArray(items)) {
+      out.items = convert(items as Record<string, unknown>);
+    }
+    if (Array.isArray(node.required)) out.required = node.required;
+    return out;
+  };
+  return convert(schema);
 }

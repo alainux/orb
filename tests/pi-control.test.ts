@@ -3,7 +3,7 @@ import test from "node:test";
 import { PiControl } from "../src/pi-control.js";
 import type { OrbPermissions } from "../src/types.js";
 
-const allowed:OrbPermissions={cancelPi:true,setModel:true,setThinking:true,setTools:true,shell:true,nativeTools:true,scratchpadRead:true,scratchpadWrite:true,scratchpadOutsideProject:false};
+const allowed:OrbPermissions={cancelPi:true,setModel:true,setThinking:true,setTools:true,shell:true,scratchpadRead:true,scratchpadWrite:true,scratchpadOutsideProject:false};
 
 function fixture(){
   let aborted=0; let selected:any; let thinking="medium"; let shell:any;

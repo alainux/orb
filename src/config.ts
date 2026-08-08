@@ -228,7 +228,6 @@ export async function loadVoiceConfig(providerOverride?: VoiceProviderName, cwd 
       setThinking: boolValue(envFirst("ORB_ALLOW_SET_THINKING") ?? permissionConfig.setThinking, true, "permissions.setThinking"),
       setTools: boolValue(envFirst("ORB_ALLOW_SET_TOOLS") ?? permissionConfig.setTools, true, "permissions.setTools"),
       shell: boolValue(envFirst("ORB_ALLOW_SHELL") ?? permissionConfig.shell, true, "permissions.shell"),
-      nativeTools: boolValue(envFirst("ORB_ALLOW_NATIVE_TOOLS") ?? permissionConfig.nativeTools, true, "permissions.nativeTools"),
       scratchpadRead: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_READ") ?? permissionConfig.scratchpadRead, true, "permissions.scratchpadRead"),
       scratchpadWrite: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_WRITE") ?? permissionConfig.scratchpadWrite, true, "permissions.scratchpadWrite"),
       scratchpadOutsideProject: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_OUTSIDE_PROJECT") ?? permissionConfig.scratchpadOutsideProject, false, "permissions.scratchpadOutsideProject"),
