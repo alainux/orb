@@ -123,6 +123,8 @@ Commands:
 /voice voice              # cycle to the next voice live
 /voice voice Zephyr       # set a specific voice by name
 /voice voice list         # show the available voices
+/voice thinking           # reveal reasoning display (minimized / full / hidden)
+/voice settings           # open the settings panel (master). reasoning-display toggle
 /voice scratchpad
 /voice scratchpad view
 /voice scratchpad edit
@@ -133,7 +135,14 @@ Commands:
 /voice stop
 ```
 
-`Ctrl+Alt+V` toggles voice mode; `Ctrl+Alt+M` mutes or unmutes your microphone while voice is active.
+`Ctrl+Alt+V` toggles voice mode; `Ctrl+Alt+M` mutes or unmutes your microphone while voice is active; `Ctrl+Alt+T` cycles the reasoning display.
+
+**Live preferences are session-scoped, not config-file writes.** The
+reasoning-display mode is a live preference Orb persists through the Pi session
+(`pi.appendEntry`) and restores on branch navigation — the canonical extension
+pattern — rather than writing back into your `.orb/config.json`. That file
+stays a read-only input of declared defaults; your last toggle wins for the
+session until you change it.
 
 ## Pi control
 

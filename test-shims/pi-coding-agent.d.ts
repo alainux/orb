@@ -1,5 +1,5 @@
 declare module "@earendil-works/pi-coding-agent" {
-  import type { Component, TUI, Theme, OverlayOptions, OverlayHandle } from "@earendil-works/pi-tui";
+  import type { Component, TUI, Theme, OverlayOptions, OverlayHandle, SettingsListTheme } from "@earendil-works/pi-tui";
 
   export interface ExtensionUI {
     confirm(title: string, message: string): Promise<boolean>;
@@ -52,6 +52,8 @@ declare module "@earendil-works/pi-coding-agent" {
     promptSnippet?: string;
     parameters?: Record<string, unknown>;
   }
+  /** Theme factory for the canonical /settings-style toggle list (SettingsList). */
+  export function getSettingsListTheme(): SettingsListTheme;
   /** Build pi's native coding tools (read/bash/write/edit/grep/find/ls) for direct execution. */
   export function createReadTool(cwd: string, options?: Record<string, unknown>): NativeVoiceTool;
   export function createBashTool(cwd: string, options?: Record<string, unknown>): NativeVoiceTool;
@@ -75,6 +77,7 @@ declare module "@earendil-works/pi-coding-agent" {
     registerShortcut(shortcut: string, options: { description?: string; handler(ctx: ExtensionCommandContext): Promise<void> | void }): void;
     on(event: string, handler: (event: any, ctx: ExtensionContext) => Promise<any> | any): void;
     sendUserMessage(content: string, options?: { deliverAs?: "steer" | "followUp" }): void | Promise<void>;
+    appendEntry<T = unknown>(customType: string, data: T): void;
     sendMessage?(message: any, options?: any): void | Promise<void>;
     exec(command: string, args: string[], options?: { signal?: AbortSignal; timeout?: number; cwd?: string }): Promise<ExecResult>;
     setModel(model: ModelLike): Promise<boolean>;

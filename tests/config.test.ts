@@ -3,7 +3,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { isHerdrSubAgent, loadVoiceConfig, persistThinkingDisplay, resolveAutoStartVoice } from "../src/config.js";
+import { isHerdrSubAgent, loadVoiceConfig, resolveAutoStartVoice } from "../src/config.js";
 
 async function withEnv(values:Record<string,string|undefined>,run:()=>Promise<void>):Promise<void>{
   const prev:Record<string,string|undefined>={};
@@ -133,38 +133,18 @@ test("thinkingDisplay defaults to minimized and honors ui.thinkingDisplay + env 
   });
 });
 
-test("thinkingDisplay persists on change and is retained across a restart",async()=>{
-  const root=await mkdtemp(join(tmpdir(),"orb-config-persist-"));
+test("live preference overrides never write the canonical config file (read-only input)", async()=>{
+  const root=await mkdtemp(join(tmpdir(),"orb-config-readonly-"));
   const configFile=join(root,"config.json");
-  // Seed a config with unrelated keys so we can prove a merge, not a clobber.
-  await writeFile(configFile,JSON.stringify({voice:{temperature:0.5},ui:{thinkingDisplay:"minimized"}}),"utf8");
+  // A canonical config authored by the user.
+  await writeFile(configFile,JSON.stringify({ui:{thinkingDisplay:"full"}}),"utf8");
   await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:configFile,ORB_THINKING_DISPLAY:undefined},async()=>{
-    assert.equal((await loadVoiceConfig("gemini",root)).thinkingDisplay,"minimized");
-
-    // User toggles the mode to "full" → written durably, other keys preserved.
-    await persistThinkingDisplay("full",root);
-    let onDisk=JSON.parse(await readFile(configFile,"utf8"));
-    assert.equal(onDisk.ui?.thinkingDisplay,"full");
-    assert.equal(onDisk.voice?.temperature,0.5,"unrelated keys survive the write");
-
-    // A later toggle overwrites the previous value (last writer wins).
-    await persistThinkingDisplay("hidden",root);
-    onDisk=JSON.parse(await readFile(configFile,"utf8"));
-    assert.equal(onDisk.ui?.thinkingDisplay,"hidden");
-
-    // Simulated restart: a fresh load reads the last persisted value.
-    assert.equal((await loadVoiceConfig("gemini",root)).thinkingDisplay,"hidden");
+    assert.equal((await loadVoiceConfig("gemini",root)).thinkingDisplay,"full");
   });
-});
-
-test("persistThinkingDisplay without ORB_CONFIG writes the project .orb/config.json",async()=>{
-  const root=await mkdtemp(join(tmpdir(),"orb-persist-root-"));
-  await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_THINKING_DISPLAY:undefined,XDG_CONFIG_HOME:join(root,"shared")},async()=>{
-    const file=await persistThinkingDisplay("full",root);
-    assert.equal(file,join(root,".orb","config.json"));
-    const onDisk=JSON.parse(await readFile(file,"utf8"));
-    assert.equal(onDisk.ui?.thinkingDisplay,"full");
-  });
+  // Loading must never rewrite the file: runtime prefs are session-entried, so
+  // the canonical config stays exactly as the user wrote it.
+  const onDisk=JSON.parse(await readFile(configFile,"utf8"));
+  assert.deepEqual(onDisk,{ui:{thinkingDisplay:"full"}},"loadVoiceConfig never writes back to the canonical input");
 });
 
 test("geminiThinkingBudget defaults to 1024 (minimal real thinking, not none)",async()=>{

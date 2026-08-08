@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { composeSystemPrompt } from "./policy.js";
@@ -41,40 +41,6 @@ export function defaultConfigPaths(cwd: string): string[] {
     ? process.env.APPDATA
     : (process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config"));
   return [join(userBase, "orb", "config.json"), join(cwd, ".orb", "config.json")];
-}
-
-/**
- * The config file that runtime preference writes are persisted to.
- *
- * An explicit `ORB_CONFIG`/`PI_VOICE_CONFIG` always wins (it is the canonical
- * location the user pointed Orb at). Otherwise we write to the project-level
- * `<cwd>/.orb/config.json`, which is the most locally-scoped file Orb actually
- * reads from `defaultConfigPaths` and the natural place a preference toggle
- * (think: `ui.thinkingDisplay`) belongs.
- */
-export function writeConfigPath(cwd: string = process.cwd()): string {
-  const explicit = envFirst("ORB_CONFIG", "PI_VOICE_CONFIG");
-  if (explicit) return expandPath(explicit, cwd);
-  return join(cwd, ".orb", "config.json");
-}
-
-/**
- * Persist the reasoning-display preference (`ui.thinkingDisplay`) into the
- * user's Orb config file so it survives restarts. The file is read (merging in
- * any existing keys), the value updated, and written back atomically (temp file
- * + rename). Safe to call before any voice session exists.
- */
-export async function persistThinkingDisplay(mode: ThinkingDisplay, cwd = process.cwd()): Promise<string> {
-  const path = writeConfigPath(cwd);
-  let merged: JsonObject = {};
-  const existing = await readJsonIfPresent(path).catch(() => undefined);
-  if (existing) merged = existing;
-  merged = deepMerge(merged, { ui: { thinkingDisplay: mode } });
-  await mkdir(dirname(path), { recursive: true });
-  const temp = `${path}.tmp-${process.pid}`;
-  await writeFile(temp, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
-  await rename(temp, path);
-  return path;
 }
 
 /**

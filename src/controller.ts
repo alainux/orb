@@ -3,7 +3,7 @@ import { ActivityFeed } from "./activity.js";
 import { GoAudioBridge, type AudioLevels } from "./audio/bridge.js";
 import { PcmInputAdapter } from "./audio/input-adapter.js";
 import { PlayoutMonitor } from "./audio/playout.js";
-import { loadVoiceConfig, persistThinkingDisplay } from "./config.js";
+import { loadVoiceConfig } from "./config.js";
 import { DelegatedWorkTracker, sendPiTask } from "./delegation.js";
 import { RunLog } from "./log.js";
 import { PiControl } from "./pi-control.js";
@@ -15,6 +15,19 @@ import { ThinkingTracker, thinkingLabel, createFileLog } from "./thinking-timing
 import type { ThinkingDisplay, ToolCall, VoiceConfig, VoiceProvider, VoiceProviderName, VoiceViewState } from "./types.js";
 import { auditionLine, nextVoice, resolveVoice, voiceOptions } from "./voices.js";
 import { VoiceWidget } from "./widget.js";
+
+/**
+ * Custom session entry type Orb uses to persist live, user-togglable
+ * preferences through the Pi session lifecycle. Follows the canonical extension
+ * pattern from the docs (session persistence via `pi.appendEntry` + `getBranch`
+ * restore in `session_start`, like `examples/extensions/tools.ts`) instead of
+ * writing a preference back into the user's `.orb/config.json`.
+ *
+ * Payload: `{ thinkingDisplay: "full" | "minimized" | "hidden" }`.
+ */
+export const VOICE_PREFS_ENTRY = "orb-voice-prefs";
+
+export interface VoicePrefsPayload { thinkingDisplay: ThinkingDisplay; }
 
 export class VoiceController {
   /** Provider-agnostic "Thinking…" duration tracer (shared by every voice model). */
@@ -73,6 +86,8 @@ export class VoiceController {
   private inputSuppressedUntil = 0;
   private lastAudioRecoveries = 0;
   private playoutMonitor: PlayoutMonitor | undefined;
+  /** In-session reasoning-display preference (overrides the config default). */
+  private displayPref: ThinkingDisplay | undefined;
 
   constructor(private readonly pi: ExtensionAPI) {}
   get active(): boolean { return this.state.active; }
@@ -85,6 +100,9 @@ export class VoiceController {
     if (providerOverride) this.providerOverride = providerOverride;
     try {
       this.config = await loadVoiceConfig(this.providerOverride, ctx.cwd);
+      // A preference persisted in the session branch (canonical restore) wins
+      // over the configured default for this voice session.
+      this.restoreThinkingPref(ctx);
       this.log = await RunLog.create(this.config.logDir);
       this.thinkingTracker = new ThinkingTracker(thinkingLabel(this.config.provider, this.config.model), { log: createFileLog(this.config.logDir) });
       this.feed.clear();
@@ -180,35 +198,78 @@ export class VoiceController {
   /**
    * Set the reasoning-display preference for the feed (full / minimized /
    * hidden). Applied immediately: the widget re-derives every thinking row from
-   * the stored full text, so existing rows hide/expand without a reload.
+   * the stored full text, so existing rows hide/expand without a reload. The
+   * choice is persisted through the Pi session (canonical extension pattern),
+   * not written back into the user's config file.
    */
   setThinkingDisplay(mode: ThinkingDisplay, ctx?: ExtensionContext): void {
-    this.state.thinkingDisplay = mode;
-    if (this.config) this.config.thinkingDisplay = mode;
-    const label = mode === "full" ? "full thoughts" : mode === "hidden" ? "thinking hidden" : "thinking minimized";
-    this.feed.add("system", `Thinking display: ${label}`);
-    ctx?.ui.notify?.(`Orb thinking display: ${label}.`, "info");
-    void this.log?.info("thinking-display", { mode });
-    this.widget?.tick();
-    // Durably mirror the preference in the user's .orb/config.json so it
-    // survives a restart. Non-blocking; a failure is logged only.
-    const cwd = ctx?.cwd ?? this.ctx?.cwd ?? process.cwd();
-    void persistThinkingDisplay(mode, cwd).then(
-      (file) => { void this.log?.info("thinking-display-persisted", { mode, file }); },
-      (error: unknown) => { this.log?.error("thinking-display-persist-failed", error); },
-    );
+    this.applyThinkingDisplay(mode, ctx, { notify: true, persist: true });
   }
 
   /** Cycle the reasoning-display preference: minimized → full → hidden → … */
   cycleThinkingDisplay(ctx: ExtensionContext): void {
     const order: ThinkingDisplay[] = ["minimized", "full", "hidden"];
-    const next = order[(order.indexOf(this.state.thinkingDisplay) + 1) % order.length] ?? "minimized";
+    const next = order[(order.indexOf(this.currentDisplay()) + 1) % order.length] ?? "minimized";
     this.setThinkingDisplay(next, ctx);
   }
 
+  /** Apply a reasoning-display preference, optionally surfacing/saved. */
+  private applyThinkingDisplay(mode: ThinkingDisplay, ctx: ExtensionContext | undefined, opts: { notify: boolean; persist: boolean }): void {
+    this.displayPref = mode;
+    this.state.thinkingDisplay = mode;
+    if (this.config) this.config.thinkingDisplay = mode;
+    if (opts.notify) {
+      const label = mode === "full" ? "full thoughts" : mode === "hidden" ? "thinking hidden" : "thinking minimized";
+      this.feed.add("system", `Thinking display: ${label}`);
+      ctx?.ui.notify?.(`Orb thinking display: ${label}.`, "info");
+      void this.log?.info("thinking-display", { mode });
+    }
+    this.widget?.tick();
+    if (opts.persist) this.persistDisplayPref();
+  }
+
   /** The current reasoning-display preference (falls back to configured). */
-  private displayMode(): ThinkingDisplay {
+  private currentDisplay(): ThinkingDisplay {
     return this.state.thinkingDisplay || this.config?.thinkingDisplay || "minimized";
+  }
+
+  /** Read-only accessor so settings UI can reflect the live preference. */
+  get thinkingDisplayPref(): ThinkingDisplay {
+    return this.currentDisplay();
+  }
+
+  /**
+   * Restore a reasoning-display preference saved in the current session branch
+   * (canonical `appendEntry` restore; see docs examples/tools.ts). Applied
+   * silently — no feed notice, notification, or re-persist — then re-derived by
+   * the widget like any other display change.
+   */
+  restoreThinkingPref(ctx: ExtensionContext | undefined): void {
+    const saved: ThinkingDisplay | undefined = this.findSavedPref(ctx);
+    if (saved) this.applyThinkingDisplay(saved, ctx, { notify: false, persist: false });
+  }
+
+  /** Scans the current branch for the newest Orb preference entry. */
+  private findSavedPref(ctx: ExtensionContext | undefined): ThinkingDisplay | undefined {
+    try {
+      const entries = ctx?.sessionManager?.getBranch?.() ?? [];
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i];
+        const e = entry as { type?: string; customType?: string; data?: VoicePrefsPayload } | null;
+        if (e && e.type === "custom" && e.customType === VOICE_PREFS_ENTRY && e.data?.thinkingDisplay) return e.data.thinkingDisplay;
+      }
+    } catch { /* a fake/unavailable session manager is fine */ }
+    return undefined;
+  }
+
+  /** Durable-write the current display preference into the Pi session. */
+  private persistDisplayPref(): void {
+    try {
+      const piApi = this.pi as ExtensionAPI & { appendEntry?: (customType: string, data: VoicePrefsPayload) => void };
+      piApi.appendEntry?.(VOICE_PREFS_ENTRY, { thinkingDisplay: this.currentDisplay() });
+    } catch (error: unknown) {
+      this.log?.error("thinking-display-persist-failed", error);
+    }
   }
 
   /** Switch the voice live: /voice voice one|list (no name cycles to the next). */  setVoice(voice: string | undefined, ctx: ExtensionContext): void {
@@ -391,7 +452,7 @@ export class VoiceController {
           // spoken sentence into several rows (the reported “Morning! Clean” …
           // “Thought for…” … “Morning! Clean, what's next?” torn-turn). While a
           // turn is already being spoken the indicator stays ephemeral (title).
-          this.thinkingRowOpen = this.displayMode() !== "hidden" && !this.feed.isLive();
+          this.thinkingRowOpen = this.currentDisplay() !== "hidden" && !this.feed.isLive();
           if (this.thinkingRowOpen) this.feed.addNonBoundary("thinking", "Thinking…");
         } else {
           const held = this.thinkingStartedAt ? Date.now() - this.thinkingStartedAt : 0;

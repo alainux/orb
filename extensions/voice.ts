@@ -1,9 +1,63 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
+import { Container, SettingsList, type SettingItem } from "@earendil-works/pi-tui";
 import { parseVoiceCommand } from "../src/commands.js";
 import { resolveAutoStartVoice, thinkingDisplayValue } from "../src/config.js";
 import { VoiceController } from "../src/controller.js";
+import type { ThinkingDisplay } from "../src/types.js";
 
 const INSTANCE_KEY = Symbol.for("alainux.orb.voice-extension");
+
+/**
+ * Canonical settings panel (Pi docs tui.md "Pattern 3 - Settings/Toggles" and
+ * examples/extensions/tools.ts). Renders the reasoning-display preference as a
+ * SettingsList; changes push through the controller, which persists them via
+ * the canonical session entry (appendEntry), not a config file.
+ */
+async function showVoiceSettings(controller: VoiceController, ctx: ExtensionCommandContext): Promise<void> {
+  if (!ctx.hasUI || ctx.mode !== "tui") {
+    ctx.ui.notify("Orb settings requires the interactive TUI.", "warning");
+    return;
+  }
+  const items: SettingItem[] = [
+    {
+      id: "thinkingDisplay",
+      label: "Thinking display",
+      description: "How the model's reasoning is shown in the feed",
+      currentValue: controller.thinkingDisplayPref,
+      values: ["minimized", "full", "hidden"],
+    },
+  ];
+  await ctx.ui.custom((_tui, theme, _kb, done) => {
+    const container = new Container();
+    container.addChild(new (class {
+      render(_width: number) { return [theme.fg("accent", theme.bold("Orb Voice Settings")), ""]; }
+      invalidate() {}
+    })());
+    const list = new SettingsList(
+      items,
+      Math.min(items.length + 2, 15),
+      getSettingsListTheme(),
+      (id, newValue) => {
+        if (id === "thinkingDisplay") {
+          const mode = newValue as ThinkingDisplay;
+          if (mode === "full" || mode === "minimized" || mode === "hidden") {
+            controller.setThinkingDisplay(mode, ctx);
+            list.updateValue("thinkingDisplay", mode);
+          }
+        }
+      },
+      () => done?.(undefined),
+      { enableSearch: true },
+    );
+    container.addChild(list);
+    return {
+      render: (width: number) => container.render(width),
+      invalidate: () => container.invalidate(),
+      handleInput: (data: string) => { list.handleInput?.(data); },
+    };
+  });
+}
 
 export default function orbVoiceExtension(pi: ExtensionAPI): void {
   const globalState = globalThis as unknown as Record<symbol, boolean>;
@@ -51,6 +105,9 @@ export default function orbVoiceExtension(pi: ExtensionAPI): void {
     }
   });
   pi.on("session_shutdown", async (_event, ctx) => { await controller.stop(ctx, { quiet: true }); });
+  // Restore a display preference saved in the current branch on branch
+  // navigation (canonical `appendEntry` restore, as in examples/tools.ts).
+  pi.on("session_tree", async (_event, ctx) => { controller.restoreThinkingPref(ctx); });
 }
 
 export async function handleVoiceCommand(controller: VoiceController, rawArgs: string, ctx: ExtensionCommandContext): Promise<void> {
@@ -68,6 +125,7 @@ export async function handleVoiceCommand(controller: VoiceController, rawArgs: s
       else controller.setThinkingDisplay(thinkingDisplayValue(command.value, "minimized", "thinking display"), ctx);
       break;
     case "scratchpad": await controller.scratchpadCommand(command.scratchpadAction, command.argument, ctx); break;
-    case "help": ctx.ui.notify("/voice [start [gemini|openai]] · /voice status · /voice log · /voice provider <name> · /voice mute [on|off] · /voice thinking [full|minimized|hidden] · /voice voice [name|list] · /voice scratchpad [open|view|edit|load|save|dispatch|close] · /voice stop", "info"); break;
+    case "settings": await showVoiceSettings(controller, ctx); break;
+    case "help": ctx.ui.notify("/voice [start [gemini|openai]] · /voice status · /voice log · /voice provider <name> · /voice mute [on|off] · /voice thinking [full|minimized|hidden] · /voice settings · /voice voice [name|list] · /voice scratchpad [open|view|edit|load|save|dispatch|close] · /voice stop", "info"); break;
   }
 }

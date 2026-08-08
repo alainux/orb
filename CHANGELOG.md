@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reasoning-display preference now persists the canonical Pi way: through the session (`pi.appendEntry`), restoring from the branch on navigation, instead of writing back into `.orb/config.json`. The config file is now strictly read-only input of declared defaults. Added a `/voice settings` panel (Pi `SettingsList`) to toggle the display, alongside the existing `/voice thinking` and `Ctrl+Alt+T`.
+
 - Removed every bare `as any` cast from `src/` and the test suite; typed test seams now live in `tests/support/seams.ts`. Added an ESLint gate (no-explicit-any, no-unused-vars) wired into `npm run check` and the `lint` script, and documented the type-safety standard in `CONTRIBUTING.md`. The only remaining `any` is at genuine wire/SDK boundaries (`gemini.ts`, `pi-log.ts`) with a documented per-file exception.
 
 ## 0.6.0 — Pi control, scratchpad, turn logs and adaptive audio recovery

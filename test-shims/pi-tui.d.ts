@@ -150,4 +150,31 @@ declare module "@earendil-works/pi-tui" {
   export function matchesKey(input: string, key: string): boolean;
   export function truncateToWidth(text: string, width: number, ellipsis?: string): string;
   export function visibleWidth(text: string): number;
+  export interface SettingItem {
+    id: string;
+    label: string;
+    description?: string;
+    currentValue: string;
+    values?: string[];
+  }
+  export interface SettingsListTheme {
+    label: (text: string, selected: boolean) => string;
+    value: (text: string, selected: boolean) => string;
+    description: (text: string) => string;
+    cursor: string;
+    hint: (text: string) => string;
+  }
+  export class Container implements Component {
+    constructor(height?: number);
+    addChild(component: Component): void;
+    render(width: number): string[];
+    invalidate(): void;
+  }
+  export class SettingsList implements Component {
+    constructor(items: SettingItem[], maxVisible: number, theme: SettingsListTheme, onChange: (id: string, newValue: string) => void, onCancel: () => void, options?: { enableSearch?: boolean });
+    updateValue(id: string, newValue: string): void;
+    handleInput?(data: string): void;
+    invalidate(): void;
+    render(width: number): string[];
+  }
 }

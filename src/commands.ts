@@ -4,6 +4,7 @@ export type ScratchpadCommandAction = "open" | "close" | "view" | "edit" | "load
 export type VoiceCommand =
   | { action: "start"; provider?: VoiceProviderName }
   | { action: "stop" | "status" | "log" | "help" }
+  | { action: "settings" }
   | { action: "provider"; provider: VoiceProviderName }
   | { action: "mute"; muted: boolean | undefined }
   | { action: "voice"; voice: string | undefined }
@@ -21,7 +22,9 @@ export function parseVoiceCommand(raw: string): VoiceCommand {
     case "off": return { action: "stop" };
     case "status":
     case "log":
-    case "help": return { action };
+    case "settings":
+    case "prefs":
+    case "help": return { action: action === "prefs" ? "settings" : action };
     case "provider":
       if (!argument) throw new Error("Usage: /voice provider gemini|openai");
       return { action: "provider", provider: parseProvider(argument) };

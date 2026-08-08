@@ -27,9 +27,9 @@ try {
   await mkdir(tui, { recursive: true });
   const toolNames = ["createBashTool", "createBashToolDefinition", "createEditTool", "createEditToolDefinition", "createFindTool", "createFindToolDefinition", "createGrepTool", "createGrepToolDefinition", "createLsTool", "createLsToolDefinition", "createReadTool", "createReadToolDefinition", "createWriteTool", "createWriteToolDefinition"].map((n) => `export const ${n}=()=>({});`).join('\n');
   await writeFile(join(agent, "package.json"), JSON.stringify({ name: "@earendil-works/pi-coding-agent", type: "module", exports: "./index.js" }));
-  await writeFile(join(agent, "index.js"), `${toolNames}\n`);
+  await writeFile(join(agent, "index.js"), `${toolNames}\nexport const getSettingsListTheme=()=>({});\n`);
   await writeFile(join(tui, "package.json"), JSON.stringify({ name: "@earendil-works/pi-tui", type: "module", exports: "./index.js" }));
-  await writeFile(join(tui, "index.js"), 'export const Markdown=()=>null; export const ScrollView=()=>null; export const matchesKey=()=>false; export const truncateToWidth=(t)=>t; export const visibleWidth=(t)=>t?.length??0;\n');
+  await writeFile(join(tui, "index.js"), 'export const Markdown=()=>null; export const ScrollView=()=>null; export const matchesKey=()=>false; export const truncateToWidth=(t)=>t; export const visibleWidth=(t)=>t?.length??0; export const Container=class{addChild(){}render(){return[]}invalidate(){}}; export const SettingsList=class{constructor(){}updateValue(){}handleInput(){}};\n');
 
 
   const extension = (await import(pathToFileURL(join(temp, "dist", "extensions", "voice.js")).href)).default;
