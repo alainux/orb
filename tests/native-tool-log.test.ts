@@ -25,29 +25,20 @@ function latestLogText(logDir: string): string {
   return readFileSync(join(logDir, session!), "utf8");
 }
 
-test("native write tool is durably logged with tool, sanitized args, and ok outcome", async () => {
+test("removed direct-write tools are rejected as unknown (no longer offered)", async () => {
   const { c, logDir } = setup();
   (c as any).log = await RunLog.create(logDir);
-
-  const target = join(join(tmpdir(), "orb-native-log-cwd-blank"), "out.txt");
-  const largeContent = "A".repeat(10_000);
 
   const result = await (c as any).handleToolCall({
     id: "c1",
     name: "write",
-    arguments: { path: target, content: largeContent },
+    arguments: { path: join(tmpdir(), "orb-native-log-cwd-blank", "out.txt"), content: "A".repeat(10_000) },
   });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Unknown tool write/, "write is not offered to the voice model");
 
   const text = latestLogText(logDir);
-  assert.match(text, /voice native tool/);
-  assert.match(text, /"tool":"write"/);
-  assert.match(text, /"file"/);
-  assert.match(text, /out\.txt/);
-  assert.match(text, /"ok":true/);
-  // Sanitization: the full 10k-char content must never be written verbatim.
-  assert.ok(!text.includes(largeContent), "full file content must not be logged");
-  assert.match(text, /\(10000 chars\)/);
+  assert.doesNotMatch(text, /"tool":"write"/, "a removed tool must never be logged as executed");
 });
 
 test("file-reading tools log the accessed path prominently as `file`", async () => {
@@ -150,9 +141,8 @@ test("voice-turn-actions logs tools/dispatched so a confirmed-but-not-invoked tu
   sink.onOutputTranscript("Got it. Removing the greeting cues now.", true);
 
   // Now an actual native tool runs in the same conversation round.
-  const target = join(cwd, "notes.txt");
-  writeFileSync(target, "x\n");
-  await (c as any).handleToolCall({ id: "cN", name: "edit", arguments: { path: target, edits: [{ oldText: "x", newText: "y" }] } });
+  writeFileSync(join(cwd, "hello.txt"), "x\n");
+  await (c as any).handleToolCall({ id: "cN", name: "read", arguments: { path: "README.md" } });
   sink.onOutputTranscript("Updated it.", true);
 
   await new Promise((r) => setTimeout(r, 80));

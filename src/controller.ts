@@ -477,11 +477,11 @@ export class VoiceController {
     if (!toolbox) return { ok: false, error: "Native tools are unavailable" };
     this.turnNativeTools++;
     const out = await toolbox.run(call.name, call.id, call.arguments);
-    // Durable audit trail: native coding tools (edit/read/write/bash/grep/...)
-    // only used to surface as a transient in-memory feed row, so they were
-    // invisible in the chat/run logs. Persist name, sanitized args, outcome,
-    // and a bounded output preview to the session run log so execution is
-    // reviewable beyond the current session.
+    // Durable audit trail: the read-only native coding tool (read) only used to
+    // surface as a transient in-memory feed row, so it was invisible in the
+    // chat/run logs. Persist name, sanitized args, outcome, and a bounded output
+    // preview to the session run log so execution is reviewable beyond the
+    // current session.
     const ok = out.ok;
     const file = this.filePathFrom(call);
     await this.log?.info("voice native tool", {

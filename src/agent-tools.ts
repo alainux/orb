@@ -1,58 +1,31 @@
 import {
-  createBashTool,
-  createBashToolDefinition,
-  createEditTool,
-  createEditToolDefinition,
-  createFindTool,
-  createFindToolDefinition,
-  createGrepTool,
-  createGrepToolDefinition,
-  createLsTool,
-  createLsToolDefinition,
   createReadTool,
   createReadToolDefinition,
-  createWriteTool,
-  createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { OrbPermissions } from "./types.js";
 
 /**
- * The voice agent's native coding tools: the same seven tools the Pi coding
- * agent itself exposes (`read`, `bash`, `write`, `edit`, `grep`, `find`,
- * `ls`), built from Pi's own SDK tool factories and executed in-process
- * against the project cwd. This is what lets the realtime voice model "code
- * like an agent" for smaller/quick tasks instead of always delegating a whole
- * Pi turn.
+ * The voice agent's thin native-tool surface: only the read-only `read` tool
+ * (built from Pi's own SDK `createReadTool` factory and executed in-process
+ * against the project cwd), so the realtime voice model can inspect a file
+ * directly. Everything that would let it act on the project — `bash`, `write`,
+ * `edit`, `grep`, `find`, `ls` — has been intentionally removed so the voice
+ * companion cannot run shell commands or mutate the tree; it delegates all
+ * substantial engineering to the background agent via `run_pi_task`/`observe_pi`.
  *
- * Each tool has exactly ONE authoritative source: Pi's own
- * `create<Name>ToolDefinition().parameters`. We never hand-author the names or
- * JSON parameter schemas here — we only attach a short, voice-tuned
- * `description` for the model card and point both providers' registrations and
- * the in-process executor at the same per-tool entry.
+ * The schema name comes exclusively from Pi's `createReadToolDefinition`; we
+ * never hand-author the name or JSON parameter schema, only attach a short,
+ * voice-tuned `description`.
  *
- * NOTE: these execute at filesystem level with the extension's full permissions
- * and DO NOT go through Pi's interactive confirmation flow. Callers should
- * route them through the same `permissions` gate and surface the feed so the
- * human always sees what the voice agent is doing in the project.
- *
- * TODO(native-tools): add a configurable guard so dangerous ops (rm -rf,
- * force-push, destructive git rewrites, writes outside the project, etc.)
- * request spoken/human confirmation before the voice agent executes them,
- * mirroring Pi's own confirmation flow. Also consider a Path-B-style private
- * AgentSession so the voice can run multi-turn agentic sub-tasks, not just
- * single tool calls.
+ * NOTE: `read` executes at filesystem level with the extension's full
+ * permissions and does NOT go through Pi's interactive confirmation flow, but it
+ * is non-mutating (reads only). Callers route it through the same
+ * `permissions.nativeTools` gate and surface the feed so the human always sees
+ * what the voice agent is inspecting.
  */
-export type CodingToolName = "bash" | "read" | "write" | "edit" | "grep" | "find" | "ls";
+export type CodingToolName = "read";
 
-export const CODING_TOOL_NAMES: readonly CodingToolName[] = [
-  "bash",
-  "read",
-  "write",
-  "edit",
-  "grep",
-  "find",
-  "ls",
-];
+export const CODING_TOOL_NAMES: readonly CodingToolName[] = ["read"];
 
 export type NativeToolResult = { ok: true; output: string } | { ok: false; error: string };
 
@@ -84,40 +57,10 @@ const TOOL_CATALOG: Record<
     description: string;
   }
 > = {
-  bash: {
-    create: (cwd) => createBashTool(cwd),
-    schema: createBashToolDefinition,
-    description: "Run a bash command in the project: builds, tests, git, package managers, environment inspection.",
-  },
   read: {
     create: (cwd) => createReadTool(cwd),
     schema: createReadToolDefinition,
     description: "Read file contents from the project.",
-  },
-  write: {
-    create: (cwd) => createWriteTool(cwd),
-    schema: createWriteToolDefinition,
-    description: "Overwrite or create a file with the exact given content.",
-  },
-  edit: {
-    create: (cwd) => createEditTool(cwd),
-    schema: createEditToolDefinition,
-    description: "Apply one or more precise text replacements in a file.",
-  },
-  grep: {
-    create: (cwd) => createGrepTool(cwd),
-    schema: createGrepToolDefinition,
-    description: "Search file contents for a pattern (respects .gitignore).",
-  },
-  find: {
-    create: (cwd) => createFindTool(cwd),
-    schema: createFindToolDefinition,
-    description: "Find files by glob pattern (respects .gitignore).",
-  },
-  ls: {
-    create: (cwd) => createLsTool(cwd),
-    schema: createLsToolDefinition,
-    description: "List entries in a directory.",
   },
 };
 

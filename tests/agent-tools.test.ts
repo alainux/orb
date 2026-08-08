@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentToolbox, CODING_TOOL_NAMES, geminiCodingTools, openAICodingTools } from "../src/agent-tools.js";
@@ -11,10 +11,15 @@ const perms = (nativeTools: boolean): OrbPermissions => ({
   scratchpadRead: true, scratchpadWrite: true, scratchpadOutsideProject: false,
 });
 
-test("exposes the seven native coding tool names", () => {
-  assert.deepEqual([...CODING_TOOL_NAMES], ["bash", "read", "write", "edit", "grep", "find", "ls"]);
+test("exposes only the read-only native coding tool", () => {
+  assert.deepEqual([...CODING_TOOL_NAMES], ["read"]);
   for (const name of CODING_TOOL_NAMES) assert.equal(AgentToolbox.isCodingTool(name), true);
+  // The direct project-mutation / search tools are no longer offered.
+  for (const removed of ["bash", "write", "edit", "grep", "find", "ls"]) {
+    assert.equal(AgentToolbox.isCodingTool(removed), false, `${removed} must not be a coding tool`);
+  }
   assert.equal(AgentToolbox.isCodingTool("run_pi_task"), false);
+  assert.equal(AgentToolbox.isCodingTool("observe_pi"), false);
   assert.equal(AgentToolbox.isCodingTool("scratchpad"), false);
 });
 
@@ -25,28 +30,34 @@ test("enabled() reflects the nativeTools permission", () => {
 
 test("refuses to run when nativeTools is disabled", async () => {
   const toolbox = new AgentToolbox("/tmp", perms(false));
-  const result = await toolbox.run("ls", "c1", {});
+  const result = await toolbox.run("read", "c1", {});
   assert.equal(result.ok, false);
-  assert.ok("error" in result && /nativeTools/.test(result.error));
+  assert.ok("error" in result && /nativeTools/.test(result.error as string));
 });
 
-test("runs pi's real read/ls/bash tools against a temp project", async () => {
+test("removed direct tools are not executable through the toolbox", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orb-native-none-"));
+  try {
+    const toolbox = new AgentToolbox(dir, perms(true));
+    for (const removed of ["bash", "write", "edit", "grep", "find", "ls"]) {
+      const result = await toolbox.run(removed, "c1", {});
+      assert.equal(result.ok, false, `${removed} should not be executable`);
+      assert.match(result.error as string, /not available/, `${removed} must be unreachable`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runs pi's real read tool against a temp project", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orb-native-"));
   try {
     writeFileSync(join(dir, "hello.txt"), "line one\nline two\n");
     const toolbox = new AgentToolbox(dir, perms(true));
 
-    const ls = await toolbox.run("ls", "c1", {});
-    assert.equal(ls.ok, true);
-    if (ls.ok) assert.ok(ls.output.includes("hello.txt"));
-
     const read = await toolbox.run("read", "c2", { path: "hello.txt" });
     assert.equal(read.ok, true);
     if (read.ok) assert.ok(read.output.includes("line one"));
-
-    const bash = await toolbox.run("bash", "c3", { command: "echo orb-native-test" });
-    assert.equal(bash.ok, true);
-    if (bash.ok) assert.ok(bash.output.includes("orb-native-test"));
 
     const missing = await toolbox.run("read", "c4", { path: "nope.txt" });
     assert.equal(missing.ok, false);
@@ -55,43 +66,18 @@ test("runs pi's real read/ls/bash tools against a temp project", async () => {
   }
 });
 
-test("write then edit performs a mutation on disk", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "orb-native-edit-"));
-  try {
-    const toolbox = new AgentToolbox(dir, perms(true));
-    const absPath = join(dir, "note.md");
-    const w2 = await toolbox.run("write", "c2", { path: absPath, content: "alpha beta\ngamma\n" });
-    assert.equal(w2.ok, true);
-    assert.ok(existsSync(absPath));
-
-    const edited = await toolbox.run("edit", "c3", { path: absPath, edits: [{ oldText: "gamma", newText: "delta" }] });
-    assert.equal(edited.ok, true);
-
-    const reread = await toolbox.run("read", "c4", { path: absPath });
-    assert.equal(reread.ok, true);
-    if (reread.ok) {
-      assert.ok(reread.output.includes("delta"));
-      assert.ok(!reread.output.includes("gamma"));
-    }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("scaffolds openai and gemini tool schemas for all native tools", () => {
+test("scaffolds openai and gemini schemas for the read-only native tool", () => {
   const oa = openAICodingTools();
   assert.deepEqual(oa.map((t) => t.name).sort(), [...CODING_TOOL_NAMES].sort());
   for (const t of oa) {
     assert.equal(t.type, "function");
     assert.equal(typeof t.description, "string");
-    assert.ok((t.parameters as { properties?: unknown[] }).properties);
+    assert.ok((t.parameters as { properties?: unknown }).properties);
   }
-  // Derived from pi's authoritative definitions: exact names + param shapes.
+  // Derived from pi's authoritative definitions: exact name + param shape.
   const read = oa.find((t) => t.name === "read") as { parameters: { required?: string[]; properties: Record<string, { type?: string }> } };
   assert.deepEqual(read.parameters.required, ["path"]);
   assert.deepEqual(Object.keys(read.parameters.properties).sort(), ["limit", "offset", "path"]);
-  const bash = oa.find((t) => t.name === "bash") as { parameters: { required: string[] } };
-  assert.deepEqual(bash.parameters.required, ["command"]);
 
   const gem = geminiCodingTools();
   assert.deepEqual(gem.map((t) => t.name).sort(), [...CODING_TOOL_NAMES].sort());
@@ -101,7 +87,4 @@ test("scaffolds openai and gemini tool schemas for all native tools", () => {
   const gemRead = gem.find((t) => t.name === "read") as any;
   assert.equal(gemRead.parameters.properties.path.type, "STRING");
   assert.equal(gemRead.parameters.properties.offset.type, "NUMBER");
-  const gemEdit = gem.find((t) => t.name === "edit") as any;
-  assert.equal(gemEdit.parameters.properties.edits.type, "ARRAY");
-  assert.equal(gemEdit.parameters.properties.edits.items.properties.oldText.type, "STRING");
 });
