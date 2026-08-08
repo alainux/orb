@@ -1,78 +1,60 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { VOICE_PREFS_ENTRY, VoiceController } from "../src/controller.js";
-import { controllerSeam } from "./support/seams.js";
+import { VoiceController } from "../src/controller.js";
+import { controllerSeam, fakePi } from "./support/seams.js";
 
-/** A Pi stub whose `appendEntry` records every write it is asked to persist. */
-function prefPi(records: Array<[string, unknown]>): ExtensionAPI {
-  return { appendEntry: (type: string, data: unknown) => void records.push([type, data]) } as unknown as ExtensionAPI;
-}
-
-/** Minimal interactive-ish context with a controllable session branch. */
-function branchCtx(entries: unknown[], notify: (m: string) => void = () => {}): ExtensionContext {
+/** Minimal interactive-ish context capturing notifications. */
+function ctx(notify?: (m: string) => void): ExtensionContext {
   return {
     cwd: "/tmp",
     hasUI: true,
     mode: "tui",
-    ui: { notify, setStatus() {}, setWidget() {}, confirm: () => Promise.resolve(true) },
-    sessionManager: { getBranch: () => entries },
+    ui: { notify: notify ?? (() => {}), setStatus() {}, setWidget() {}, confirm: () => Promise.resolve(true) },
   } as unknown as ExtensionContext;
 }
 
-test("setThinkingDisplay applies immediately and persists via a session entry, never a config file", () => {
-  const records: Array<[string, unknown]> = [];
-  const c = new VoiceController(prefPi(records));
-  controllerSeam(c).state = { active: true, thinkingDisplay: "minimized" };
-  const notify: string[] = [];
-  const ctx = branchCtx([], (m) => notify.push(m));
+/** A Pi that records any attempt to `appendEntry` (there should be none). */
+function recordPi(records: Array<[string, unknown]>): ExtensionAPI {
+  return { appendEntry: (type: string, data: unknown) => void records.push([type, data]) } as unknown as ExtensionAPI;
+}
 
-  c.setThinkingDisplay("full", ctx);
-
-  // Applied to the live view-model for instant re-derive.
-  assert.equal(c.thinkingDisplayPref, "full");
-  // Persisted to the Pi session tree (… first try/catch)…
-  assert.deepEqual(records, [[VOICE_PREFS_ENTRY, { thinking: "full" }]]);
-  // …with the canonical payload shape, exactly one entry.
-  assert.equal(records.length, 1);
-  // A system row + notify was surfaced for the user.
-  assert.ok(notify.some((m) => m.includes("full thoughts")));
+test("the reasoning display honors the single `ui.thinkingDisplay` config option", () => {
+  const c = new VoiceController(fakePi());
+  controllerSeam(c).config = { provider: "gemini", model: "m", voice: "Kore", thinkingDisplay: "hidden" };
+  assert.equal(c.thinkingDisplayPref, "hidden");
 });
 
-test("cycleThinkingDisplay rotates minimized → full → hidden and persists each step", () => {
-  const records: Array<[string, unknown]> = [];
-  const c = new VoiceController(prefPi(records));
-  controllerSeam(c).state = { active: true, thinkingDisplay: "minimized" };
-  const reset = () => { records.length = 0; };
-
-  c.cycleThinkingDisplay(branchCtx([]));
-  assert.equal(c.thinkingDisplayPref, "full");
-  assert.deepEqual(records.at(-1), [VOICE_PREFS_ENTRY, { thinking: "full" }]);
-  reset();
-
-  c.cycleThinkingDisplay(branchCtx([]));
-  assert.equal(c.thinkingDisplayPref, "hidden");
-  reset();
-
-  c.cycleThinkingDisplay(branchCtx([]));
+test("defaults to minimized when the config option is absent", () => {
+  const c = new VoiceController(fakePi());
+  controllerSeam(c).config = {};
   assert.equal(c.thinkingDisplayPref, "minimized");
 });
 
-test("restoreThinkingPref restores the newest matching entry from the branch, silently", () => {
+test("setThinkingDisplay rewrites the config option for the session only — never a session entry or config file", () => {
   const records: Array<[string, unknown]> = [];
-  const c = new VoiceController(prefPi(records));
-  controllerSeam(c).state = { active: false, thinkingDisplay: "minimized" };
+  const c = new VoiceController(recordPi(records));
+  controllerSeam(c).config = {};
+  controllerSeam(c).state = { active: true, thinkingDisplay: "minimized" };
+  const notify: string[] = [];
+  c.setThinkingDisplay("full", ctx((m) => notify.push(m)));
 
-  const branch = [
-    { type: "message", message: { role: "assistant" } },
-    { type: "custom", customType: VOICE_PREFS_ENTRY, data: { thinking: "full" } },
-    { type: "tool_call", toolName: "run" },
-    { type: "custom", customType: VOICE_PREFS_ENTRY, data: { thinking: "hidden" } },
-    { type: "custom", customType: "some-other-ext", data: {} },
-  ];
-  c.restorePrefs(branchCtx(branch));
+  // Honored immediately as the same config field + view-model.
+  assert.equal(c.thinkingDisplayPref, "full");
+  assert.equal(controllerSeam(c).config.thinkingDisplay, "full");
+  assert.equal(controllerSeam(c).state.thinkingDisplay, "full");
+  assert.ok(notify.some((m) => m.includes("full thoughts")));
+  // The whole point: no session-entry persistence, so nothing is written anywhere.
+  assert.deepEqual(records, [], "toggling is internal to the session; no session entry is appended");
+});
 
-  // Newest orb-prefs entry wins; the restore is applied but not re-persisted.
+test("cycleThinkingDisplay rotates minimized → full → hidden by editing the same field", () => {
+  const c = new VoiceController(fakePi());
+  controllerSeam(c).config = { provider: "gemini", model: "k", voice: "Kore", thinkingDisplay: "minimized" };
+  c.cycleThinkingDisplay(ctx());
+  assert.equal(c.thinkingDisplayPref, "full");
+  c.cycleThinkingDisplay(ctx());
   assert.equal(c.thinkingDisplayPref, "hidden");
-  assert.equal(records.length, 0, "restore must not write a new entry");
+  c.cycleThinkingDisplay(ctx());
+  assert.equal(c.thinkingDisplayPref, "minimized");
 });

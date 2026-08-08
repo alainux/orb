@@ -124,7 +124,6 @@ Commands:
 /voice voice Zephyr       # set a specific voice by name
 /voice voice list         # show the available voices
 /voice thinking           # reveal reasoning display (minimized / full / hidden)
-/voice settings           # open the settings panel (master). reasoning-display toggle
 /voice scratchpad
 /voice scratchpad view
 /voice scratchpad edit
@@ -137,7 +136,7 @@ Commands:
 
 `Ctrl+Alt+V` toggles voice mode; `Ctrl+Alt+M` mutes or unmutes your microphone while voice is active; `Ctrl+Alt+T` cycles the reasoning display.
 
-**Two notions of preference, like Pi.** Durable preferences (voice model, provider, voice, auto-start, reasoning budget, context compression, session resumption, braille, audio tuning) live in your config file and are read at startup — nothing rewrites the file. Temporary session adjustments, like how reasoning is revealed, change at `/voice settings`, `/voice thinking`, or `Ctrl+Alt+T`: they persist only for the current Pi session (`pi.appendEntry`), restore on branch navigation, and a fresh launch uses the config defaults again.
+**Preferences (durable vs session).** Durable preferences — provider, model, voice, auto-start, reasoning budget, context compression, session resumption, braille, audio — live in your config file and are read at startup; nothing rewrites the file. The reasoning *display* is the single config option `ui.thinkingDisplay`, honored as the source for how the model's thought is surfaced (`full`/`minimized`/`hidden`). You can still flip that display inline for the current session via `/voice thinking` or `Ctrl+Alt+T` — it edits that same option in memory only, never to a file and never to a session entry, and a fresh launch starts from your config default again. There is no separate settings panel or hidden store.
 
 ## Pi control
 
