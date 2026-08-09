@@ -72,6 +72,13 @@ jobs:
           pattern: audio-*
           path: .
           merge-multiple: true
+      # actions/download-artifact@v4 does not restore the executable bit that
+      # the artifact zip stores (see the action's "Maintaining File
+      # Permissions" note), so the merged binaries land 0644 and
+      # verify-release-binaries.mjs's X_OK check rejects them. Restore +x on
+      # every non-Windows helper before verification and packaging.
+      - name: Restore executable permissions on downloaded audio helpers
+        run: find bin release-assets -type f ! -name '*.exe' -exec chmod +x {} +
       - run: npm install --ignore-scripts
       - run: npm run check
       - run: node scripts/verify-release-binaries.mjs
