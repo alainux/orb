@@ -1,3 +1,6 @@
+> [!WARNING]
+> **Early-stage software.** Orb is pre-1.0 and under active development. It is unstable and changes a lot between releases — expect breaking changes, rough edges, and issues (including audio glitches and configuration churn). Please file bugs you hit; this project gets better with real-world use, but treat it as experimental, not production-ready.
+
 <p align="center">
   <img src="docs/assets/orb-logo.svg" width="88" alt="Orb logo">
 </p>
