@@ -35,19 +35,19 @@ You can keep using Pi normally at the same time. Your keyboard, Pi's editor, Pi'
 
 Change direction at any point:
 
-> **You:** Wait, never mind. Use Sonnet and focus on the failing tests.
+> **You:** Wait, never mind. Focus on the failing tests instead.
 >
-> *Orb cancels the current Pi turn, switches the Pi model, and delegates the new task.*
+> *Orb cancels the current Pi turn and delegates the new task.*
 >
 > **Orb:** Got it.
 
-No narrated `ls`. No routine “shall I continue?” prompts.
+No routine “shall I continue?” prompts.
 
 ## Interface
 
 Orb inherits Pi's active theme and renders a compact panel above Pi:
 
-- **Left:** a living, positive-space sphere of dots animated from real seeded noise — Perlin fBm + domain warping (ported from the new site labs) — carrying a drifting two-energy-region color field across the theme's primary↔secondary anchors. Talking (composing) reads as a crisp two-tone sphere with a white pressure bloom, working (searching) calms it with a broad cognition sweep, idle (smoke) is a quiet presence that keeps flowing while muted renders it gray. Sharp audio onsets birth center-to-edge pressure pulses that swell the body and bloom a sparse particle halo.
+- **Left:** a living, positive-space sphere of dots animated from real seeded noise — Perlin fBm + domain warping (ported from the site's labs) — carrying a drifting two-energy-region color field across the theme's primary↔secondary anchors. Talking (composing) reads as a crisp two-tone sphere with a white pressure bloom, working (searching) calms it with a broad cognition sweep, idle (smoke) is a quiet presence that keeps flowing while muted renders it gray. Sharp audio onsets birth center-to-edge pressure pulses that swell the body and bloom a sparse particle halo.
 - **Right:** a chronological script of `YOU`, `ORB`, and Orb's own tool/control actions.
 - **Below:** the normal Pi screen and prompt editor remain untouched.
 
@@ -192,7 +192,7 @@ It supports open/read/replace/append/load/save/dispatch/close. Dispatch can send
 
 ## Audio reliability
 
-The audio device is owned by a small Go/miniaudio sidecar; Node never paces speaker samples. In v0.6 the sidecar also owns an adaptive hardware-side jitter buffer.
+The audio device is owned by a small Go/miniaudio sidecar; Node never paces speaker samples. The sidecar also owns an adaptive hardware-side jitter buffer.
 
 ```text
 realtime provider ⇄ TypeScript transport ⇄ Go jitter buffer ⇄ hardware callback
