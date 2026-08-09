@@ -118,10 +118,11 @@ All Pi-management and scratchpad filesystem capabilities can be disabled indepen
 - `permissions.scratchpadRead` — allow loading project files into the scratchpad.
 - `permissions.scratchpadWrite` — allow saving the scratchpad.
 - `permissions.scratchpadOutsideProject` — allow scratchpad file access outside Pi's current project. Defaults to `false`.
+- `permissions.cancelPi` — Allow the voice agent to abort an active delegated Pi task when the human says to cancel/stop/drop it (`cancel_pi_task` → `ctx.abort()`). It never changes model/thinking/tools/shell or configuration and is a safe no-op when Pi is already idle. Defaults to `true`.
 
-There are deliberately no runtime configuration permissions: the voice agent cannot change Pi's model, thinking level, toolset, or run shell, and it cannot change its own voice. Those are set by the config file only (`voice.model`/`voice.voice` and Pi's own settings), not available as tools.
+There are deliberately no runtime configuration permissions: the voice agent cannot change Pi's model, thinking level, toolset, or run shell, and it cannot change its own voice. Those are set by the config file only (`voice.model`/`voice.voice` and Pi's own settings), not available as tools. Cancellation is the only control surface.
 
-Environment equivalents are `ORB_ALLOW_SCRATCHPAD_READ`, `ORB_ALLOW_SCRATCHPAD_WRITE`, and `ORB_ALLOW_SCRATCHPAD_OUTSIDE_PROJECT`.
+Environment equivalents are `ORB_ALLOW_SCRATCHPAD_READ`, `ORB_ALLOW_SCRATCHPAD_WRITE`, `ORB_ALLOW_SCRATCHPAD_OUTSIDE_PROJECT`, and `ORB_ALLOW_CANCEL_PI`.
 
 ## Audio recovery
 

@@ -15,6 +15,8 @@ export interface OrbPermissions {
   scratchpadRead: boolean;
   scratchpadWrite: boolean;
   scratchpadOutsideProject: boolean;
+  /** Whether the voice may abort an active delegated Pi task when the human cancels. */
+  cancelPi: boolean;
 }
 
 export interface AudioConfig {

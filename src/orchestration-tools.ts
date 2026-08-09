@@ -10,8 +10,10 @@
  *
  * There are deliberately NO configuration capabilities (no set_voice) — the
  * voice companion cannot re-configure itself or the agent at runtime; it is
- * configured solely by the config file. There are deliberately NO native project
- * tools (no bash/write/read/edit/grep/find/ls) — the voice companion can only
+ * configured solely by the config file. The single control surface is the
+ * `cancel_pi_task` abort (permission-gated) used to stop an active delegated
+ * run when the human changes direction — it cannot change model/thinking/tools
+ * or run a shell. There are deliberately NO native project tools (no bash/write/read/edit/grep/find/ls) — the voice companion can only
  * talk to the human, read the visible Pi log, and direct the background agent;
  * it can never directly read or edit the project tree. Its one special,
  * agent-managed working area is the scratchpad (for larger prompts or the longer
@@ -90,6 +92,18 @@ const ORCHESTRATION_CATALOG: readonly OrchestrationTool[] = [
         summary: { type: "string" },
       },
       required: ["action"],
+    },
+  },
+  {
+    name: "cancel_pi_task",
+    description:
+      "Abort the currently active delegated Pi task. Use it when the human tells you to cancel, stop, or drop the work that is running, and nothing new needs to run in its place. Safe to call at any time; it simply has no effect when Pi is already idle. It only aborts the running task — it never changes Pi's model, thinking level, tools, or runs a shell, and it never touches configuration.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        reason: { type: "string", description: "Optional short note describing why the task is being cancelled." },
+      },
     },
   },
 ];

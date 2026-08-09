@@ -42,12 +42,14 @@ test("every direct project tool (bash/read/write/edit/grep/find/ls) is rejected 
   assert.doesNotMatch(text, /voice native tool/, "no native tool may be logged as executed");
 });
 
-test("no configuration or control tools survive: control_pi and set_voice are gone", async () => {
+test("no configuration or runtime-control tools survive: control_pi and set_voice are gone", async () => {
   const { c, logDir } = setup();
   controllerSeam(c).log = await RunLog.create(logDir);
 
-  // The companion can only delegate, observe, and use the scratchpad. Both the
-  // config/self-config knobs and the Pi-control (cancel) tool are gone.
+  // The companion can delegate, observe, read the log, use the scratchpad, and
+  // (permission-gated) abort an active run via `cancel_pi_task`. Every config /
+  // self-config knob and the broad `control_pi`/shell/thinking/tool knobs are
+  // rejected as unknown.
   for (const name of ["control_pi", "set_voice", "shell", "set_thinking", "list_tools", "set_tools", "list_models", "set_model"]) {
     const result = await controllerSeam(c).handleToolCall({ id: "a1", name, arguments: {} });
     assert.equal(Boolean(result.ok), false, `${name} must be rejected`);

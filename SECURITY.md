@@ -2,9 +2,9 @@
 
 Please report vulnerabilities privately through GitHub Security Advisories for `alainux/orb` rather than filing a public issue.
 
-Orb is intentionally capable of driving Pi, including cancelling a run, changing model/thinking/tool state, and optionally executing shell commands. These capabilities are enforced through independent permissions in Orb's configuration. Review `docs/CONFIGURATION.md` before enabling Orb in an environment where commands or project files are sensitive.
+Orb is intentionally capable of driving Pi, including cancelling a run. Cancellation is the voice layer's **only** control surface: it calls `ctx.abort()` on the active delegated Pi task and is enforced through the `permissions.cancelPi` permission. There is deliberately **no** shell execution, model switching, or thinking/tool reconfiguration: the broad `control_pi`/`set_voice`/shell/`set_thinking`/`set_tools`/`set_model` capabilities were removed. Review `docs/CONFIGURATION.md` before enabling Orb in an environment where commands or project files are sensitive.
 
-The default configuration enables the features requested for the normal local-developer experience, including shell control. If you prefer a narrower voice surface, disable individual capabilities such as `permissions.shell`, `permissions.setModel`, `permissions.setThinking`, or `permissions.setTools`.
+The default configuration enable permissions for the normal local-developer experience, including cancellation (`permissions.cancelPi: true`). If you prefer a narrower voice surface, disable `permissions.cancelPi`; there are no shell/model/thinking/tool controls left to disable because they no longer exist.
 
 Scratchpad file access is project-scoped by default. `scratchpadOutsideProject` must be explicitly enabled before the voice layer may load or save outside the current project. Scratchpad saves are atomic where supported.
 

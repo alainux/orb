@@ -518,6 +518,7 @@ export class VoiceController {
       else if (call.name === "read_pi_log") result = await this.toolReadPiLog(call);
       else if (call.name === "observe_pi") result = await this.toolObservePi(call);
       else if (call.name === "scratchpad") result = await this.toolScratchpad(call);
+      else if (call.name === "cancel_pi_task") result = await this.toolCancelPiTask(call);
       else result = { ok: false, error: `Unknown tool ${call.name}` };
     } catch (error) {
       result = { ok: false, error: asError(error).message };
@@ -570,6 +571,21 @@ export class VoiceController {
     const snapshot = this.piLog.snapshot(this.ctx, count);
     void this.log?.info("voice tool read_pi_log", { entries: snapshot.status, revision: snapshot.revision, visible_chars: snapshot.text.length });
     return { ok: true, status: snapshot.status, revision: snapshot.revision, log: snapshot.text };
+  }
+
+  private async toolCancelPiTask(call: ToolCall): Promise<Record<string, unknown>> {
+    if (!this.config?.permissions.cancelPi) return { ok: false, error: "Permission disabled: permissions.cancelPi" };
+    const ctx = this.ctx;
+    const reason = typeof call.arguments.reason === "string" && call.arguments.reason.trim() ? call.arguments.reason.trim().slice(0, 160) : undefined;
+    if (!ctx || ctx.isIdle()) {
+      void this.log?.info("voice tool cancel_pi_task no-op", { status: "already_idle", ...(reason ? { reason } : {}) });
+      return { ok: true, status: "already_idle" };
+    }
+    ctx.abort();
+    this.delegated?.reset();
+    this.state.status = "pi cancelled · listening";
+    void this.log?.info("voice tool cancel_pi_task", { status: "cancelled", ...(reason ? { reason } : {}) });
+    return { ok: true, status: "cancelled" };
   }
 
   private async toolScratchpad(call: ToolCall): Promise<Record<string, unknown>> {

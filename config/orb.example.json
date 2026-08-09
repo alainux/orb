@@ -32,7 +32,8 @@
   "permissions": {
     "scratchpadRead": true,
     "scratchpadWrite": true,
-    "scratchpadOutsideProject": false
+    "scratchpadOutsideProject": false,
+    "cancelPi": true
   },
   "scratchpad": {
     "panelHeight": 18,
