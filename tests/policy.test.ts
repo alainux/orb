@@ -37,6 +37,15 @@ test("the voice delegates by default and holds no project tools", () => {
   assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /control_pi/);
 });
 
+test("the voice delegates history/summary requests rather than answering from a recent read", () => {
+  // A window-of-history request is delegation work, scoped to durable records.
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Requests that span a window of history/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /an empty read must not become an empty-window verdict/);
+  // An external named subject (e.g. Codex) is not silently equated with the engine.
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /do not silently equate it with your own engine/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /ask one crisp question/);
+});
+
 test("tools are named literally and the delegation target is never called 'Pi'", () => {
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /run_pi_task\(instruction, summary\?\)/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /read_pi_log/);
