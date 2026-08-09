@@ -295,11 +295,26 @@ Useful targets:
 ```bash
 npm run typecheck
 npm test
+npm run coverage        # run tests with Node's built-in V8 coverage report
+npm run coverage:ci     # same, gated by thresholds + headless-excluded modules
 npm run test:audio-helper
 npm run build
 npm run smoke
 npm run pack:check
 ```
+
+**Test coverage.** Both coverage targets compile to `.test-dist/` and run the same suite
+with Node's built-in experimental coverage (`--experimental-test-coverage`):
+
+- `npm run coverage` prints line / branch / function coverage for every loaded module.
+- `npm run coverage:ci` applies the same run but *enforces* thresholds (≥80% line, ≥80%
+  branch, ≥75% function) — CI fails when a threshold is missed — and excludes the
+  `providers/`, `audio/`, and `controller.js` modules, whose uncovered paths are
+  inherently live-network / native-hardware (not meaningfully coverable headlessly).
+
+The runner reports line, branch, and function percentages only; it does not emit a
+separate “statement” figure (line coverage is the closest analogue). For type‑source
+mapped coverage with a statement column, point `c8` at `.test-dist/tests/*.test.js`.
 
 Read [Architecture](docs/ARCHITECTURE.md), [Configuration](docs/CONFIGURATION.md), [Releasing](docs/RELEASING.md), and [Contributing](CONTRIBUTING.md).
 

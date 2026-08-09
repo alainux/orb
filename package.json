@@ -73,6 +73,8 @@
     "typecheck": "tsc --noEmit",
     "build:test": "node scripts/clean.mjs .test-dist && tsc -p tsconfig.test.json",
     "test": "npm run build:test && node --test .test-dist/tests/*.test.js",
+    "coverage": "npm run build:test && node --test --experimental-test-coverage --test-force-exit .test-dist/tests/*.test.js",
+    "coverage:ci": "npm run build:test && node --test --experimental-test-coverage --test-coverage-lines=80 --test-coverage-branches=80 --test-coverage-functions=75 --test-coverage-exclude=.test-dist/src/providers/** --test-coverage-exclude=.test-dist/src/audio/** --test-coverage-exclude=.test-dist/src/controller.js --test-force-exit .test-dist/tests/*.test.js",
     "check": "npm run typecheck && npm run lint && npm test && npm run test:audio-helper && npm run build && npm run smoke && node scripts/verify-package.mjs",
     "pack:check": "npm pack --dry-run --ignore-scripts",
     "prepack": "npm run check",
