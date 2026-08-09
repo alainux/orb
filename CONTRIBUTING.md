@@ -21,7 +21,7 @@ Use provider credentials only in your local environment. Never commit API keys o
 
 - Keep realtime-provider wire protocols under `src/providers/`.
 - Keep hardware-clocked audio capture/playback inside the Go helper. Node should transport PCM, not pace the speaker.
-- Route Pi operations through `src/pi-control.ts` so every privileged capability remains independently permission-gated.
+- Route privileged Pi operations through a permission-gated tool (e.g. `cancel_pi_task` in `src/controller.ts`, with the flag declared on `OrbPermissions`) so every privileged capability remains independently permission-gated.
 - Route scratchpad filesystem access through `src/scratchpad.ts`; project-boundary checks and atomic writes belong there.
 - Keep Pi observation separate from Orb's compact UI log. The human already has Pi's native screen.
 - Preserve normal keyboard/Pi command use while Orb is active.

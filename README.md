@@ -14,7 +14,7 @@
   <img alt="realtime voice" src="https://img.shields.io/badge/voice-full--duplex-3b82f6">
 </p>
 
-<p align="center"><img src="site/assets/orb-state-hero.png" alt="Orb for Pi" width="100%"></p>
+<p align="center"><img src="site/assets/orb.gif" alt="Orb for Pi — animated" width="100%"></p>
 
 Orb adds a full-duplex voice layer to [Pi](https://pi.dev). Talk about the project at a high level; Orb turns your intent into useful engineering work, drives Pi while it works, interrupts or redirects it when needed, and comes back with the outcome rather than narrating every command.
 
@@ -162,12 +162,13 @@ These capabilities are independently configurable, scoped to orchestration only 
   "permissions": {
     "scratchpadRead": true,
     "scratchpadWrite": true,
-    "scratchpadOutsideProject": false
+    "scratchpadOutsideProject": false,
+    "cancelPi": true
   }
 }
 ```
 
-Disable anything you do not want the realtime voice model to use. The companion never holds a coding agent's project tools — there is no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` — and it cannot configure itself (no model/thinking/tools/shell switching, no `set_voice`, no `control_pi`). It is a purely communicative layer: it can talk to the human, read the visible Pi log (`read_pi_log` — recent conversation and tool results) to understand factual project state, delegate everything that needs the project's files changed (`run_pi_task`), observe Pi (`observe_pi`), and manage its ephemeral scratchpad. It holds no project files (no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` and no `read_herdr_pane`), cannot inspect or touch the tree itself, cannot cancel an active run, and is intentionally limited to a read-only view of what is already visible. The system prompt can be overridden with `ORB_SYSTEM_PROMPT` / `PI_VOICE_SYSTEM_PROMPT` or a `voice.systemPromptFile`; the per-tool permission gates (`scratchpadRead`, `scratchpadWrite`, `scratchpadOutsideProject`) still apply.
+Disable anything you do not want the realtime voice model to use. The companion never holds a coding agent's project tools — there is no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` — and it cannot configure itself (no model/thinking/tools/shell switching, no `set_voice`, no `control_pi`). It is a purely communicative layer: it can talk to the human, read the visible Pi log (`read_pi_log` — recent conversation and tool results) to understand factual project state, delegate everything that needs the project's files changed (`run_pi_task`), observe Pi (`observe_pi`), and manage its ephemeral scratchpad. It holds no project files (no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` and no `read_herdr_pane`), cannot inspect or touch the tree itself, and is intentionally limited to a read-only view of what is already visible. The only control surface is aborting an active run: when you say "cancel / stop / drop that", it calls `cancel_pi_task`, which aborts the running Pi task via `ctx.abort()`; it is gated by the `cancelPi` permission, never changes model/thinking/tools/shell or configuration, and is a safe no-op when Pi is already idle. The system prompt can be overridden with `ORB_SYSTEM_PROMPT` / `PI_VOICE_SYSTEM_PROMPT` or a `voice.systemPromptFile`; the per-tool permission gates (`scratchpadRead`, `scratchpadWrite`, `scratchpadOutsideProject`, `cancelPi`) still apply.
 
 ## Scratchpad
 
@@ -326,7 +327,7 @@ src/providers/     Gemini / OpenAI realtime adapters
 src/audio/         Node ↔ Go audio transport
 audio-helper/      hardware-clocked audio + adaptive playout buffer
 src/controller.ts  voice/Pi orchestration
-src/pi-control.ts  permission-gated Pi cancellation/model/thinking/tools/shell
+src/types.ts      OrbPermissions — the voice agent's permission gates
 src/pi-log.ts      visible Pi observation used internally
 src/scratchpad.ts  ephemeral collaborative document
 src/orb.ts         positive-space noise-field orb (listening/speaking/thinking)
