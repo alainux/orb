@@ -12,7 +12,6 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
 export type ThinkingDisplay = "full" | "minimized" | "hidden";
 
 export interface OrbPermissions {
-  cancelPi: boolean;
   scratchpadRead: boolean;
   scratchpadWrite: boolean;
   scratchpadOutsideProject: boolean;
@@ -98,7 +97,7 @@ export interface VoiceSessionContext {
 
 export interface ToolCall {
   id: string;
-  name: "run_pi_task" | "read_pi_log" | "observe_pi" | "control_pi" | "read_herdr_pane" | "scratchpad" | string;
+  name: "run_pi_task" | "read_pi_log" | "observe_pi" | "scratchpad" | string;
   arguments: Record<string, unknown>;
 }
 

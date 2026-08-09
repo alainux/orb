@@ -9,9 +9,7 @@ realtime provider (Gemini Live / OpenAI Realtime)
    ↕
 Orb orchestration
    ├─ run_pi_task  → Pi coding agent
-   ├─ control_pi   → cancel only (no config)
-   ├─ observe_pi   ← Pi lifecycle/session events
-   ├─ read_pi_log  ← visible Pi session state
+   ├─ observe_pi   ← Pi activity/settled status only (no log content)
    └─ scratchpad   ↔ ephemeral collaborative document
    ↕
 Go audio sidecar → adaptive playout buffer → operating-system audio callback
@@ -24,7 +22,7 @@ Go audio sidecar → adaptive playout buffer → operating-system audio callback
 3. **The Pi editor belongs to the human.** Orb does not mirror, replace, verify, or submit the native editor contents. Human keyboard interaction remains independent and authoritative.
 4. **Scratchpad is separate from Pi's editor.** Long-form material can be loaded, refined, saved, or selectively dispatched without competing with the normal Pi prompt.
 5. **Audio timing stays out of Node.** Go/miniaudio owns capture and playback at the hardware callback clock. Its adaptive jitter buffer can stop on starvation, rebuild a lead, and resume without skipping or accelerating PCM.
-6. **Visible Pi state only.** `read_pi_log` and `observe_pi` use visible Pi messages/tool results. Hidden model reasoning is never exposed.
+6. **Visible-log reads only.** `read_pi_log` reads recent visible Pi conversation and tool results (hidden reasoning is never exposed); `observe_pi` returns status (activity/settled) only. The voice agent holds no `read_herdr_pane` and no project files — it never reads the project tree.
 7. **Orb UI avoids duplication.** The right pane shows the human/Orb script and Orb-side actions; Pi's own tool/output log remains on Pi's normal screen.
 8. **Provider lifecycle is isolated.** Gemini and OpenAI live behind `VoiceProvider`; provider wire protocols do not leak into Pi or audio layers.
 
@@ -32,8 +30,8 @@ Go audio sidecar → adaptive playout buffer → operating-system audio callback
 
 - `extensions/voice.ts` — Pi entry point, `/voice`, shortcut, Pi lifecycle/user-bash events.
 - `src/controller.ts` — session lifecycle and orchestration.
-- `src/orchestration-tools.ts` — the voice agent's _entire_ tool catalog: zero filesystem/coding tools (no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls`), only delegation to the background agent (`run_pi_task`, `read_pi_log`, `observe_pi`), orchestration-cancel (`control_pi` → `cancel` — no config), and the scratchpad. Deliberately no runtime configuration tools: no `set_voice`, no `control_pi` model/thinking/tools/shell switches. Holds one canonical JSON-schema entry per tool and renders it per provider (OpenAI Realtime JSON-schema, Gemini Live via `convertToGemini`), so the descriptions/schemas can never drift between the two. The scratchpad is the companion's only project-adjacent surface.
-- `src/pi-control.ts` — orchestration-only Pi cancel (`control_pi` → `cancel`), permission-gated.
+- `src/orchestration-tools.ts` — the voice agent's _entire_ tool catalog: zero filesystem/coding tools (no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls`) but read-only visibility into Pi (delegation via `run_pi_task`, visible-log reads via `read_pi_log`), `observe_pi` (activity/settled status only), and the scratchpad. It has no `read_herdr_pane`; it reads only what Pi has already made visible. It also has NO control or configuration tooling: no `control_pi`, no `set_voice`. No runtime configuration anywhere: no model/thinking/tools/shell switches. One canonical JSON-schema entry per tool is rendered per provider (OpenAI Realtime JSON-schema, Gemini Live via `convertToGemini`), so the descriptions/schemas can never drift between the two. The scratchpad is the companion's only writable surface.
+- No `control_pi` / PiControl layer exists: the voice cannot cancel, reconfigure, or steer the background agent's running work; it only delegates and observes.
 - `src/pi-log.ts` — visible Pi state mirror used by the voice model.
 - `src/scratchpad.ts` — ephemeral long-form working document.
 - `src/scratchpad-view.ts` — focusable, scrollable Markdown viewer for the scratchpad (`/voice scratchpad view`). It renders the document inside a Pi `ScrollView` (scrollbar in the last column) and inherits the active theme's Markdown tokens (`mdHeading`, `mdCode`, …), following the live tail by default and pinning when you scroll up. PI's overlay compositor renders plain lines at a fixed box, so it windows the `ScrollView`'s content itself and answers to the standard scroll keys (`↑/↓`, `PgUp/PgDn`, Ctrl+U/D, Home/End), `r` to re-read, `Esc`/`q` to close.
@@ -52,7 +50,7 @@ Implement `VoiceProvider` in `src/providers/` and register it in `src/providers/
 
 ### Add Pi control
 
-Add capabilities in a provider-agnostic place. Prefer Pi's typed extension API over emulating slash commands or scraping terminal output. To add an orchestration action, add a dedicated permission to `OrbPermissions`, implement the action in `PiControl`, expose only the minimum tool schema, and add both allowed/denied tests. Configuration stays in the config file, never a tool.
+Add capabilities in a provider-agnostic place. Prefer Pi's typed extension API over emulating slash commands or scraping terminal output. To add an orchestration action, add a tool to the orchestration catalog in `src/orchestration-tools.ts`, wire its dispatch in `src/controller.ts`, expose only the minimum tool schema, and add both allowed/denied tests. Configuration stays in the config file, never a tool.
 
 ### Add a scratchpad operation
 

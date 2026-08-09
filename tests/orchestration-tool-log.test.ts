@@ -42,21 +42,31 @@ test("every direct project tool (bash/read/write/edit/grep/find/ls) is rejected 
   assert.doesNotMatch(text, /voice native tool/, "no native tool may be logged as executed");
 });
 
-test("no configuration tools survive: control_pi only cancels, set_voice is gone", async () => {
+test("no configuration or control tools survive: control_pi and set_voice are gone", async () => {
   const { c, logDir } = setup();
   controllerSeam(c).log = await RunLog.create(logDir);
 
-  // The agent can only orchestrate: cancelling is allowed via control_pi, but
-  // every config knob and self-config (set_voice) is rejected as unknown.
-  const allowed = await controllerSeam(c).handleToolCall({ id: "a1", name: "control_pi", arguments: { action: "cancel" } });
-  assert.equal(Boolean(allowed.ok), false, "cancel needs a live ctx, but it must DISPATCH, not be Unknown");
-  assert.doesNotMatch(String(allowed.error), /Unknown tool/, "control_pi cancel remains a recognized orchestration tool");
-
-  for (const name of ["set_voice", "shell", "set_thinking", "list_tools", "set_tools", "list_models", "set_model"]) {
-    const result = await controllerSeam(c).handleToolCall({ id: "a2", name, arguments: {} });
+  // The companion can only delegate, observe, and use the scratchpad. Both the
+  // config/self-config knobs and the Pi-control (cancel) tool are gone.
+  for (const name of ["control_pi", "set_voice", "shell", "set_thinking", "list_tools", "set_tools", "list_models", "set_model"]) {
+    const result = await controllerSeam(c).handleToolCall({ id: "a1", name, arguments: {} });
     assert.equal(Boolean(result.ok), false, `${name} must be rejected`);
     assert.match(String(result.error), /Unknown tool/, `expected Unknown tool for ${name}`);
   }
+});
+
+test("read_pi_log returns the visible Pi conversation/tool results for investigation", async () => {
+  const { c } = setup();
+  // Feed visible Pi activity into the mirror, exactly as the real harness would.
+  controllerSeam(c).recordPiEvent("agent_start", {});
+  controllerSeam(c).recordPiEvent("message_end", { message: { role: "assistant", content: "The full test suite passes across the board." } });
+
+  const result = await controllerSeam(c).handleToolCall({ id: "r1", name: "read_pi_log", arguments: { max_entries: 8 } });
+  assert.equal(result.ok, true, "read_pi_log must be a recognized investigation tool, not Unknown");
+  assert.equal(result.status, "working");
+  assert.match(String(result.log), /The full test suite passes/);
+  assert.match(String(result.log), /Pi agent started working/);
+  assert.equal(typeof result.revision, "number");
 });
 
 test("durable log captures spoken turns (conversation) and orchestration tool usage", async () => {
@@ -79,7 +89,7 @@ test("durable log captures spoken turns (conversation) and orchestration tool us
   assert.match(text, /"speaker":"you"/);
   assert.match(text, /"speaker":"voice"/);
   assert.match(text, /debug the failing test/);
-  // Orchestration tool input/observations are durable.
+  // Orchestration tool observations are durable.
   assert.match(text, /voice tool read_pi_log/);
   assert.match(text, /voice tool observe_pi/);
 });

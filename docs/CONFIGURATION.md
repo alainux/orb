@@ -65,7 +65,6 @@ see — and copy — what the file currently declares.
     "interruptionRecoveryMuteMs": 320
   },
   "permissions": {
-    "cancelPi": true,
     "scratchpadRead": true,
     "scratchpadWrite": true,
     "scratchpadOutsideProject": false
@@ -89,7 +88,7 @@ A copy ships at `config/orb.example.json`.
 
 The voice prompt is a simple two-layer model: a single authoritative **default** plus an optional **override**.
 
-- **Default** — the shipped [`prompts/default.md`](../prompts/default.md) is the canonical system prompt. It carries the identity and invariants (never expose hidden chain-of-thought, base reports on observable output, the human's direct actions are authoritative, an action isn't real until its tool runs), the conversational norms (warm, friendly, concise; don't narrate visible mechanics; don't pepper the human with permission prompts; silence is fine while work runs), and all tool/delegation/scratchpad guidance.
+- **Default** — the shipped [`prompts/default.md`](../prompts/default.md) is the canonical system prompt. It carries the identity and invariants (never expose hidden chain-of-thought, base reports on observable output, the human's direct actions are authoritative, an action isn't real until its tool runs), the conversational norms (neutral and factual, concise; grounded and evidence-based; never falsely positive or cheerleading; never gloss over errors with reassuring status like "running smoothly"; act as a broker/investigator that gathers factual context before reporting; don't narrate visible mechanics; don't pepper the human with permission prompts; silence is fine while work runs; bare acknowledgments like "Got it" are forbidden without a matching action), and all tool/delegation/scratchpad guidance.
 - **Optional override** — a prompt file or an inline string. When provided, your override **replaces the entire default prompt** (nothing else is appended). With no override, the shipped `prompts/default.md` is used as-is.
 
 ```json
@@ -116,14 +115,13 @@ Orb no longer injects an opening cue when a session starts (the randomized `GREE
 
 All Pi-management and scratchpad filesystem capabilities can be disabled independently:
 
-- `permissions.cancelPi` — allow `ctx.abort()` to cancel active Pi work (the only Pi-control action the voice agent has; it cannot configure the model/tools/shell).
 - `permissions.scratchpadRead` — allow loading project files into the scratchpad.
 - `permissions.scratchpadWrite` — allow saving the scratchpad.
 - `permissions.scratchpadOutsideProject` — allow scratchpad file access outside Pi's current project. Defaults to `false`.
 
 There are deliberately no runtime configuration permissions: the voice agent cannot change Pi's model, thinking level, toolset, or run shell, and it cannot change its own voice. Those are set by the config file only (`voice.model`/`voice.voice` and Pi's own settings), not available as tools.
 
-Environment equivalents are `ORB_ALLOW_CANCEL_PI`, `ORB_ALLOW_SCRATCHPAD_READ`, `ORB_ALLOW_SCRATCHPAD_WRITE`, and `ORB_ALLOW_SCRATCHPAD_OUTSIDE_PROJECT`.
+Environment equivalents are `ORB_ALLOW_SCRATCHPAD_READ`, `ORB_ALLOW_SCRATCHPAD_WRITE`, and `ORB_ALLOW_SCRATCHPAD_OUTSIDE_PROJECT`.
 
 ## Audio recovery
 
@@ -196,7 +194,7 @@ Each `/voice` session writes a durable log to `ORB_LOG_DIR` (default `~/.cache/o
 - `voice-turn-actions` — for every committed Orb speech turn, `{tools, pi_dispatches}` counts how many native tool calls and `run_pi_task` delegations actually ran since the last turn boundary. A voice turn that *claims* an action ("Removing X", "Dispatched") but logs `tools:0` / `pi_dispatches:0` here is a false confirmation — the model talked without invoking any tool. This makes a "confirmed but nothing was invoked" failure greppable and easy to correlate to the matching `conversation` line.
 - `pi-activity` — Pi's observable progress: `{kind system|pi|pi-tool}` (started/finished, final assistant text, `✓/✗ tool`, bash `!` commands, model changes). Reasoning/thinking blocks are never included.
 - `voice native tool` — Orb's own `read/write/edit/bash/grep/find/ls` calls, with the target `file`, sanitized `arguments`, `ok`, and a bounded `preview`.
-- Tool calls: `voice delegated Pi task`, `voice controlled Pi`, `voice switched via tool`, `voice tool read_pi_log / observe_pi / scratchpad`, `microphone mute changed`, `voice switched`, audio/`interruption` recovery.
+- Tool calls: `voice delegated Pi task`, `voice switched via tool`, `voice tool read_pi_log / observe_pi / scratchpad`, `microphone mute changed`, `voice switched`, audio/`interruption` recovery.
 - `ERROR` lines for failures with `stack`; `Orb voice stopped` on exit.
 
 Hidden reasoning is never written: the Pi mirror only forwards visibly-emitting text/tool events, and the conversation feed only emits finalized speaking turns.

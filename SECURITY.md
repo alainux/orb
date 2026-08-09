@@ -4,7 +4,7 @@ Please report vulnerabilities privately through GitHub Security Advisories for `
 
 Orb is intentionally capable of driving Pi, including cancelling a run, changing model/thinking/tool state, and optionally executing shell commands. These capabilities are enforced through independent permissions in Orb's configuration. Review `docs/CONFIGURATION.md` before enabling Orb in an environment where commands or project files are sensitive.
 
-The default configuration enables the Pi-control features requested for the normal local-developer experience, including shell control. If you prefer a narrower voice surface, disable individual capabilities such as `permissions.shell`, `permissions.setModel`, `permissions.setThinking`, `permissions.setTools`, or `permissions.cancelPi`.
+The default configuration enables the features requested for the normal local-developer experience, including shell control. If you prefer a narrower voice surface, disable individual capabilities such as `permissions.shell`, `permissions.setModel`, `permissions.setThinking`, or `permissions.setTools`.
 
 Scratchpad file access is project-scoped by default. `scratchpadOutsideProject` must be explicitly enabled before the voice layer may load or save outside the current project. Scratchpad saves are atomic where supported.
 

@@ -60,6 +60,8 @@ export interface ControllerSeam {
   ctx: unknown;
   log: unknown;
   scratchpad: Scratchpad;
+  /** Feed a visible Pi lifecycle/tool event into the PiLogMirror (for log-read tests). */
+  recordPiEvent(eventName: string, event: unknown, ctx?: unknown): void;
   handleToolCall(call: ToolCall): Promise<Record<string, unknown>>;
   toolScratchpad(call: ToolCall): Promise<Record<string, unknown>>;
   scratchpadCommand(action: unknown, argument: unknown, ctx: unknown): Promise<unknown>;

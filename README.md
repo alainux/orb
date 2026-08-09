@@ -160,7 +160,6 @@ These capabilities are independently configurable, scoped to orchestration only 
 ```json
 {
   "permissions": {
-    "cancelPi": true,
     "scratchpadRead": true,
     "scratchpadWrite": true,
     "scratchpadOutsideProject": false
@@ -168,7 +167,7 @@ These capabilities are independently configurable, scoped to orchestration only 
 }
 ```
 
-Disable anything you do not want the realtime voice model to use. The companion never holds a coding agent's project tools — there is no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` — and it cannot configure itself or Pi (no model/thinking/tools/shell switching, no `set_voice`). It can only talk to the human, delegate to the current agent (`run_pi_task`/`observe_pi`/`read_pi_log`), cancel a run (`control_pi` → `cancel`), and manage its ephemeral scratchpad. The system prompt can be overridden with `ORB_SYSTEM_PROMPT` / `PI_VOICE_SYSTEM_PROMPT` or a `voice.systemPromptFile`; the per-tool permission gates (`cancelPi`, `scratchpadRead`, etc.) still apply.
+Disable anything you do not want the realtime voice model to use. The companion never holds a coding agent's project tools — there is no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` — and it cannot configure itself (no model/thinking/tools/shell switching, no `set_voice`, no `control_pi`). It is a purely communicative layer: it can talk to the human, read the visible Pi log (`read_pi_log` — recent conversation and tool results) to understand factual project state, delegate everything that needs the project's files changed (`run_pi_task`), observe Pi (`observe_pi`), and manage its ephemeral scratchpad. It holds no project files (no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` and no `read_herdr_pane`), cannot inspect or touch the tree itself, cannot cancel an active run, and is intentionally limited to a read-only view of what is already visible. The system prompt can be overridden with `ORB_SYSTEM_PROMPT` / `PI_VOICE_SYSTEM_PROMPT` or a `voice.systemPromptFile`; the per-tool permission gates (`scratchpadRead`, `scratchpadWrite`, `scratchpadOutsideProject`) still apply.
 
 ## Scratchpad
 

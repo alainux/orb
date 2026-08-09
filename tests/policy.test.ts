@@ -34,10 +34,10 @@ test("an override replaces the default wholesale (two-layer model)", () => {
 });
 
 test("voice policy is a pure interpreter/director that delegates and stays precise", () => {
-  // Role: talk to the human, translate requirements, direct the agent —
-  // never a worker. The scratchpad is its only special tool.
-  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /good-humored voice companion/);
+  // Voice policy is a neutral, evidence-based investigator/broker who delegates.
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /neutral, factual voice assistant/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /owns the whole interface/);
+  assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /good-humored voice companion/);
   // The companion holds NO project tools anymore; it only talks to the human,
   // translates requirements, and directs the agent.
   assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /seven filesystem\/code tools/);
@@ -45,10 +45,14 @@ test("voice policy is a pure interpreter/director that delegates and stays preci
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /DISPATCH THE AGENT BY DEFAULT/);
   // Delegation by tool name, but the agent is never called "Pi".
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /run_pi_task\(instruction, summary\?\)/);
+  // Investigation is grounded in the visible Pi log via read_pi_log.
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /read_pi_log/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Never call the delegation target "Pi"/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /the current agent/);
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /model name/);
-  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /control_pi\(action="cancel"\)/);
+  // No control tool (control_pi is gone) and no configuration capability at runtime:
+  // no model/thinking/tools/shell switches, no set_voice.
+  assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /control_pi/);
   // No configuration capability at runtime: no model/thinking/tools/shell switches,
   // no set_voice. The companion is configured solely by the config file.
   assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /change the current agent's model, thinking level, active tools/);
@@ -84,4 +88,27 @@ test("the persona adapts per turn by intent, not by switching fixed modes", () =
   assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Never announce the register/);
   assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /Conversational Mode|Explanation Mode/);
   assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /switch \(|case "mode"/i);
+});
+
+test("the default prompt is grounded, neutral, and evidence-based, never falsely positive", () => {
+  // Core issue: never be confidently wrong / hallucinate; state only evidence-backed claims.
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Never be confidently wrong and never hallucinate/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /A claim without supporting evidence is a false claim/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Never make a decision or a working assumption without evidence/);
+  // Neutral/factual tone: explicit ban on cheerleading and customer-service reassurance,
+  // and on glossing over real errors with "running smoothly" / "all good".
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /never a friendly customer-service persona/i);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /do not perform warmth, positivity, or reassurance/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /"running smoothly"/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /omits real errors is a false report/);
+  // Old cheerleader personas are gone; plain warm greetings are still fine.
+  assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /confident, upbeat/);
+  assert.doesNotMatch(DEFAULT_VOICE_SYSTEM_PROMPT, /good-humored conversational partner/);
+  // Investigator/broker: gather factual context before reporting; distinguish verified from unknown.
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /Be a broker and an investigator/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /gather the factual context first/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /"verified" from "reported" from "unknown"/);
+  // Action over words: bare acknowledgments like "Got it" are forbidden without a matching tool call.
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /"Got it,"/);
+  assert.match(DEFAULT_VOICE_SYSTEM_PROMPT, /without a matching action in the same turn is stalling and is forbidden/);
 });

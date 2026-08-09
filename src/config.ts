@@ -265,7 +265,6 @@ export async function loadVoiceConfig(
     // opening (on→off coalescing) can't make the indicator blink unseen.
     geminiThinkingHoldMs: Math.round(numberValue(envFirst("ORB_GEMINI_THINKING_HOLD_MS") ?? sessionConfig.geminiThinkingHoldMs, 380, 0, 5000, "session.geminiThinkingHoldMs")),
     permissions: {
-      cancelPi: boolValue(envFirst("ORB_ALLOW_CANCEL_PI") ?? permissionConfig.cancelPi, true, "permissions.cancelPi"),
       scratchpadRead: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_READ") ?? permissionConfig.scratchpadRead, true, "permissions.scratchpadRead"),
       scratchpadWrite: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_WRITE") ?? permissionConfig.scratchpadWrite, true, "permissions.scratchpadWrite"),
       scratchpadOutsideProject: boolValue(envFirst("ORB_ALLOW_SCRATCHPAD_OUTSIDE_PROJECT") ?? permissionConfig.scratchpadOutsideProject, false, "permissions.scratchpadOutsideProject"),

@@ -30,7 +30,6 @@
     "interruptionRecoveryMuteMs": 320
   },
   "permissions": {
-    "cancelPi": true,
     "scratchpadRead": true,
     "scratchpadWrite": true,
     "scratchpadOutsideProject": false

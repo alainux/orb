@@ -32,7 +32,7 @@ function config(): VoiceConfig {
     geminiCompressionTargetTokens: 9000,
     geminiThinkingBudget: -1,
     geminiThinkingHoldMs: 0,
-    permissions: { cancelPi: true, scratchpadRead: true, scratchpadWrite: true, scratchpadOutsideProject: false },
+    permissions: { scratchpadRead: true, scratchpadWrite: true, scratchpadOutsideProject: false },
     audio: { bufferMs: 140, maxBufferMs: 380, recoveryStepMs: 40, interruptionStormCount: 3, interruptionStormWindowMs: 1800, interruptionRecoveryMuteMs: 320, choppinessWindowRecoveries: 3, choppinessWindowMs: 1500, choppinessRecoverSilenceMs: 1500, inputResyncDrops: 3, inputResyncWindowMs: 1500, inputResyncCooldownMs: 4000, stallGapMs: 150 },
     scratchpad: { panelHeight: 12, maxBytes: 524288 },
   } as VoiceConfig;
@@ -112,8 +112,8 @@ test("the same function call re-delivered after a reconnect is executed only onc
   providerSeam(provider).sink = { onToolCall: (call: { id: string }) => { processed.push(call.id); return { ok: true }; } };
   providerSeam(provider).session = { sendToolResponse: (payload: unknown) => sent.push(payload) };
 
-  await providerSeam(provider).processToolCalls([{ id: "z1", name: "read_pi_log", args: {} }]);
-  await providerSeam(provider).processToolCalls([{ id: "z1", name: "read_pi_log", args: {} }]);
+  await providerSeam(provider).processToolCalls([{ id: "z1", name: "scratchpad", args: { action: "read" } }]);
+  await providerSeam(provider).processToolCalls([{ id: "z1", name: "scratchpad", args: { action: "read" } }]);
 
   assert.deepEqual(processed, ["z1"], "duplicate delivery must not double-execute");
   assert.equal(sent.length, 1);

@@ -42,10 +42,9 @@ test("Braille rendering is the default orb style",async()=>withEnv({GEMINI_API_K
 test("Pi controls, audio recovery and scratchpad are configurable",async()=>{
   const root=await mkdtemp(join(tmpdir(),"orb-config-control-"));
   const configFile=join(root,"config.json");
-  await writeFile(configFile,JSON.stringify({permissions:{cancelPi:true},audio:{bufferMs:180,maxBufferMs:520,recoveryStepMs:60,interruptionStormCount:4},scratchpad:{panelHeight:20,maxBytes:131072}}),"utf8");
+  await writeFile(configFile,JSON.stringify({audio:{bufferMs:180,maxBufferMs:520,recoveryStepMs:60,interruptionStormCount:4},scratchpad:{panelHeight:20,maxBytes:131072}}),"utf8");
   await withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:configFile},async()=>{
     const config=await loadVoiceConfig("gemini",root);
-    assert.equal(config.permissions.cancelPi,true);
     assert.equal(config.audio.bufferMs,180);assert.equal(config.audio.maxBufferMs,520);assert.equal(config.audio.recoveryStepMs,60);assert.equal(config.audio.interruptionStormCount,4);
     assert.equal(config.audio.bufferMs,180);assert.equal(config.audio.maxBufferMs,520);assert.equal(config.audio.recoveryStepMs,60);assert.equal(config.audio.interruptionStormCount,4);
     assert.equal(config.scratchpad.panelHeight,20);assert.equal(config.scratchpad.maxBytes,131072);
