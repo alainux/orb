@@ -18,6 +18,8 @@
 
 - The website (`site/`) GitHub links now open in a new tab with `rel=noopener`.
 
+- The README now opens with an early-stage-software warning: Orb is pre-1.0, unstable, changing a lot between releases, and users should expect issues.
+
 ## 0.6.0 — Pi control, scratchpad, turn logs and adaptive audio recovery
 
 - Added permission-gated Pi management for cancelling active work, switching models, changing thinking level, and direct shell/`!`-style commands.
