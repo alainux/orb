@@ -120,11 +120,11 @@ Commands:
 /voice mute
 /voice mute on
 /voice mute off
-/voice voice              # cycle to the next voice live
-/voice voice Zephyr       # set a specific voice by name
+/voice voice              # cycle to the next voice live (persisted to the user config)
+/voice voice Zephyr       # set a specific voice by name (persisted)
 /voice voice list         # show the available voices
 /voice thinking           # reveal reasoning display (minimized / full / hidden)
-/voice settings           # opens the voice settings panel (reveal toggle + durable config, read-only)
+/voice settings           # opens the interactive voice settings panel (reasoning, voice, provider, auto-start)
 /voice scratchpad
 /voice scratchpad view
 /voice scratchpad edit
@@ -137,7 +137,7 @@ Commands:
 
 `Ctrl+Alt+V` toggles voice mode; `Ctrl+Alt+M` mutes or unmutes your microphone while voice is active; `Ctrl+Alt+T` cycles the reasoning display.
 
-**Preferences (durable vs session).** Durable preferences — provider, model, voice, auto-start, reasoning budget, context compression, session resumption, braille, audio — live in your config file and are read at startup; nothing rewrites the file. The reasoning *display* is the single config option `ui.thinkingDisplay`, honored as the source for how the model's thought is surfaced (`full`/`minimized`/`hidden`). You can flip it inline for the current session via `/voice thinking` or `Ctrl+Alt+T` — that edits the same option in memory only, never a file and never a session entry, and a fresh launch starts from the config default again. `/voice settings` opens a proper Pi settings panel showing the reveal-display toggle (editable for the session) alongside your durable config values (read-only reference).
+**Preferences (durable vs session).** Durable preferences — provider, model, voice, auto-start, reasoning budget, context compression, session resumption, braille, audio — live in your config file and are read at startup. The reasoning *display* is the single config option `ui.thinkingDisplay`, honored as the source for how the model's thought is surfaced (`full`/`minimized`/`hidden`). You can flip it inline for the current session via `/voice thinking` or `Ctrl+Alt+T` — that edits the same option in memory only, never a file and never a session entry, and a fresh launch starts from the config default again. `/voice settings` opens a proper Pi settings panel: the **Reveal reasoning** toggle (session-only), the **Provider / Voice / Auto-start voice** preferences (editable and persisted to the user config), and the remaining durable values as read-only reference (edit those in the config file).
 
 ## Pi control
 

@@ -3,7 +3,7 @@ import { ActivityFeed } from "./activity.js";
 import { GoAudioBridge, type AudioLevels } from "./audio/bridge.js";
 import { PcmInputAdapter } from "./audio/input-adapter.js";
 import { PlayoutMonitor } from "./audio/playout.js";
-import { configuredApiKey, loadVoiceConfig, persistApiKey, readMergedVoiceConfig, resolveProviderName } from "./config.js";
+import { configuredApiKey, loadVoiceConfig, persistApiKey, persistTopLevel, persistVoice, readMergedVoiceConfig, resolveProviderName } from "./config.js";
 import { DelegatedWorkTracker, sendPiTask } from "./delegation.js";
 import { RunLog } from "./log.js";
 import { PiLogMirror } from "./pi-log.js";
@@ -264,18 +264,77 @@ export class VoiceController {
   }
 
   /**
-   * Rows for the `/voice settings` panel: one editable session toggle plus the
-   * durable config values (read-only) currently in effect.
+   * Rows for the `/voice settings` panel: a session toggle, the editable
+   * durable preferences (provider/voice/auto-start), and the remaining
+   * durable config values shown read-only.
    */
   getVoiceSettings(): VoiceSettingsRow[] {
     return buildVoiceSettings({ thinking: this.currentDisplay(), config: this.config });
   }
 
-  /** Apply an editable row chosen in `/voice settings` (only session toggles). */
-  applyVoiceSetting(id: EditableSetting, value: string, ctx?: ExtensionContext): void {
+  /**
+   * Apply an editable row chosen in `/voice settings`.
+   *
+   * - `thinking` rewrites the running reasoning-display value in memory only
+   *   (never a file or a session entry; a fresh launch honors the config
+   *   default again).
+   * - `voice` switches the live voice when a session is running (and speaks a
+   *   short audition); otherwise it records the preference and persists it to
+   *   the user config so the next session uses it.
+   * - `provider` sets the provider for the next voice session and persists it.
+   * - `autostart` toggles the `autoStartVoice` config and persists it.
+   */
+  async applyVoiceSetting(id: EditableSetting, value: string, ctx?: ExtensionContext): Promise<void> {
+    const cwd = ctx?.cwd ?? process.cwd();
     if (id === "thinking") {
       const mode: ThinkingDisplay = value === "full" ? "full" : value === "hidden" ? "hidden" : "minimized";
       this.setThinkingDisplay(mode, ctx);
+      return;
+    }
+    if (!this.config) { ctx?.ui.notify("Orb settings need an active voice configuration.", "warning"); return; }
+    if (id === "voice") {
+      const providerName = this.config.provider;
+      const target = resolveVoice(providerName, value);
+      if (!target) {
+        ctx?.ui.notify(`Unknown voice "${value}" for ${providerName}.`, "warning");
+        return;
+      }
+      // Live session: switch now (setVoice also persists and auditions).
+      if (this.state.active && this.provider && ctx) { this.setVoice(target, ctx); return; }
+      // Not running: persist the preference for the next session.
+      this.config.voice = target;
+      try {
+        await persistVoice(providerName, target, cwd);
+        ctx?.ui.notify(`Orb voice → ${target} (next session).`, "info");
+      } catch (error) {
+        ctx?.ui.notify(`Could not save the voice (${error instanceof Error ? error.message : String(error)}).`, "warning");
+      }
+      void this.log?.info("voice preference set", { voice: target });
+      return;
+    }
+    if (id === "provider") {
+      if (value !== "gemini" && value !== "openai") return;
+      this.providerOverride = value;
+      this.config.provider = value;
+      try {
+        await persistTopLevel({ provider: value }, cwd);
+        ctx?.ui.notify(`Orb provider → ${value} for the next voice session.`, "info");
+      } catch (error) {
+        ctx?.ui.notify(`Could not save the provider (${error instanceof Error ? error.message : String(error)}).`, "warning");
+      }
+      void this.log?.info("provider preference set", { provider: value });
+      return;
+    }
+    if (id === "autostart") {
+      const on = value === "on";
+      this.config.autoStartVoice = on;
+      try {
+        await persistTopLevel({ autoStartVoice: on }, cwd);
+        ctx?.ui.notify(`Orb voice auto-start ${on ? "enabled" : "disabled"}.`, "info");
+      } catch (error) {
+        ctx?.ui.notify(`Could not save auto-start (${error instanceof Error ? error.message : String(error)}).`, "warning");
+      }
+      void this.log?.info("autostart preference set", { autoStartVoice: on });
     }
   }
 
@@ -305,6 +364,15 @@ export class VoiceController {
         void this.provider!.sendText(auditionLine(target), { requestResponse: true });
         ctx.ui.notify(`Orb voice → ${target}`, "info");
         void this.log?.info("voice switched", { voice: target });
+        // Persist to the user config so the choice survives restarts and is read
+        // back as `provider.voice` on the next session. Best-effort: the live
+        // switch already happened, so a write failure only records a log line.
+        try {
+          const saved = await persistVoice(providerName, target, ctx?.cwd ?? process.cwd());
+          void this.log?.info("voice persisted", { voice: target, path: saved });
+        } catch (error) {
+          void this.log?.info("voice persist failed", { voice: target, error: error instanceof Error ? error.message : String(error) });
+        }
       } catch (error) {
         ctx.ui.notify(`Voice switch failed: ${error instanceof Error ? error.message : String(error)}`, "error");
       }

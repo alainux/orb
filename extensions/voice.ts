@@ -4,12 +4,17 @@ import { Container, SettingsList, type SettingItem } from "@earendil-works/pi-tu
 import { parseVoiceCommand } from "../src/commands.js";
 import { resolveAutoStartVoice, thinkingDisplayValue } from "../src/config.js";
 import { VoiceController } from "../src/controller.js";
+import type { EditableSetting } from "../src/settings.js";
+import { normalizePanelKey } from "../src/settings.js";
+import { voiceOptions } from "../src/voices.js";
 
 /**
  * `/voice settings` — a Pi SettingsList panel (tui.md Pattern 3). Rows come from
  * the controller's settings catalog: the reasoning *reveal* is a live session
- * toggle; durable config values are shown read-only (edit those in the config
- * file). Nothing is persisted to a file or a session entry.
+ * toggle; provider/voice/auto-start are editable durable preferences (persisted
+ * to the user config); the remaining durable config values are shown read-only
+ * (edit those in the config file). No search mode — every key visibly moves the
+ * cursor, cycles a value, or closes the panel.
  */
 async function showVoiceSettings(controller: VoiceController, ctx: ExtensionCommandContext): Promise<void> {
   if (!ctx.hasUI || ctx.mode !== "tui") {
@@ -35,17 +40,29 @@ async function showVoiceSettings(controller: VoiceController, ctx: ExtensionComm
       Math.min(rows.length + 2, 16),
       getSettingsListTheme(),
       (id: string, newValue: string) => {
-        controller.applyVoiceSetting(id as "thinking", newValue, ctx);
+        // Keep the voice row's cycle list in sync with the provider row: a
+        // voice selected for one provider is meaningless for the other.
+        if (id === "provider") {
+          const provider = newValue === "openai" ? "openai" : "gemini";
+          const voiceRow = rows.find((r) => r.id === "voice");
+          if (voiceRow) {
+            voiceRow.values = voiceOptions(provider);
+            if (!voiceRow.values.includes(voiceRow.currentValue)) {
+              voiceRow.currentValue = voiceRow.values[0]!;
+            }
+            list.updateValue("voice", voiceRow.currentValue);
+          }
+        }
+        void controller.applyVoiceSetting(id as EditableSetting, newValue, ctx);
         list.updateValue(id, newValue);
       },
       () => done?.(undefined),
-      { enableSearch: true },
     );
     container.addChild(list);
     return {
       render: (width: number): string[] => container.render(width),
       invalidate: (): void => container.invalidate(),
-      handleInput: (data: string): void => { list.handleInput?.(data); },
+      handleInput: (data: string): void => { list.handleInput?.(normalizePanelKey(data)); },
     };
   });
 }

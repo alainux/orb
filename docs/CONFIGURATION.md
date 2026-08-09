@@ -15,7 +15,12 @@ API keys intentionally stay in environment variables.
 Orb has no preferences panel or hidden preference store. The durable options
 (provider, model, voice, auto-start, reasoning budget, context compression,
 session resumption, braille, audio tuning) are declared in this file and read
-once at startup; nothing rewrites it.
+once at startup. The one exception: the **voice** is a live, user-facing choice,
+so `/voice voice <name>` (or cycling with no name) writes the picked voice back
+into the user config under the provider block (`{ provider: { voice } }`, same
+file an API key is stored in) so it survives a restart. An explicit
+`GEMINI_VOICE`/`OPENAI_VOICE` env var, or a `voice` key declared in a
+project/explicit config, still wins on load.
 
 The reasoning *display* is the single config option `ui` → `thinkingDisplay`
 (`full` / `minimized` / `hidden`) — Orb honors it. You can still flip that
@@ -24,11 +29,7 @@ the toggle rewrites the running `thinkingDisplay` value in memory only (never a
 file, never a session entry), so a fresh launch starts from this file's setting
 again.
 
-`/voice settings` opens a proper Pi `SettingsList` panel (`tui.md` Pattern 3)
-with two kinds of rows: the **Reveal reasoning** toggle (editable for the
-current session), and your **durable config as read-only reference** (provider,
-model, voice, thinking budget, auto-start, compression, resumption) so you can
-see — and copy — what the file currently declares.
+`/voice settings` opens a proper Pi `SettingsList` panel (`tui.md` Pattern 3) with three kinds of rows: the **Reveal reasoning** toggle (editable for the current session, in memory only), the durable preferences you most often want to change — **Provider**, **Voice**, **Auto-start voice** — which are editable and persisted to the user config when changed (a live voice switch also speaks a short audition), and the remaining durable config as read-only reference (**model**, **thinking budget**, **context compression**, **session resumption**) so you can see — and copy — what the file currently declares.
 
 ## Example
 
@@ -120,7 +121,7 @@ All Pi-management and scratchpad filesystem capabilities can be disabled indepen
 - `permissions.scratchpadOutsideProject` — allow scratchpad file access outside Pi's current project. Defaults to `false`.
 - `permissions.cancelPi` — Allow the voice agent to abort an active delegated Pi task when the human says to cancel/stop/drop it (`cancel_pi_task` → `ctx.abort()`). It never changes model/thinking/tools/shell or configuration and is a safe no-op when Pi is already idle. Defaults to `true`.
 
-There are deliberately no runtime configuration permissions: the voice agent cannot change Pi's model, thinking level, toolset, or run shell, and it cannot change its own voice. Those are set by the config file only (`voice.model`/`voice.voice` and Pi's own settings), not available as tools. Cancellation is the only control surface.
+There are deliberately no runtime configuration permissions: the voice agent cannot change Pi's model, thinking level, toolset, or run shell, and it cannot change its own voice. Those are set by the config file only (`voice.model`/`voice.voice` and Pi's own settings), not available as tools. The human *can* pick a voice at any time with `/voice voice <name>` — which persists the choice to the user config, as described above. Cancellation is the only control surface.
 
 Environment equivalents are `ORB_ALLOW_SCRATCHPAD_READ`, `ORB_ALLOW_SCRATCHPAD_WRITE`, `ORB_ALLOW_SCRATCHPAD_OUTSIDE_PROJECT`, and `ORB_ALLOW_CANCEL_PI`.
 

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { loadVoiceConfig } from "../src/config.js";
 import { VoiceController } from "../src/controller.js";
 import { controllerSeam, fakePi } from "./support/seams.js";
 import { nextVoice, resolveVoice, voiceOptions } from "../src/voices.js";
@@ -81,6 +82,65 @@ test("controller.setVoice lists options and rejects unknown names", async () => 
   await new Promise((r) => setImmediate(r));
   assert.ok(notify.some((m) => m.toLowerCase().includes("unknown voice")), "rejected bogus voice");
 });
+
+test("controller.setVoice persists the selection and restores it across sessions", async () => {
+  const root = await mkdtemp(join(tmpdir(), "orb-voice-persist-"));
+  const configFile = join(root, "config.json");
+  await withEnv({ GEMINI_API_KEY: "test", ORB_CONFIG: configFile, OPENAI_API_KEY: undefined }, async () => {
+    const c = new VoiceController(fakePi());
+    controllerSeam(c).config = { provider: "gemini", voice: "Kore" };
+    controllerSeam(c).state = { active: true };
+    controllerSeam(c).provider = { setVoice: async () => {}, sendText: async () => {} };
+    const notify: string[] = [];
+    const ctx = { cwd: root, ui: { notify: (m: string) => notify.push(m) } };
+    controllerSeam(c).setVoice("zephyr", ctx);
+    await new Promise((r) => setImmediate(r));
+    assert.ok(notify.some((m) => m.includes("→ Zephyr")), "notified the new voice");
+
+    // The selection was written to disk under the provider block (best-effort
+    // async write, so poll for it to land).
+    await waitForVoice(configFile, "gemini", "Zephyr");
+    const written = JSON.parse(await readFile(configFile, "utf8")) as { gemini?: { voice?: string } };
+    assert.equal(written.gemini?.voice, "Zephyr", "persisted voice in the user config");
+
+    // A fresh instance reloading the same config restores that voice.
+    const restored = await loadVoiceConfig("gemini", root);
+    assert.equal(restored.voice, "Zephyr", "persisted choice is the effective voice on restart");
+  });
+});
+
+test("setVoice does not clobber the persisted API key when writing the voice", async () => {
+  const root = await mkdtemp(join(tmpdir(), "orb-voice-key-"));
+  const configFile = join(root, "config.json");
+  await writeFile(configFile, JSON.stringify({ gemini: { apiKey: "persisted-key" } }), "utf8");
+  await withEnv({ GEMINI_API_KEY: undefined, GOOGLE_API_KEY: undefined, OPENAI_API_KEY: undefined, ORB_CONFIG: configFile }, async () => {
+    const c = new VoiceController(fakePi());
+    controllerSeam(c).config = { provider: "gemini", voice: "Kore" };
+    controllerSeam(c).state = { active: true };
+    controllerSeam(c).provider = { setVoice: async () => {}, sendText: async () => {} };
+    controllerSeam(c).setVoice("Puck", { cwd: root, ui: { notify: () => {} } });
+    await waitForVoice(configFile, "gemini", "Puck");
+    const written = JSON.parse(await readFile(configFile, "utf8")) as { gemini?: { apiKey?: string; voice?: string } };
+    assert.equal(written.gemini?.apiKey, "persisted-key", "existing API key preserved when writing voice");
+    assert.equal(written.gemini?.voice, "Puck", "voice written alongside preserved key");
+  });
+});
+
+/** Poll until the persisted user config has `provider.voice === expected` (the
+ * voice write is fire-and-forget behind the live switch). Throws after a timeout. */
+async function waitForVoice(path: string, provider: string, expected: string): Promise<void> {
+  const deadline = Date.now() + 3000;
+  let last: string | undefined;
+  for (;;) {
+    try {
+      const parsed = JSON.parse(await readFile(path, "utf8")) as Record<string, { voice?: string }>;
+      last = parsed[provider]?.voice;
+      if (last === expected) return;
+    } catch { /* not written yet */ }
+    if (Date.now() > deadline) throw new Error(`voice not persisted (expected ${expected}, got ${String(last)})`);
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
 
 // The `set_voice` agent tool was removed: the voice can only be configured via
 // the config file (or the human-driven /voice command), never by the agent.

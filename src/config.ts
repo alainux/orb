@@ -130,13 +130,15 @@ export function configuredApiKey(provider: VoiceProviderName): string {
 }
 
 /**
- * The config file a UI-collected API key is persisted to: an explicit
- * `ORB_CONFIG`/`PI_VOICE_CONFIG` when set, otherwise the user-level default
- * (`~/.config/orb/config.json`, or APPDATA on Windows). Keys stay out of the
- * project-scoped `.<localProj>/.orb/config.json` so a secret is never checked
- * in or shared across machines.
+/**
+ * The user config file a UI-collected API key or a command-selected voice is
+ * persisted to: an explicit `ORB_CONFIG`/`PI_VOICE_CONFIG` when set, otherwise
+ * the user-level default (`~/.config/orb/config.json`, or APPDATA on Windows).
+ * Keys or voice choices stay out of the project-scoped
+ * `<localProj>/.orb/config.json` so a secret (or an author preference) is
+ * never checked in or shared across machines.
  */
-export function apiKeyConfigPath(cwd = process.cwd()): string {
+export function userConfigPath(cwd = process.cwd()): string {
   const explicit = envFirst("ORB_CONFIG", "PI_VOICE_CONFIG");
   return explicit ? expandPath(explicit, cwd) : defaultConfigPaths(cwd)[0] as string;
 }
@@ -150,7 +152,7 @@ export function apiKeyConfigPath(cwd = process.cwd()): string {
  * `loadVoiceConfig`, always wins.
  */
 export async function persistApiKey(provider: VoiceProviderName, apiKey: string, cwd = process.cwd()): Promise<string> {
-  const target = apiKeyConfigPath(cwd);
+  const target = userConfigPath(cwd);
   let existing: JsonObject = {};
   try {
     const parsed = JSON.parse(await readFile(target, "utf8"));
@@ -160,6 +162,64 @@ export async function persistApiKey(provider: VoiceProviderName, apiKey: string,
   }
   const providerBlock = isObject(existing[provider]) ? existing[provider] : {};
   const next: JsonObject = { ...existing, [provider]: { ...providerBlock, apiKey } };
+  await mkdir(dirname(target), { recursive: true });
+  const temp = `${target}.orb-${process.pid}-${Date.now()}.tmp`;
+  try {
+    await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    await rename(temp, target);
+  } finally {
+    await rm(temp, { force: true }).catch(() => {});
+  }
+  return target;
+}
+
+/**
+ * Persist `provider`'s user-selected voice to the user config file so a
+ * `/voice voice <name>` choice survives a restart and round-trips through
+ * `loadVoiceConfig` (which reads `{ provider: { voice } }`). Merges into any
+ * existing config and writes atomically (temp file + rename), storing under the
+ * same provider block as the API key. Returns the written path. The persisted
+ * voice is a startup fallback only — an explicit env var (`GEMINI_VOICE`/
+ * `OPENAI_VOICE`) or a config-file `voice` key always wins on load.
+ */
+export async function persistVoice(provider: VoiceProviderName, voice: string, cwd = process.cwd()): Promise<string> {
+  const target = userConfigPath(cwd);
+  let existing: JsonObject = {};
+  try {
+    const parsed = JSON.parse(await readFile(target, "utf8"));
+    if (isObject(parsed)) existing = parsed;
+  } catch {
+    // Missing or unreadable config: start from an empty object.
+  }
+  const providerBlock = isObject(existing[provider]) ? existing[provider] : {};
+  const next: JsonObject = { ...existing, [provider]: { ...providerBlock, voice } };
+  await mkdir(dirname(target), { recursive: true });
+  const temp = `${target}.orb-${process.pid}-${Date.now()}.tmp`;
+  try {
+    await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    await rename(temp, target);
+  } finally {
+    await rm(temp, { force: true }).catch(() => {});
+  }
+  return target;
+}
+
+/**
+ * Persist top-level preference fields (e.g. `{ provider, autoStartVoice }`) to
+ * the user config file so panel-made choices survive restarts. Merges into any
+ * existing config and writes atomically (temp file + rename, like
+ * `persistApiKey`/`persistVoice`). Returns the written path.
+ */
+export async function persistTopLevel(fields: JsonObject, cwd = process.cwd()): Promise<string> {
+  const target = userConfigPath(cwd);
+  let existing: JsonObject = {};
+  try {
+    const parsed = JSON.parse(await readFile(target, "utf8"));
+    if (isObject(parsed)) existing = parsed;
+  } catch {
+    // Missing or unreadable config: start from an empty object.
+  }
+  const next: JsonObject = { ...existing, ...fields };
   await mkdir(dirname(target), { recursive: true });
   const temp = `${target}.orb-${process.pid}-${Date.now()}.tmp`;
   try {
