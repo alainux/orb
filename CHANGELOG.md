@@ -1,8 +1,14 @@
 # Changelog
 
-## 0.6.2 — interactive voice settings, persisted voices, CSI-u space fix
+## 0.6.3 — settings panel before voice starts, README warning
 
 - **Fix: `/voice settings` renders all rows even before any voice session.** The panel previously loaded its rows from the live controller config, which is only populated once a voice session starts (which needs an API key). With auto-start off — or before the first `/voice` start — the panel showed a single "Reveal reasoning" row, a dead end: you couldn't even re-enable auto-start from the panel. `getVoiceSettings` now loads the durable config directly (`loadVoiceConfig` with `requireKey: false`, no API key needed), so Provider / Voice / Auto-start voice are always listed and editable. Covered by `tests/settings.test.ts`.
+
+- The README now opens with an early-stage-software warning: Orb is pre-1.0, unstable, changing a lot between releases, and users should expect issues.
+
+- 0.6.2 was published to npm from an earlier commit; this patch carries the follow-up fix and documentation that landed after that publish.
+
+## 0.6.2 — interactive voice settings, persisted voices, CSI-u space fix
 
 - **Fix: Space now cycles/applies in `/voice settings` on every terminal.** Pi asks terminals for the Kitty keyboard protocol at startup (flags 1|2|4), and on kitty-capable terminals (kitty, wezterm, Ghostty, foot, iTerm2 with key reporting, Konsole, …) a Space press arrives as a CSI-u sequence like `\x1b[32;1:1u` instead of the literal space byte — while Enter arrives as `\x1b[13;1:1u` and still worked. `SettingsList` only activates on the literal `" "` character, so Space silently did nothing on those terminals. The panel now normalizes the no-modifier CSI-u encodings of Space back to `" "` (`normalizePanelKey` in `src/settings.ts`) before handing input to the list, so Space and Enter both cycle/apply reliably. Modified keys (Ctrl/Alt+Space) and everything else pass through untouched. Covered by `tests/settings.test.ts`.
 
