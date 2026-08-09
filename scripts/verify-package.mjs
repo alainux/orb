@@ -5,7 +5,6 @@ const required = [
   "dist/extensions/voice.js",
   "src/controller.ts",
   "src/activity.ts",
-  "src/pi-control.ts",
   "src/scratchpad.ts",
   "src/delegation.ts",
   "src/audio/bridge.ts",
