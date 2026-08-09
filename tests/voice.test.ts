@@ -86,7 +86,7 @@ test("controller.setVoice lists options and rejects unknown names", async () => 
 test("controller.setVoice persists the selection and restores it across sessions", async () => {
   const root = await mkdtemp(join(tmpdir(), "orb-voice-persist-"));
   const configFile = join(root, "config.json");
-  await withEnv({ GEMINI_API_KEY: "test", ORB_CONFIG: configFile, OPENAI_API_KEY: undefined }, async () => {
+  await withEnv({ GEMINI_API_KEY: "test", ORB_CONFIG: configFile, OPENAI_API_KEY: undefined, XDG_CONFIG_HOME: root }, async () => {
     const c = new VoiceController(fakePi());
     controllerSeam(c).config = { provider: "gemini", voice: "Kore" };
     controllerSeam(c).state = { active: true };
@@ -113,7 +113,7 @@ test("setVoice does not clobber the persisted API key when writing the voice", a
   const root = await mkdtemp(join(tmpdir(), "orb-voice-key-"));
   const configFile = join(root, "config.json");
   await writeFile(configFile, JSON.stringify({ gemini: { apiKey: "persisted-key" } }), "utf8");
-  await withEnv({ GEMINI_API_KEY: undefined, GOOGLE_API_KEY: undefined, OPENAI_API_KEY: undefined, ORB_CONFIG: configFile }, async () => {
+  await withEnv({ GEMINI_API_KEY: undefined, GOOGLE_API_KEY: undefined, OPENAI_API_KEY: undefined, ORB_CONFIG: configFile, XDG_CONFIG_HOME: root }, async () => {
     const c = new VoiceController(fakePi());
     controllerSeam(c).config = { provider: "gemini", voice: "Kore" };
     controllerSeam(c).state = { active: true };
@@ -152,7 +152,8 @@ async function withEnv(values: Record<string, string | undefined>, run: () => Pr
 }
 
 test("ensureApiKey reuses an environment-configured key without prompting", async () => {
-  await withEnv({ GEMINI_API_KEY: undefined, GOOGLE_API_KEY: "env-key", OPENAI_API_KEY: undefined, ORB_PROVIDER: "gemini", ORB_CONFIG: undefined }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "orb-envkey-"));
+  await withEnv({ GEMINI_API_KEY: undefined, GOOGLE_API_KEY: "env-key", OPENAI_API_KEY: undefined, ORB_PROVIDER: "gemini", ORB_CONFIG: undefined, XDG_CONFIG_HOME: root }, async () => {
     const c = new VoiceController(fakePi());
     const notify: string[] = [];
     let prompted = false;

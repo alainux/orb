@@ -264,11 +264,29 @@ export class VoiceController {
   }
 
   /**
+   * Load the durable config for the settings panel without requiring an API
+   * key. The panel must render its rows before any voice session exists (and
+   * with auto-start off, no session ever starts on its own), while `start()`
+   * keeps requiring a key. Silently falls back to an empty config if the
+   * config files are corrupt so the panel still opens.
+   */
+  async ensureSettingsConfig(cwd: string): Promise<void> {
+    if (this.config) return;
+    try {
+      this.config = await loadVoiceConfig(this.providerOverride, cwd, { requireKey: false });
+    } catch (error) {
+      this.config = undefined;
+      void this.log?.info("settings-config-unavailable", { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /**
    * Rows for the `/voice settings` panel: a session toggle, the editable
    * durable preferences (provider/voice/auto-start), and the remaining
    * durable config values shown read-only.
    */
-  getVoiceSettings(): VoiceSettingsRow[] {
+  async getVoiceSettings(cwd = process.cwd()): Promise<VoiceSettingsRow[]> {
+    await this.ensureSettingsConfig(cwd);
     return buildVoiceSettings({ thinking: this.currentDisplay(), config: this.config });
   }
 

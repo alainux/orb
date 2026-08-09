@@ -21,8 +21,8 @@ async function showVoiceSettings(controller: VoiceController, ctx: ExtensionComm
     ctx.ui.notify("Orb settings requires the interactive TUI.", "warning");
     return;
   }
-  await ctx.ui.custom((_tui, theme, _kb, done) => {
-    const rows = controller.getVoiceSettings().map((row) => ({
+  await ctx.ui.custom(async (_tui, theme, _kb, done) => {
+    const rows = (await controller.getVoiceSettings(ctx.cwd)).map((row) => ({
       id: row.id,
       label: `${row.group}  ${row.label}`,
       description: row.description,

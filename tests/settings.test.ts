@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -118,6 +118,22 @@ test("normalizePanelKey passes every other key through untouched", () => {
   }
 });
 
+test("getVoiceSettings loads the durable rows without requiring an API key", async () => {
+  const root = await mkdtemp(join(tmpdir(), "orb-settings-nokey-"));
+  const configFile = join(root, "config.json");
+  await writeFile(configFile, JSON.stringify({ provider: "gemini", autoStartVoice: true, gemini: { model: "m", voice: "Zephyr" } }), "utf8");
+  await withEnv({ ORB_CONFIG: configFile, XDG_CONFIG_HOME: root, GEMINI_API_KEY: undefined, GOOGLE_API_KEY: undefined, OPENAI_API_KEY: undefined }, async () => {
+    const c = new VoiceController(fakePi());
+    const rows = await c.getVoiceSettings(root);
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+    assert.ok(byId.voice, "voice row renders before any voice session or API key");
+    assert.equal(byId.voice!.currentValue, "Zephyr", "config voice shown");
+    assert.equal(byId.provider!.currentValue, "gemini", "config provider shown");
+    assert.equal(byId.autostart!.currentValue, "on", "config auto-start shown");
+    assert.equal(byId["ref.model"]!.currentValue, "m", "config model shown");
+  });
+});
+
 test("applyVoiceSetting rewrites the reasoning display in memory only (no file, no session entry)", async () => {
   const c = new VoiceController(fakePi());
   setConfig(c, config());
@@ -131,7 +147,7 @@ test("applyVoiceSetting rewrites the reasoning display in memory only (no file, 
 test("applyVoiceSetting persists the voice preference when no session is running", async () => {
   const root = await mkdtemp(join(tmpdir(), "orb-settings-voice-"));
   const configFile = join(root, "config.json");
-  await withEnv({ ORB_CONFIG: configFile, GEMINI_API_KEY: undefined, OPENAI_API_KEY: undefined }, async () => {
+  await withEnv({ ORB_CONFIG: configFile, GEMINI_API_KEY: undefined, OPENAI_API_KEY: undefined, XDG_CONFIG_HOME: root }, async () => {
     const c = new VoiceController(fakePi());
     setConfig(c, config());
     controllerSeam(c).state = { active: false };
@@ -149,7 +165,7 @@ test("applyVoiceSetting persists the voice preference when no session is running
 test("applyVoiceSetting switches the voice live when a session is running", async () => {
   const root = await mkdtemp(join(tmpdir(), "orb-settings-voice-live-"));
   const configFile = join(root, "config.json");
-  await withEnv({ ORB_CONFIG: configFile, GEMINI_API_KEY: undefined, OPENAI_API_KEY: undefined }, async () => {
+  await withEnv({ ORB_CONFIG: configFile, GEMINI_API_KEY: undefined, OPENAI_API_KEY: undefined, XDG_CONFIG_HOME: root }, async () => {
     const c = new VoiceController(fakePi());
     setConfig(c, config());
     controllerSeam(c).state = { active: true };
@@ -191,7 +207,7 @@ test("applyVoiceSetting persists the provider for the next session", async () =>
 test("applyVoiceSetting toggles and persists auto-start", async () => {
   const root = await mkdtemp(join(tmpdir(), "orb-settings-autostart-"));
   const configFile = join(root, "config.json");
-  await withEnv({ ORB_CONFIG: configFile }, async () => {
+  await withEnv({ ORB_CONFIG: configFile, XDG_CONFIG_HOME: root }, async () => {
     const c = new VoiceController(fakePi());
     setConfig(c, config({ autoStartVoice: false }));
     controllerSeam(c).state = { active: false };

@@ -234,6 +234,12 @@ export async function persistTopLevel(fields: JsonObject, cwd = process.cwd()): 
 export interface LoadVoiceConfigOptions {
   /** An API key already collected from the user (e.g. via a UI prompt). */
   apiKey?: string;
+  /**
+   * Set false to skip the missing-key error. Used by the `/voice settings`
+   * panel so its durable rows render before any voice session exists (a key
+   * is only needed once a session actually starts). Defaults to true.
+   */
+  requireKey?: boolean;
 }
 
 export async function loadVoiceConfig(
@@ -256,7 +262,7 @@ export async function loadVoiceConfig(
   // (`{ provider: { apiKey } }` written by persistApiKey from the UI prompt).
   const persistedKey = typeof providerConfig.apiKey === "string" ? providerConfig.apiKey.trim() : "";
   const apiKey = options.apiKey?.trim() || configuredApiKey(provider) || persistedKey;
-  if (!apiKey) throw new Error(provider === "gemini"
+  if (!apiKey && options.requireKey !== false) throw new Error(provider === "gemini"
     ? "Set GEMINI_API_KEY (or GOOGLE_API_KEY) before starting /voice."
     : "Set OPENAI_API_KEY before starting /voice.");
 
