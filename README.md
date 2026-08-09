@@ -1,27 +1,48 @@
 > [!WARNING]
 > **Early-stage software.** Orb is pre-1.0 and under active development. It is unstable and changes a lot between releases — expect breaking changes, rough edges, and issues (including audio glitches and configuration churn). Please file bugs you hit; this project gets better with real-world use, but treat it as experimental, not production-ready.
 
-<p align="center">
-  <img src="docs/assets/orb-logo.svg" width="88" alt="Orb logo">
-</p>
+<div align="center">
 
-<h1 align="center">Orb</h1>
+<img src="docs/assets/orb-logo.svg" width="88" alt="Orb logo">
 
-<p align="center"><strong>Conversational realtime voice for the Pi coding harness.</strong></p>
+# Orb
 
-<p align="center">
-  <a href="https://github.com/alainux/orb/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/alainux/orb/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://www.npmjs.com/package/@alainux/orb"><img alt="npm" src="https://img.shields.io/npm/v/%40alainux%2Forb?label=npm"></a>
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-6b7280">
-  <img alt="Pi package" src="https://img.shields.io/badge/Pi-package-8b5cf6">
-  <img alt="realtime voice" src="https://img.shields.io/badge/voice-full--duplex-3b82f6">
-</p>
+**Conversational realtime voice for the Pi coding harness.**
 
-<p align="center"><img src="site/assets/orb.gif" alt="Orb for Pi — animated" width="100%"></p>
+[![CI](https://github.com/alainux/orb/actions/workflows/ci.yml/badge.svg)](https://github.com/alainux/orb/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/%40alainux%2Forb?label=npm)](https://www.npmjs.com/package/@alainux/orb)
+![license](https://img.shields.io/badge/license-MIT-6b7280)
+![Pi package](https://img.shields.io/badge/Pi-package-8b5cf6)
+![realtime voice](https://img.shields.io/badge/voice-full--duplex-3b82f6)
+
+<img src="site/assets/orb.gif" alt="Orb for Pi — animated" width="100%">
+
+</div>
 
 Orb adds a full-duplex voice layer to [Pi](https://pi.dev). Talk about the project at a high level; Orb turns your intent into useful engineering work, drives Pi while it works, interrupts or redirects it when needed, and comes back with the outcome rather than narrating every command.
 
 You can keep using Pi normally at the same time. Your keyboard, Pi's editor, Pi's own output, and direct `!` commands remain visible and independent.
+
+## Contents
+
+- [What it feels like](#what-it-feels-like)
+- [Interface](#interface)
+- [Install](#install)
+- [Usage](#usage)
+  - [Providers](#providers)
+  - [Commands](#commands)
+  - [Keyboard shortcuts](#keyboard-shortcuts)
+  - [Preferences](#preferences)
+- [Pi control](#pi-control)
+  - [Permissions](#permissions)
+- [Scratchpad](#scratchpad)
+- [Audio reliability](#audio-reliability)
+- [Configuration](#configuration)
+- [Long-running sessions](#long-running-sessions)
+- [Development](#development)
+- [Project layout](#project-layout)
+- [Documentation](#documentation)
+- [License](#license)
 
 ## What it feels like
 
@@ -62,7 +83,7 @@ pi install https://github.com/alainux/orb
 pi
 ```
 
-Then:
+Then start a session with:
 
 ```text
 /voice
@@ -95,7 +116,9 @@ orb
 
 Published releases ship platform audio binaries. Go is kept as the audio-helper implementation language and developer fallback; normal users should not need to build it.
 
-## Provider setup
+## Usage
+
+### Providers
 
 Gemini Live:
 
@@ -111,46 +134,60 @@ export ORB_PROVIDER=openai
 export OPENAI_API_KEY="your-key"
 ```
 
-Commands:
+### Commands
 
-```text
-/voice
-/voice start gemini
-/voice start openai
-/voice provider gemini
-/voice status
-/voice log
-/voice mute
-/voice mute on
-/voice mute off
-/voice voice              # cycle to the next voice live (persisted to the user config)
-/voice voice Zephyr       # set a specific voice by name (persisted)
-/voice voice list         # show the available voices
-/voice thinking           # reveal reasoning display (minimized / full / hidden)
-/voice settings           # opens the interactive voice settings panel (reasoning, voice, provider, auto-start)
-/voice scratchpad
-/voice scratchpad view
-/voice scratchpad edit
-/voice scratchpad load TODO.md
-/voice scratchpad save notes/plan.md
-/voice scratchpad dispatch
-/voice scratchpad close
-/voice stop
-```
+| Command | Description |
+| --- | --- |
+| `/voice` | Start voice mode with the configured provider |
+| `/voice start gemini` | Start with Gemini Live |
+| `/voice start openai` | Start with OpenAI Realtime |
+| `/voice stop` | Stop voice mode (`off` works too) |
+| `/voice status` | Show the current session status |
+| `/voice log` | Show the conversation and tool log |
+| `/voice settings` | Open the interactive settings panel (`prefs` works too) |
+| `/voice help` | List the available commands |
+| `/voice provider gemini\|openai` | Set the provider for the next session (persisted) |
+| `/voice mute` | Toggle microphone mute |
+| `/voice mute on` / `/voice mute off` | Mute or unmute the microphone |
+| `/voice voice` | Cycle to the next voice live (persisted) |
+| `/voice voice <name>` | Set a specific voice by name (persisted) |
+| `/voice voice list` | List the available voices |
+| `/voice thinking` | Cycle the reasoning display (`minimized` / `full` / `hidden`) |
+| `/voice scratchpad` | Open the scratchpad widget |
+| `/voice scratchpad open\|close` | Open or close the scratchpad |
+| `/voice scratchpad view` | Open the document in the scrollable overlay |
+| `/voice scratchpad edit` | Edit the document in Pi's editor |
+| `/voice scratchpad load <path>` | Load a file into the scratchpad |
+| `/voice scratchpad save [path]` | Save the scratchpad to a file |
+| `/voice scratchpad dispatch` | Send the document (or a selection) to Pi |
 
-`Ctrl+Alt+V` toggles voice mode; `Ctrl+Alt+M` mutes or unmutes your microphone while voice is active; `Ctrl+Alt+T` cycles the reasoning display.
+### Keyboard shortcuts
 
-**Preferences (durable vs session).** Durable preferences — provider, model, voice, auto-start, reasoning budget, context compression, session resumption, braille, audio — live in your config file and are read at startup. The reasoning *display* is the single config option `ui.thinkingDisplay`, honored as the source for how the model's thought is surfaced (`full`/`minimized`/`hidden`). You can flip it inline for the current session via `/voice thinking` or `Ctrl+Alt+T` — that edits the same option in memory only, never a file and never a session entry, and a fresh launch starts from the config default again. `/voice settings` opens a proper Pi settings panel: the **Reveal reasoning** toggle (session-only), the **Provider / Voice / Auto-start voice** preferences (editable and persisted to the user config), and the remaining durable values as read-only reference (edit those in the config file).
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+Alt+V` | Toggle voice mode |
+| `Ctrl+Alt+M` | Mute or unmute the microphone |
+| `Ctrl+Alt+T` | Cycle the reasoning display |
+
+### Preferences
+
+- **Durable preferences** — provider, model, voice, auto-start, reasoning budget, context compression, session resumption, braille, and audio tuning live in the config file and are read at startup.
+- **Reasoning display** — `ui.thinkingDisplay` (`full` / `minimized` / `hidden`) is honored as the source of how the model's thought is surfaced. You can flip it for the current session with `/voice thinking` or `Ctrl+Alt+T` — that edits the option in memory only, never a file and never a session entry, and a fresh launch starts from the config default again.
+- **Settings panel** — `/voice settings` opens a Pi settings panel: the **Reveal reasoning** toggle (session-only), the **Provider / Voice / Auto-start voice** preferences (editable and persisted to the user config), and the remaining durable values as read-only reference (edit those in the config file).
 
 ## Pi control
 
-Orb can direct the active Pi harness through Pi's extension APIs instead of pretending slash commands are text. Deliberately, the voice companion only exercises the orchestration surface of the harness — it never configures Pi. So it can:
+Orb can direct the active Pi harness through Pi's extension APIs instead of pretending slash commands are text. The voice companion deliberately only exercises the orchestration surface of the harness — it never configures Pi.
 
-- cancel the active generation/tool run;
-- delegate every real coding task to Pi — the companion never edits the project itself (it holds no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` tools); it translates your requirements and directs the background agent;
-- wait for visible Pi activity or completion and inspect results.
+**What it can do:**
 
-Anything that would *configure* Pi or the companion — switching Pi's model, changing its thinking level, enabling/disabling its tools, running shell, or changing the voice agent's own voice — is deliberately **not** a tool. Those are set by the config file, not changed at runtime or by voice.
+- Cancel the active generation/tool run.
+- Delegate every real coding task to Pi — the companion never edits the project itself (it holds no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` tools); it translates your requirements and directs the background agent.
+- Wait for visible Pi activity or completion and inspect results.
+
+**What it never does:**
+
+- Switch Pi's model, change its thinking level, enable or disable its tools, run a shell, or change the voice agent's own voice. Those are set by the config file, not changed at runtime or by voice.
 
 This makes sequences such as **cancel → delegate something else** possible entirely by voice.
 
@@ -171,11 +208,14 @@ These capabilities are independently configurable, scoped to orchestration only 
 }
 ```
 
-Disable anything you do not want the realtime voice model to use. The companion never holds a coding agent's project tools — there is no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` — and it cannot configure itself (no model/thinking/tools/shell switching, no `set_voice`, no `control_pi`). It is a purely communicative layer: it can talk to the human, read the visible Pi log (`read_pi_log` — recent conversation and tool results) to understand factual project state, delegate everything that needs the project's files changed (`run_pi_task`), observe Pi (`observe_pi`), and manage its ephemeral scratchpad. It holds no project files (no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` and no `read_herdr_pane`), cannot inspect or touch the tree itself, and is intentionally limited to a read-only view of what is already visible. The only control surface is aborting an active run: when you say "cancel / stop / drop that", it calls `cancel_pi_task`, which aborts the running Pi task via `ctx.abort()`; it is gated by the `cancelPi` permission, never changes model/thinking/tools/shell or configuration, and is a safe no-op when Pi is already idle. The system prompt can be overridden with `ORB_SYSTEM_PROMPT` / `PI_VOICE_SYSTEM_PROMPT` or a `voice.systemPromptFile`; the per-tool permission gates (`scratchpadRead`, `scratchpadWrite`, `scratchpadOutsideProject`, `cancelPi`) still apply.
+- **The companion is a purely communicative layer.** It can talk to the human, read the visible Pi log (`read_pi_log` — recent conversation and tool results) to understand factual project state, delegate everything that needs the project's files changed (`run_pi_task`), observe Pi (`observe_pi`), and manage its ephemeral scratchpad.
+- **It holds no project files.** There is no `read`/`bash`/`write`/`edit`/`grep`/`find`/`ls` and no `read_herdr_pane`; it cannot inspect or touch the tree itself and is intentionally limited to a read-only view of what is already visible.
+- **Cancellation is the only control surface.** When you say "cancel / stop / drop that", it calls `cancel_pi_task`, which aborts the running Pi task via `ctx.abort()`. It is gated by the `cancelPi` permission, never changes model/thinking/tools/shell or configuration, and is a safe no-op when Pi is already idle.
+- **Prompt overrides.** The system prompt can be overridden with `ORB_SYSTEM_PROMPT` / `PI_VOICE_SYSTEM_PROMPT` or a `voice.systemPromptFile`; the per-tool permission gates (`scratchpadRead`, `scratchpadWrite`, `scratchpadOutsideProject`, `cancelPi`) still apply.
 
 ## Scratchpad
 
-The scratchpad is an ephemeral working document for cases where a single spoken command is not enough: long prompts, TODOs, review notes, requirements, migration plans, etc.
+The scratchpad is an ephemeral working document for cases where a single spoken command is not enough: long prompts, TODOs, review notes, requirements, migration plans, and so on.
 
 Examples:
 
@@ -186,9 +226,8 @@ Examples:
 "Save this as docs/release-plan.md."
 ```
 
-It supports open/read/replace/append/load/save/dispatch/close. Dispatch can send the whole document or a selected subset. File reads/writes are project-scoped by default.
-
-`/voice scratchpad view` opens the document in a focusable, scrollable overlay that renders it as Markdown using Pi's active theme. It follows the live tail while the agent appends (so new lines arrive at the bottom), and you can scroll with `↑/↓`, `PgUp/PgDn`, Ctrl+U/D, Home/End; `r` re-reads the latest content and `Esc`/`q` closes it. Without a command, the inline widget panel shows a live window of the same document during a session.
+- **Operations** — open / read / replace / append / load / save / dispatch / close. Dispatch can send the whole document or a selected subset. File reads and writes are project-scoped by default.
+- **Viewing** — `/voice scratchpad view` opens the document in a focusable, scrollable overlay that renders it as Markdown using Pi's active theme. It follows the live tail while the agent appends (so new lines arrive at the bottom), and you can scroll with `↑/↓`, `PgUp/PgDn`, `Ctrl+U/D`, `Home/End`; `r` re-reads the latest content and `Esc`/`q` closes it. Without a command, the inline widget panel shows a live window of the same document during a session.
 
 ## Audio reliability
 
@@ -198,7 +237,7 @@ The audio device is owned by a small Go/miniaudio sidecar; Node never paces spea
 realtime provider ⇄ TypeScript transport ⇄ Go jitter buffer ⇄ hardware callback
 ```
 
-If Pi briefly stalls provider delivery while rendering or running tools, playback now pauses, rebuilds a small lead, and resumes at the hardware clock rather than getting stuck emitting tiny fragments. The buffer never skips or time-compresses PCM. A recovery counter is shown in the Orb footer and diagnostics.
+If Pi briefly stalls provider delivery while rendering or running tools, playback pauses, rebuilds a small lead, and resumes at the hardware clock rather than getting stuck emitting tiny fragments. The buffer never skips or time-compresses PCM. A recovery counter is shown in the Orb footer and diagnostics.
 
 Two safeguards make that recovery *automatic* rather than incidental:
 
@@ -207,9 +246,9 @@ Two safeguards make that recovery *automatic* rather than incidental:
 
 Orb also **auto-detects choppiness onset** from the sidecar's underrun-recovery counter (a lone recovery is a normal transient stall; a cluster inside a short window is real choppiness), surfaces it live (`CHOPPY` in the Orb footer + `audio choppy · adjusting` status), and — when the microphone dropped frames during the same episode — automatically resyncs the capture path so the next human turn starts from clean audio rather than a garbled half-sentence.
 
-Barge-in still clears the old response immediately. Repeated interruption storms are detected and the input path is resynchronized to break speaker→microphone feedback loops.
+Barge-in clears the old response immediately. Repeated interruption storms are detected and the input path is resynchronized to break speaker→microphone feedback loops.
 
-Audio tuning is configurable:
+**Configuration.** Audio tuning is configurable:
 
 ```json
 {
@@ -230,17 +269,11 @@ Audio tuning is configurable:
 }
 ```
 
-Run:
-
-```bash
-npm run doctor
-```
-
-for the active helper/provider diagnostics.
+**Diagnostics.** Run `npm run doctor` for the active helper and provider diagnostics.
 
 ## Configuration
 
-Orb merges, in order:
+Orb merges configuration in order (later values win):
 
 1. `~/.config/orb/config.json` (`%APPDATA%\\orb\\config.json` on Windows)
 2. `<project>/.orb/config.json`
@@ -249,9 +282,9 @@ Orb merges, in order:
 
 The voice system prompt is a simple two-layer model: a **single authoritative default** at [`prompts/default.md`](prompts/default.md) (identity, invariants, persona, tool guidance, and delegation behavior), plus an **optional user override**. An override — `voice.promptFile`, `ORB_PROMPT_FILE`, or an inline `voice.systemPrompt` — replaces the default wholesale.
 
-Example:
-
 Orb also starts voice automatically when a Pi session begins (on by default). Set `autoStartVoice` to `false` to opt out, or `ORB_AUTO_START=false`.
+
+**Example:**
 
 ```json
 {
@@ -275,7 +308,7 @@ Orb also starts voice automatically when a Pi session begins (on by default). Se
 }
 ```
 
-See [Configuration](docs/CONFIGURATION.md).
+See [Configuration](docs/CONFIGURATION.md) for the full reference.
 
 ## Long-running sessions
 
@@ -294,33 +327,25 @@ pi -e ./extensions/voice.ts
 
 `npm run build:audio` uses `go build -mod=mod`, so dependencies from `audio-helper/go.mod` are resolved automatically. There is no manual `go get` step.
 
-Useful targets:
+**Useful targets:**
 
-```bash
-npm run typecheck
-npm test
-npm run coverage        # run tests with Node's built-in V8 coverage report
-npm run coverage:ci     # same, gated by thresholds + headless-excluded modules
-npm run test:audio-helper
-npm run build
-npm run smoke
-npm run pack:check
-```
+| Target | Purpose |
+| --- | --- |
+| `npm run typecheck` | Type-check the source |
+| `npm test` | Run the unit test suite |
+| `npm run coverage` | Run tests with a V8 coverage report |
+| `npm run coverage:ci` | Same, with enforced thresholds + headless-excluded modules |
+| `npm run test:audio-helper` | Run the Go audio-helper tests |
+| `npm run build` | Build `dist/` |
+| `npm run smoke` | Smoke-load the built extension |
+| `npm run pack:check` | Dry-run the package tarball |
 
-**Test coverage.** Both coverage targets compile to `.test-dist/` and run the same suite
-with Node's built-in experimental coverage (`--experimental-test-coverage`):
+**Test coverage.** Both coverage targets compile to `.test-dist/` and run the same suite with Node's built-in experimental coverage (`--experimental-test-coverage`):
 
 - `npm run coverage` prints line / branch / function coverage for every loaded module.
-- `npm run coverage:ci` applies the same run but *enforces* thresholds (≥80% line, ≥80%
-  branch, ≥75% function) — CI fails when a threshold is missed — and excludes the
-  `providers/`, `audio/`, and `controller.js` modules, whose uncovered paths are
-  inherently live-network / native-hardware (not meaningfully coverable headlessly).
+- `npm run coverage:ci` applies the same run but *enforces* thresholds (≥80% line, ≥80% branch, ≥75% function) — CI fails when a threshold is missed — and excludes the `providers/`, `audio/`, and `controller.js` modules, whose uncovered paths are inherently live-network / native-hardware (not meaningfully coverable headlessly).
 
-The runner reports line, branch, and function percentages only; it does not emit a
-separate “statement” figure (line coverage is the closest analogue). For type‑source
-mapped coverage with a statement column, point `c8` at `.test-dist/tests/*.test.js`.
-
-Read [Architecture](docs/ARCHITECTURE.md), [Configuration](docs/CONFIGURATION.md), [Releasing](docs/RELEASING.md), and [Contributing](CONTRIBUTING.md).
+The runner reports line, branch, and function percentages only; it does not emit a separate “statement” figure (line coverage is the closest analogue). For type-source mapped coverage with a statement column, point `c8` at `.test-dist/tests/*.test.js`.
 
 ## Project layout
 
@@ -330,7 +355,7 @@ src/providers/     Gemini / OpenAI realtime adapters
 src/audio/         Node ↔ Go audio transport
 audio-helper/      hardware-clocked audio + adaptive playout buffer
 src/controller.ts  voice/Pi orchestration
-src/types.ts      OrbPermissions — the voice agent's permission gates
+src/types.ts       OrbPermissions — the voice agent's permission gates
 src/pi-log.ts      visible Pi observation used internally
 src/scratchpad.ts  ephemeral collaborative document
 src/orb.ts         positive-space noise-field orb (listening/speaking/thinking)
@@ -339,6 +364,13 @@ prompts/           configurable voice-agent prompt
 config/            example configuration
 site/              static project website
 ```
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Configuration](docs/CONFIGURATION.md)
+- [Releasing](docs/RELEASING.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## License
 
