@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.2 — interactive voice settings, persisted voices, CSI-u space fix
 
 - **Fix: Space now cycles/applies in `/voice settings` on every terminal.** Pi asks terminals for the Kitty keyboard protocol at startup (flags 1|2|4), and on kitty-capable terminals (kitty, wezterm, Ghostty, foot, iTerm2 with key reporting, Konsole, …) a Space press arrives as a CSI-u sequence like `\x1b[32;1:1u` instead of the literal space byte — while Enter arrives as `\x1b[13;1:1u` and still worked. `SettingsList` only activates on the literal `" "` character, so Space silently did nothing on those terminals. The panel now normalizes the no-modifier CSI-u encodings of Space back to `" "` (`normalizePanelKey` in `src/settings.ts`) before handing input to the list, so Space and Enter both cycle/apply reliably. Modified keys (Ctrl/Alt+Space) and everything else pass through untouched. Covered by `tests/settings.test.ts`.
 
@@ -10,10 +10,11 @@
 
 - **Restored permission-gated cancellation** as the single control surface. The prior removal of Pi control (`control_pi` / `PiControl`) had left the voice layer with no way to halt a running delegated task, so "cancel / stop / drop that" was silently ignored and the task ran to completion. A minimal `cancel_pi_task` tool (no config/self/shell/`set_*` knobs) is wired to `ctx.abort()`, gated by the new `permissions.cancelPi` (default `true`, `ORB_ALLOW_CANCEL_PI`). It aborts the active delegated Pi run, is a safe no-op when Pi is already idle, and never reconfigures or runs a shell. Cancellation is covered by `tests/pi-control.test.ts`, including a long-running-command interruption demonstration.
 
-- **Preferences are config-driven, not panel-stored.** The config file is the single source of truth: the reasoning *display* honors `ui.thinkingDisplay` (`full` / `minimized` / `hidden`), and the other durable options (provider, model, voice, auto-start, reasoning budget, compression, resumption, braille, audio) are read at startup and never rewritten. The reasoning view can still be flipped inline for the current session via `/voice thinking` or `Ctrl+Alt+T`, which edits the same running value in memory only — never a file, never a session entry — and a fresh launch starts from the config default again.
-- **`/voice settings` is a proper Pi settings panel** (`tui.md` Pattern 3, `SettingsList`): one editable **Reveal reasoning** session toggle plus your durable config as read-only reference (provider, model, voice, thinking budget, auto-start, compression, resumption). Changing the toggle rewrites the running `ui.thinkingDisplay` value in memory only — never to a file or a session entry — so a fresh launch starts from the config default again. The earlier session-persistence machinery (`VOICE_PREFS_ENTRY`, `appendEntry` + branch-restore) stays removed. Removed the `.orb/config.json` override so the package ships on pure defaults.
+- **Preferences are config-driven with a panel for the ones you change most.** The config file remains the single source of truth: the reasoning *display* honors `ui.thinkingDisplay` (`full` / `minimized` / `hidden`) and is only ever flipped in memory for the current session (`/voice thinking` or `Ctrl+Alt+T`), and the deeper durable options (model, thinking budget, context compression, session resumption, braille, audio) are read at startup and never rewritten. Provider, voice, and auto-start are the exception: they are editable from `/voice settings` and persisted back to the user config, so the panel no longer reads as a dead end.
 
 - Removed every bare `as any` cast from `src/` and the test suite; typed test seams now live in `tests/support/seams.ts`. Added an ESLint gate (no-explicit-any, no-unused-vars) wired into `npm run check` and the `lint` script, and documented the type-safety standard in `CONTRIBUTING.md`. The only remaining `any` is at genuine wire/SDK boundaries (`gemini.ts`, `pi-log.ts`) with a documented per-file exception.
+
+- The website (`site/`) GitHub links now open in a new tab with `rel=noopener`.
 
 ## 0.6.0 — Pi control, scratchpad, turn logs and adaptive audio recovery
 

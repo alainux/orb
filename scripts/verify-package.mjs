@@ -38,7 +38,7 @@ const required = [
 for (const path of required) await access(new URL(`../${path}`, import.meta.url));
 
 if (manifest.name !== "@alainux/orb") throw new Error("package name must be @alainux/orb");
-if (manifest.version !== "0.6.1") throw new Error("unexpected release version");
+if (manifest.version !== "0.6.2") throw new Error("unexpected release version");
 if (!manifest.keywords?.includes("pi-package")) throw new Error("missing pi-package keyword");
 if (!manifest.pi?.extensions?.includes("./extensions/voice.ts")) throw new Error("Pi extension manifest incorrect");
 if (manifest.bin?.orb !== "./bin/orb.mjs") throw new Error("Orb CLI entry point missing");

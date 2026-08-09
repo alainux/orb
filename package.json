@@ -1,6 +1,6 @@
 {
   "name": "@alainux/orb",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Conversational realtime voice control for the Pi coding harness, with hardware-timed Go audio and autonomous Pi task orchestration.",
   "license": "MIT",
   "type": "module",
