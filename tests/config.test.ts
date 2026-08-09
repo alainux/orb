@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { isHerdrSubAgent, loadVoiceConfig, resolveAutoStartVoice } from "../src/config.js";
+import { isHerdrSubAgent, loadVoiceConfig, persistTopLevel, persistVoice, resolveAutoStartVoice } from "../src/config.js";
 
 async function withEnv(values:Record<string,string|undefined>,run:()=>Promise<void>):Promise<void>{
   const prev:Record<string,string|undefined>={};
@@ -24,6 +24,44 @@ test("JSON config controls UI, session and prompt file",async()=>{
     const config=await loadVoiceConfig(undefined,root);
     assert.equal(config.temperature,0.31);assert.equal(config.systemPrompt,"CUSTOM ORB PROMPT","a prompt file override replaces the default wholesale");assert.equal(config.panelHeight,11);assert.equal(config.orbDensity,1.3);assert.equal(config.orbReactivity,0.35);assert.equal(config.orbBraille,true);assert.equal(config.configFiles.includes(configFile),true);
   });
+});
+
+test("corrupt config is quarantined and loading continues with defaults", async () => {
+  const root = await mkdtemp(join(tmpdir(), "orb-corrupt-"));
+  const configFile = join(root, "config.json");
+  await writeFile(configFile, "{\"provider\": \"gemini\"}\n}\n", "utf8"); // stray trailing brace
+  await withEnv({ GEMINI_API_KEY: "test", ORB_CONFIG: configFile }, async () => {
+    const config = await loadVoiceConfig(undefined, root);
+    assert.equal(config.provider, "gemini");
+    assert.equal(config.configFiles.includes(configFile), false, "corrupt file is not treated as a loaded config");
+    await assert.rejects(access(configFile), { code: "ENOENT" }, "corrupt file moved aside");
+  });
+  const backups = (await readdir(root)).filter((n) => n.startsWith("config.json.bak-corrupt-"));
+  assert.equal(backups.length, 1, "one quarantine backup created");
+  assert.match(await readFile(join(root, backups[0]!), "utf8"), /stray|}/, "backup keeps the corrupt bytes");
+});
+
+test("concurrent persists serialize and never corrupt the config file", async () => {
+  const root = await mkdtemp(join(tmpdir(), "orb-concurrent-"));
+  const configFile = join(root, "config.json");
+  await withEnv({ ORB_CONFIG: configFile }, async () => {
+    // Two persists fired back-to-back used to collide on one temp path
+    // (same pid + same millisecond) and interleave their writes, leaving a
+    // mangled file. They must now serialize and merge atomically.
+    await Promise.all([
+      persistVoice("gemini", "Puck", root),
+      persistTopLevel({ autoStartVoice: true }, root),
+      persistVoice("openai", "marin", root),
+    ]);
+    const raw = await readFile(configFile, "utf8");
+    const parsed = JSON.parse(raw);
+    assert.equal(parsed.gemini.voice, "Puck");
+    assert.equal(parsed.openai.voice, "marin");
+    assert.equal(parsed.autoStartVoice, true);
+    assert.equal(raw.trimEnd().endsWith("}"), true, "no stray trailing bytes");
+  });
+  const temps = (await readdir(root)).filter((n) => n.endsWith(".tmp"));
+  assert.equal(temps.length, 0, "no temp files left behind");
 });
 
 test("Gemini long-session protections are enabled by default",async()=>withEnv({GEMINI_API_KEY:"test",ORB_CONFIG:undefined,ORB_GEMINI_SESSION_RESUMPTION:undefined,ORB_GEMINI_CONTEXT_COMPRESSION:undefined},async()=>{

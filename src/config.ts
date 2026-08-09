@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -146,31 +147,15 @@ export function userConfigPath(cwd = process.cwd()): string {
 /**
  * Persist `provider`'s API key to the user config file so a UI-collected key
  * survives restarts. Merges into any existing config (stored under the
- * provider block) and writes atomically (temp file + rename, like the
- * scratchpad and Go-helper writers). Returns the written path. The persisted
- * key is a startup fallback only — an env var, or a key passed explicitly to
- * `loadVoiceConfig`, always wins.
+ * provider block) and writes atomically (temp file + rename). Returns the
+ * written path. The persisted key is a startup fallback only — an env var, or
+ * a key passed explicitly to `loadVoiceConfig`, always wins.
  */
 export async function persistApiKey(provider: VoiceProviderName, apiKey: string, cwd = process.cwd()): Promise<string> {
-  const target = userConfigPath(cwd);
-  let existing: JsonObject = {};
-  try {
-    const parsed = JSON.parse(await readFile(target, "utf8"));
-    if (isObject(parsed)) existing = parsed;
-  } catch {
-    // Missing or unreadable config: start from an empty object.
-  }
-  const providerBlock = isObject(existing[provider]) ? existing[provider] : {};
-  const next: JsonObject = { ...existing, [provider]: { ...providerBlock, apiKey } };
-  await mkdir(dirname(target), { recursive: true });
-  const temp = `${target}.orb-${process.pid}-${Date.now()}.tmp`;
-  try {
-    await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-    await rename(temp, target);
-  } finally {
-    await rm(temp, { force: true }).catch(() => {});
-  }
-  return target;
+  return persistJson(userConfigPath(cwd), (existing) => {
+    const providerBlock = isObject(existing[provider]) ? existing[provider] : {};
+    return { ...existing, [provider]: { ...providerBlock, apiKey } };
+  });
 }
 
 /**
@@ -183,50 +168,66 @@ export async function persistApiKey(provider: VoiceProviderName, apiKey: string,
  * `OPENAI_VOICE`) or a config-file `voice` key always wins on load.
  */
 export async function persistVoice(provider: VoiceProviderName, voice: string, cwd = process.cwd()): Promise<string> {
-  const target = userConfigPath(cwd);
-  let existing: JsonObject = {};
-  try {
-    const parsed = JSON.parse(await readFile(target, "utf8"));
-    if (isObject(parsed)) existing = parsed;
-  } catch {
-    // Missing or unreadable config: start from an empty object.
-  }
-  const providerBlock = isObject(existing[provider]) ? existing[provider] : {};
-  const next: JsonObject = { ...existing, [provider]: { ...providerBlock, voice } };
-  await mkdir(dirname(target), { recursive: true });
-  const temp = `${target}.orb-${process.pid}-${Date.now()}.tmp`;
-  try {
-    await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-    await rename(temp, target);
-  } finally {
-    await rm(temp, { force: true }).catch(() => {});
-  }
-  return target;
+  return persistJson(userConfigPath(cwd), (existing) => {
+    const providerBlock = isObject(existing[provider]) ? existing[provider] : {};
+    return { ...existing, [provider]: { ...providerBlock, voice } };
+  });
 }
 
 /**
  * Persist top-level preference fields (e.g. `{ provider, autoStartVoice }`) to
  * the user config file so panel-made choices survive restarts. Merges into any
- * existing config and writes atomically (temp file + rename, like
- * `persistApiKey`/`persistVoice`). Returns the written path.
+ * existing config and writes atomically (temp file + rename). Returns the
+ * written path.
  */
 export async function persistTopLevel(fields: JsonObject, cwd = process.cwd()): Promise<string> {
-  const target = userConfigPath(cwd);
-  let existing: JsonObject = {};
-  try {
-    const parsed = JSON.parse(await readFile(target, "utf8"));
-    if (isObject(parsed)) existing = parsed;
-  } catch {
-    // Missing or unreadable config: start from an empty object.
-  }
-  const next: JsonObject = { ...existing, ...fields };
+  return persistJson(userConfigPath(cwd), (existing) => ({ ...existing, ...fields }));
+}
+
+/**
+ * Serialize config read-modify-write updates per target file. Persists are
+ * atomic (unique temp file + rename), but two back-to-back calls in the same
+ * process used to collide on an identical `${target}.orb-<pid>-<ts>.tmp` name
+ * (Date.now() repeats within a millisecond), interleave their truncate/write
+ * on that one temp file, and rename the mangled result into place — observed
+ * in the wild as a valid config plus a stray trailing `}`. The per-target
+ * queue also keeps the read-modify-write steps from interleaving with writes
+ * from other sessions. `tempPath` adds a counter and a random suffix so temp
+ * names can never collide.
+ */
+const writeQueues = new Map<string, Promise<void>>();
+let writeCounter = 0;
+
+function tempPath(target: string): string {
+  return `${target}.orb-${process.pid}-${writeCounter++}-${Date.now()}-${randomUUID().slice(0, 8)}.tmp`;
+}
+
+async function persistJson(target: string, update: (existing: JsonObject) => JsonObject): Promise<string> {
   await mkdir(dirname(target), { recursive: true });
-  const temp = `${target}.orb-${process.pid}-${Date.now()}.tmp`;
+  const run = async (): Promise<void> => {
+    let existing: JsonObject = {};
+    try {
+      const parsed = JSON.parse(await readFile(target, "utf8"));
+      if (isObject(parsed)) existing = parsed;
+    } catch {
+      // Missing or unreadable config: start from an empty object.
+    }
+    const next = update(existing);
+    const temp = tempPath(target);
+    try {
+      await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+      await rename(temp, target);
+    } finally {
+      await rm(temp, { force: true }).catch(() => {});
+    }
+  };
+  const previous = writeQueues.get(target) ?? Promise.resolve();
+  const queued = previous.then(run, run);
+  writeQueues.set(target, queued);
   try {
-    await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-    await rename(temp, target);
+    await queued;
   } finally {
-    await rm(temp, { force: true }).catch(() => {});
+    if (writeQueues.get(target) === queued) writeQueues.delete(target);
   }
   return target;
 }
@@ -359,14 +360,31 @@ export async function loadVoiceConfig(
 }
 
 async function readJsonIfPresent(path: string): Promise<JsonObject | undefined> {
+  let raw: string;
   try {
-    const parsed = JSON.parse(await readFile(path, "utf8"));
+    raw = await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT") return undefined;
+    // Unreadable (permissions, I/O): degrade gracefully instead of killing the
+    // voice session — the user can fix the file and restart.
+    console.warn(`[orb] could not read Orb config ${path}; continuing without it (${error instanceof Error ? error.message : String(error)})`);
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw);
     if (!isObject(parsed)) throw new Error("root must be an object");
     return parsed;
-  } catch (error: unknown) {
-    const code = (error as { code?: string } | null)?.code;
-    if (code === "ENOENT") return undefined;
-    throw new Error(`Could not load Orb config ${path}: ${error instanceof Error ? error.message : String(error)}`);
+  } catch (error) {
+    // Corrupt config: quarantine it for inspection (one backup per corruption)
+    // and continue with defaults instead of bricking /voice entirely.
+    const backup = `${path}.bak-corrupt-${Date.now()}`;
+    try {
+      await rename(path, backup);
+      console.warn(`[orb] Orb config ${path} was invalid; it was backed up to ${backup} and defaults are used`);
+    } catch {
+      console.warn(`[orb] Orb config ${path} is invalid (${error instanceof Error ? error.message : String(error)}); using defaults`);
+    }
+    return undefined;
   }
 }
 function deepMerge(base: JsonObject, next: JsonObject): JsonObject {

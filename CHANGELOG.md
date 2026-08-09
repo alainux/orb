@@ -2,6 +2,22 @@
 
 ## 0.6.3 — settings panel before voice starts, README warning
 
+- **Fix: config-file corruption from concurrent persists.** Two back-to-back
+  config writes from the same process used to collide on an identical temp
+  filename (`pid` + `Date.now()` repeats within a millisecond) and interleave
+  their writes, then rename the mangled result into `~/.config/orb/config.json`
+  — observed in the wild as a valid config plus a stray trailing `}` that
+  bricked `/voice` on the next session with "Could not load Orb config".
+  Persists now serialize per target file (a write queue keeps the
+  read-modify-write steps from interleaving) and temp names carry a counter
+  plus a random suffix so they can never collide.
+
+- **Fix: a corrupt config no longer bricks `/voice`.** `readJsonIfPresent` now
+  quarantines an invalid config file (renames it to `config.json.bak-corrupt-*`
+  for inspection), warns, and continues with defaults instead of throwing — the
+  panel and voice startup degrade gracefully, and the bad bytes are preserved
+  instead of being silently lost. Covered by `tests/config.test.ts`.
+
 - **Fix: `/voice settings` renders all rows even before any voice session.** The panel previously loaded its rows from the live controller config, which is only populated once a voice session starts (which needs an API key). With auto-start off — or before the first `/voice` start — the panel showed a single "Reveal reasoning" row, a dead end: you couldn't even re-enable auto-start from the panel. `getVoiceSettings` now loads the durable config directly (`loadVoiceConfig` with `requireKey: false`, no API key needed), so Provider / Voice / Auto-start voice are always listed and editable. Covered by `tests/settings.test.ts`.
 
 - The README now opens with an early-stage-software warning: Orb is pre-1.0, unstable, changing a lot between releases, and users should expect issues.
